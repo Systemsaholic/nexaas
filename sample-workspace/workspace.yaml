@@ -1,0 +1,721 @@
+name: BrightWave Digital
+description: AI-powered digital marketing agency managing campaigns, content, and client accounts
+
+registries:
+  - contacts
+  - clients
+  - campaigns
+  - email-templates
+  - email-drafts
+  - social-posts
+  - content-drafts
+  - invoices
+  - expenses
+  - feedback
+
+perspectives:
+  - id: operations
+    name: Operations
+    icon: activity
+    default_page: overview
+    pages:
+      - id: overview
+        name: Overview
+        icon: "📊"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Agency Overview
+            config:
+              cards:
+                - label: Active Clients
+                  value: "5"
+                  icon: "👥"
+                  color: blue
+                - label: Running Campaigns
+                  value: "3"
+                  icon: "🚀"
+                  change: "+1 this week"
+                  color: text-emerald-500
+                - label: Emails Sent (MTD)
+                  value: "12,480"
+                  icon: "📧"
+                  change: "+18%"
+                  color: text-emerald-500
+                - label: Avg Open Rate
+                  value: "34.2%"
+                  icon: "📬"
+                  change: "+2.1%"
+                  color: text-emerald-500
+          - type: quick-actions
+            title: AI Agent Commands
+            span: 12
+            config:
+              actions:
+                - label: Generate Weekly Report
+                  icon: "📊"
+                  agent: analytics
+                  prompt: "Generate a weekly performance report for all active campaigns. Include impressions, clicks, conversions, and ROI for each client."
+                - label: Draft Social Posts
+                  icon: "📱"
+                  agent: social-media
+                  prompt: "Draft next week's social media posts for all active clients. Include platform, caption, and suggested posting time."
+                - label: Review Email Drafts
+                  icon: "📧"
+                  agent: email-manager
+                  prompt: "Review all pending email drafts and provide feedback on subject lines, content quality, and CTA effectiveness."
+                - label: Write Blog Post
+                  icon: "✍️"
+                  agent: content-writer
+                  prompt: "Write a 1000-word blog post for Greenleaf Organics about seasonal organic eating tips for summer."
+                - label: Campaign Health Check
+                  icon: "🏥"
+                  agent: analytics
+                  prompt: "Run a health check on all running campaigns. Flag any that are underperforming against their KPI targets."
+                - label: Budget Analysis
+                  icon: "💰"
+                  agent: analytics
+                  prompt: "Analyze current month ad spend vs budget for each client. Flag any campaigns approaching budget limits."
+                - label: Client Status Update
+                  icon: "📋"
+                  agent: director
+                  prompt: "Prepare a status update for all clients. Summarize active campaigns, pending deliverables, and upcoming milestones."
+                - label: SEO Recommendations
+                  icon: "🔍"
+                  agent: analytics
+                  prompt: "Analyze recent blog content and provide SEO optimization recommendations for each published post."
+          - type: agent-tree
+            title: Agent Team
+            span: 6
+            config:
+              show_sub_agents: true
+          - type: event-timeline
+            title: Recent Activity
+            span: 6
+            config:
+              limit: 20
+      - id: automations
+        name: Automations
+        icon: "⚡"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Automation Summary
+            config:
+              cards:
+                - label: Active
+                  value: "7"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: Paused
+                  value: "1"
+                  icon: "⏸️"
+                  color: text-yellow-500
+                - label: Failed
+                  value: "1"
+                  icon: "❌"
+                  color: text-red-500
+                - label: Total Runs (7d)
+                  value: "68"
+                  icon: "🔄"
+                  change: "+12"
+                  color: text-emerald-500
+          - type: agent-skill-bar
+            title: Agent Skills
+            span: 12
+            config: {}
+          - type: automation-panel
+            title: Scheduled Automations
+            span: 12
+            config: {}
+      - id: queue
+        name: Job Queue
+        icon: "📋"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Queue Summary
+            config:
+              cards:
+                - label: Queued
+                  value: "3"
+                  icon: "🕐"
+                  color: text-yellow-500
+                - label: Running
+                  value: "2"
+                  icon: "▶️"
+                  color: text-blue-500
+                - label: Completed (24h)
+                  value: "5"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: Failed
+                  value: "2"
+                  icon: "❌"
+                  color: text-red-500
+          - type: queue-status
+            title: Campaign Jobs
+            config:
+              show_workers: true
+      - id: feedback
+        name: Feedback
+        icon: "💬"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Client Feedback Summary
+            config:
+              cards:
+                - label: Approved
+                  value: "4"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: Pending Review
+                  value: "3"
+                  icon: "👀"
+                  color: text-yellow-500
+                - label: Revisions Requested
+                  value: "3"
+                  icon: "🔄"
+                  color: text-orange-500
+                - label: Avg Turnaround
+                  value: "1.8 days"
+                  icon: "⏱️"
+                  color: text-blue-500
+          - type: registry-table
+            title: Client Feedback & Approvals
+            config:
+              registry: feedback
+      - id: chat
+        name: Chat
+        icon: "💬"
+        layout: single
+        components:
+          - type: agent-chat
+            title: Talk to Director
+            config:
+              default_agent: director
+              show_tool_calls: true
+
+  - id: marketing
+    name: Marketing
+    icon: megaphone
+    default_page: campaigns
+    pages:
+      - id: campaigns
+        name: Campaigns
+        icon: "🚀"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Campaign Metrics
+            config:
+              cards:
+                - label: Total Campaigns
+                  value: "6"
+                  icon: "📈"
+                  color: blue
+                - label: Running
+                  value: "3"
+                  icon: "▶️"
+                  color: text-emerald-500
+                - label: Scheduled
+                  value: "1"
+                  icon: "🕐"
+                  color: text-yellow-500
+                - label: In Review
+                  value: "1"
+                  icon: "👀"
+                  color: text-orange-500
+          - type: campaign-funnel
+            title: Campaign Pipeline
+            span: 12
+            config:
+              registry: campaigns
+      - id: email
+        name: Email
+        icon: "📧"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Email Performance
+            config:
+              cards:
+                - label: Drafts Pending
+                  value: "3"
+                  icon: "📝"
+                  color: text-yellow-500
+                - label: Approved
+                  value: "1"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: Revisions Needed
+                  value: "1"
+                  icon: "🔄"
+                  color: text-orange-500
+                - label: Avg Open Rate
+                  value: "34.2%"
+                  icon: "📬"
+                  change: "+2.1%"
+                  color: text-emerald-500
+          - type: email-drafts
+            title: Email Drafts — Review & Approve
+            span: 12
+            config:
+              registry: email-drafts
+      - id: social
+        name: Social Media
+        icon: "📱"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Social Performance
+            config:
+              cards:
+                - label: Posts (MTD)
+                  value: "24"
+                  icon: "📝"
+                  color: blue
+                - label: Total Reach
+                  value: "142K"
+                  icon: "👁️"
+                  change: "+22%"
+                  color: text-emerald-500
+                - label: Engagements
+                  value: "8,640"
+                  icon: "💬"
+                  change: "+15%"
+                  color: text-emerald-500
+                - label: Follower Growth
+                  value: "+1,280"
+                  icon: "📈"
+                  change: "+8%"
+                  color: text-emerald-500
+          - type: social-posts-grid
+            title: Social Media Posts
+            span: 12
+            config:
+              registry: social-posts
+      - id: content
+        name: Content
+        icon: "✏️"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Content Pipeline
+            config:
+              cards:
+                - label: Published
+                  value: "3"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: In Review
+                  value: "2"
+                  icon: "👀"
+                  color: text-yellow-500
+                - label: Drafts
+                  value: "3"
+                  icon: "📝"
+                  color: text-blue-500
+                - label: Words Written (MTD)
+                  value: "18,200"
+                  icon: "📄"
+                  change: "+3,400"
+                  color: text-emerald-500
+          - type: content-editor
+            title: Content Editor
+            span: 12
+            config:
+              registry: content-drafts
+      - id: contacts
+        name: Contacts
+        icon: "📇"
+        layout: grid
+        components:
+          - type: registry-table
+            title: Client Contacts
+            config:
+              registry: contacts
+      - id: clients
+        name: Clients
+        icon: "🏢"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Client Overview
+            config:
+              cards:
+                - label: Total Clients
+                  value: "5"
+                  icon: "🏢"
+                  color: blue
+                - label: Active
+                  value: "4"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: Onboarding
+                  value: "1"
+                  icon: "🆕"
+                  color: text-yellow-500
+                - label: Monthly Revenue
+                  value: "$58,200"
+                  icon: "💰"
+                  change: "+$18,500"
+                  color: text-emerald-500
+          - type: registry-table
+            title: Client Accounts
+            config:
+              registry: clients
+
+  - id: accounting
+    name: Accounting
+    icon: calculator
+    default_page: overview
+    pages:
+      - id: overview
+        name: Overview
+        icon: "💰"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Financial Summary — April 2025
+            config:
+              cards:
+                - label: Revenue (MTD)
+                  value: "$58,200"
+                  icon: "💵"
+                  change: "+$18,500 vs Mar"
+                  color: text-emerald-500
+                - label: Expenses (MTD)
+                  value: "$15,140"
+                  icon: "💳"
+                  change: "+$2,100"
+                  color: text-red-500
+                - label: Gross Margin
+                  value: "74%"
+                  icon: "📊"
+                  change: "+3%"
+                  color: text-emerald-500
+                - label: Outstanding
+                  value: "$10,500"
+                  icon: "⏳"
+                  color: text-yellow-500
+          - type: registry-table
+            title: Invoices
+            config:
+              registry: invoices
+      - id: expenses
+        name: Expenses
+        icon: "💳"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Expense Breakdown
+            config:
+              cards:
+                - label: Ad Spend
+                  value: "$12,100"
+                  icon: "📢"
+                  color: text-blue-500
+                - label: Software
+                  value: "$448"
+                  icon: "💻"
+                  color: text-purple-500
+                - label: AI Usage
+                  value: "$342"
+                  icon: "🤖"
+                  change: "-12% vs Mar"
+                  color: text-emerald-500
+                - label: Contractors
+                  value: "$2,250"
+                  icon: "👷"
+                  color: text-orange-500
+          - type: registry-table
+            title: Expense Log
+            config:
+              registry: expenses
+      - id: invoices
+        name: Invoices
+        icon: "🧾"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Invoice Status
+            config:
+              cards:
+                - label: Paid
+                  value: "3"
+                  icon: "✅"
+                  color: text-emerald-500
+                - label: Sent
+                  value: "1"
+                  icon: "📤"
+                  color: text-blue-500
+                - label: Overdue
+                  value: "1"
+                  icon: "🚨"
+                  color: text-red-500
+                - label: Drafts
+                  value: "3"
+                  icon: "📝"
+                  color: text-yellow-500
+          - type: registry-table
+            title: All Invoices
+            config:
+              registry: invoices
+
+  - id: analytics
+    name: Analytics
+    icon: bar-chart
+    default_page: overview
+    pages:
+      - id: overview
+        name: Overview
+        icon: "📈"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Performance Summary
+            config:
+              cards:
+                - label: Total Impressions
+                  value: "1.2M"
+                  icon: "👁️"
+                  change: "+28% vs Mar"
+                  color: text-emerald-500
+                - label: Total Clicks
+                  value: "36,400"
+                  icon: "🖱️"
+                  change: "+15%"
+                  color: text-emerald-500
+                - label: Conversions
+                  value: "892"
+                  icon: "🎯"
+                  change: "+42"
+                  color: text-emerald-500
+                - label: Avg CPA
+                  value: "$16.97"
+                  icon: "💲"
+                  change: "-$2.40"
+                  color: text-emerald-500
+          - type: analytics-charts
+            title: Usage Analytics
+            span: 12
+            config: {}
+      - id: by-client
+        name: By Client
+        icon: "🏢"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: "Greenleaf Organics — April"
+            config:
+              cards:
+                - label: Impressions
+                  value: "184K"
+                  icon: "👁️"
+                  color: blue
+                - label: Clicks
+                  value: "5,520"
+                  icon: "🖱️"
+                  color: text-blue-500
+                - label: Conversions
+                  value: "138"
+                  icon: "🎯"
+                  color: text-emerald-500
+                - label: Email Open Rate
+                  value: "38.4%"
+                  icon: "📬"
+                  color: text-emerald-500
+          - type: stat-cards
+            title: "VeloCity Bikes — April"
+            config:
+              cards:
+                - label: Impressions
+                  value: "640K"
+                  icon: "👁️"
+                  color: blue
+                - label: Clicks
+                  value: "19,200"
+                  icon: "🖱️"
+                  color: text-blue-500
+                - label: Conversions
+                  value: "542"
+                  icon: "🎯"
+                  color: text-emerald-500
+                - label: ROI
+                  value: "154%"
+                  icon: "💰"
+                  color: text-emerald-500
+          - type: stat-cards
+            title: "NovaPay — Pre-Launch"
+            config:
+              cards:
+                - label: Landing Page Visits
+                  value: "2,400"
+                  icon: "👁️"
+                  color: blue
+                - label: Waitlist Signups
+                  value: "380"
+                  icon: "📝"
+                  color: text-emerald-500
+                - label: Conversion Rate
+                  value: "15.8%"
+                  icon: "🎯"
+                  color: text-emerald-500
+                - label: Launch Date
+                  value: "May 15"
+                  icon: "📅"
+                  color: text-blue-500
+      - id: ai-usage
+        name: AI Usage
+        icon: "🤖"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: AI Agent Costs — Last 14 Days
+            config:
+              cards:
+                - label: Total API Calls
+                  value: "35"
+                  icon: "📡"
+                  color: blue
+                - label: Total Tokens
+                  value: "98.4K"
+                  icon: "🔤"
+                  color: text-blue-500
+                - label: Total Cost
+                  value: "$0.48"
+                  icon: "💲"
+                  change: "-12% vs prior"
+                  color: text-emerald-500
+                - label: Top Agent
+                  value: "content-writer"
+                  icon: "🏆"
+                  color: text-purple-500
+          - type: analytics-charts
+            title: AI Usage Charts
+            span: 12
+            config: {}
+
+  - id: sales
+    name: Sales
+    icon: dollar-sign
+    default_page: pipeline
+    pages:
+      - id: pipeline
+        name: Pipeline
+        icon: "💰"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: Sales Overview
+            config:
+              cards:
+                - label: Pipeline Value
+                  value: "$148.9K"
+                  icon: "💰"
+                  color: blue
+                - label: Weighted Value
+                  value: "$108.4K"
+                  icon: "⚖️"
+                  color: text-emerald-500
+                - label: Open Deals
+                  value: "8"
+                  icon: "📋"
+                  color: text-blue-500
+                - label: Won This Month
+                  value: "5"
+                  icon: "🏆"
+                  change: "+2"
+                  color: text-emerald-500
+          - type: sales-pipeline
+            title: Sales Pipeline
+            span: 12
+            config: {}
+
+  - id: admin
+    name: Admin
+    icon: shield
+    default_page: overview
+    pages:
+      - id: overview
+        name: Overview
+        icon: "📊"
+        layout: grid
+        components:
+          - type: stat-cards
+            title: System Status
+            config:
+              cards:
+                - label: Agents Online
+                  value: "5"
+                  icon: "🤖"
+                  color: blue
+                - label: Events (24h)
+                  value: "47"
+                  icon: "⚡"
+                  change: "+12"
+                  color: text-emerald-500
+                - label: Queue Depth
+                  value: "3"
+                  icon: "📋"
+                  color: text-yellow-500
+                - label: Uptime
+                  value: "99.8%"
+                  icon: "✅"
+                  color: text-emerald-500
+          - type: agent-tree
+            title: Agent Management
+            span: 6
+            config:
+              show_sub_agents: true
+          - type: event-timeline
+            title: Event Log
+            span: 6
+            config:
+              limit: 50
+      - id: queue
+        name: Queue
+        icon: "📋"
+        layout: grid
+        components:
+          - type: queue-status
+            title: Job Queue
+            config:
+              show_workers: true
+      - id: registries
+        name: Registries
+        icon: "📂"
+        layout: grid
+        components:
+          - type: registry-table
+            title: Client Accounts
+            config:
+              registry: clients
+          - type: registry-table
+            title: Campaigns
+            config:
+              registry: campaigns
+          - type: registry-table
+            title: Contacts
+            config:
+              registry: contacts
+          - type: registry-table
+            title: Invoices
+            config:
+              registry: invoices
+          - type: registry-table
+            title: Expenses
+            config:
+              registry: expenses
+      - id: chat
+        name: Chat
+        icon: "💬"
+        layout: single
+        components:
+          - type: agent-chat
+            title: Agent Chat
+            config:
+              default_agent: director
+              show_tool_calls: true

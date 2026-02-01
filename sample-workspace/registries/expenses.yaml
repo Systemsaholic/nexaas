@@ -1,0 +1,89 @@
+name: expenses
+description: Agency operating expenses and campaign spend tracking
+fields:
+  - name: category
+    type: string
+  - name: description
+    type: string
+  - name: client
+    type: string
+  - name: amount
+    type: string
+  - name: date
+    type: string
+  - name: status
+    type: string
+
+entries:
+  - category: Ad Spend
+    description: "Facebook Ads — Greenleaf Spring Launch"
+    client: Greenleaf Organics
+    amount: "$1,200.00"
+    date: "2025-04-15"
+    status: reconciled
+  - category: Ad Spend
+    description: "Instagram Promoted Posts — Greenleaf"
+    client: Greenleaf Organics
+    amount: "$800.00"
+    date: "2025-04-18"
+    status: reconciled
+  - category: Ad Spend
+    description: "LinkedIn Ads — VeloCity Brand Awareness"
+    client: VeloCity Bikes
+    amount: "$3,000.00"
+    date: "2025-04-01"
+    status: reconciled
+  - category: Ad Spend
+    description: "Facebook Ads — VeloCity Brand Awareness"
+    client: VeloCity Bikes
+    amount: "$4,000.00"
+    date: "2025-04-01"
+    status: reconciled
+  - category: Ad Spend
+    description: "Google Ads — VeloCity Retargeting"
+    client: VeloCity Bikes
+    amount: "$2,500.00"
+    date: "2025-04-10"
+    status: reconciled
+  - category: Software
+    description: "Email platform (Resend) — monthly"
+    client: "—"
+    amount: "$79.00"
+    date: "2025-04-01"
+    status: reconciled
+  - category: Software
+    description: "Social scheduler (Buffer) — monthly"
+    client: "—"
+    amount: "$120.00"
+    date: "2025-04-01"
+    status: reconciled
+  - category: Software
+    description: "Analytics platform — monthly"
+    client: "—"
+    amount: "$249.00"
+    date: "2025-04-01"
+    status: reconciled
+  - category: AI Usage
+    description: "Claude API — April"
+    client: "—"
+    amount: "$342.18"
+    date: "2025-04-30"
+    status: pending
+  - category: Contractor
+    description: "Freelance designer — Birch & Stone Lookbook"
+    client: Birch & Stone Interiors
+    amount: "$1,500.00"
+    date: "2025-04-22"
+    status: pending
+  - category: Ad Spend
+    description: "Pinterest Promoted Pins — Birch & Stone"
+    client: Birch & Stone Interiors
+    amount: "$600.00"
+    date: "2025-04-20"
+    status: reconciled
+  - category: Contractor
+    description: "Copywriter — PulsePoint HIPAA review"
+    client: PulsePoint Health
+    amount: "$750.00"
+    date: "2025-04-26"
+    status: pending

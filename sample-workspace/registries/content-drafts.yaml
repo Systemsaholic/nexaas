@@ -1,0 +1,65 @@
+name: content-drafts
+description: Blog posts, landing pages, and ad copy in various stages
+fields:
+  - name: title
+    type: string
+  - name: client
+    type: string
+  - name: type
+    type: string
+  - name: status
+    type: string
+  - name: word_count
+    type: string
+  - name: assigned_to
+    type: string
+
+entries:
+  - title: "5 Spring Recipes with Organic Produce"
+    client: Greenleaf Organics
+    type: blog post
+    status: published
+    word_count: "1,200"
+    assigned_to: content-writer
+  - title: "Why Go Organic? A Buyer's Guide"
+    client: Greenleaf Organics
+    type: blog post
+    status: review
+    word_count: "1,800"
+    assigned_to: content-writer
+  - title: "E-Bike Buying Guide 2025"
+    client: VeloCity Bikes
+    type: blog post
+    status: published
+    word_count: "2,400"
+    assigned_to: content-writer
+  - title: "VeloCity Brand Awareness Landing Page"
+    client: VeloCity Bikes
+    type: landing page
+    status: live
+    word_count: "450"
+    assigned_to: content-writer
+  - title: "NovaPay App Launch Landing Page"
+    client: NovaPay
+    type: landing page
+    status: draft
+    word_count: "380"
+    assigned_to: content-writer
+  - title: "NovaPay Google Ads Copy (5 variants)"
+    client: NovaPay
+    type: ad copy
+    status: review
+    word_count: "250"
+    assigned_to: content-writer
+  - title: "Summer Lookbook Descriptions"
+    client: Birch & Stone Interiors
+    type: product copy
+    status: draft
+    word_count: "600"
+    assigned_to: content-writer
+  - title: "Patient Portal FAQ Page"
+    client: PulsePoint Health
+    type: landing page
+    status: draft
+    word_count: "900"
+    assigned_to: content-writer

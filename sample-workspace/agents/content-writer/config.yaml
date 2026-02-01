@@ -1,0 +1,7 @@
+name: content-writer
+role: Content Writer
+description: Creates blog posts, ad copy, landing page text, and social media captions for client campaigns.
+capabilities:
+  - chat
+  - generate
+parent: director

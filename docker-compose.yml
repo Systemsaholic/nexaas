@@ -1,0 +1,19 @@
+services:
+  gateway:
+    build: ./gateway
+    ports:
+      - "8400:8400"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8400
+      - API_KEY=dev-test-key
+      - WORKSPACE_ROOT=/workspace
+      - DATABASE_PATH=/app/data/mission_control.db
+      - CLAUDE_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CORS_ORIGINS=*
+    volumes:
+      - ./sample-workspace:/workspace
+      - gateway-data:/app/data
+
+volumes:
+  gateway-data:

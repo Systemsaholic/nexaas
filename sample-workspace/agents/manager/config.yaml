@@ -1,0 +1,7 @@
+name: manager
+role: Operations Manager
+description: Oversees workspace operations and delegates tasks
+capabilities:
+  - chat
+  - delegate
+  - monitor

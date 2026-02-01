@@ -1,0 +1,75 @@
+name: invoices
+description: Client invoices and billing records
+fields:
+  - name: invoice_id
+    type: string
+  - name: client
+    type: string
+  - name: period
+    type: string
+  - name: amount
+    type: string
+  - name: status
+    type: string
+  - name: due_date
+    type: string
+  - name: paid_date
+    type: string
+
+entries:
+  - invoice_id: "INV-2025-041"
+    client: Greenleaf Organics
+    period: April 2025
+    amount: "$8,500.00"
+    status: paid
+    due_date: "2025-05-01"
+    paid_date: "2025-04-28"
+  - invoice_id: "INV-2025-042"
+    client: VeloCity Bikes
+    period: April 2025
+    amount: "$22,000.00"
+    status: paid
+    due_date: "2025-05-01"
+    paid_date: "2025-04-30"
+  - invoice_id: "INV-2025-043"
+    client: NovaPay
+    period: April 2025
+    amount: "$3,200.00"
+    status: paid
+    due_date: "2025-05-01"
+    paid_date: "2025-05-02"
+  - invoice_id: "INV-2025-044"
+    client: Birch & Stone Interiors
+    period: April 2025
+    amount: "$6,000.00"
+    status: overdue
+    due_date: "2025-05-01"
+    paid_date: "—"
+  - invoice_id: "INV-2025-045"
+    client: PulsePoint Health
+    period: "April 2025 (Onboarding)"
+    amount: "$4,500.00"
+    status: sent
+    due_date: "2025-05-15"
+    paid_date: "—"
+  - invoice_id: "INV-2025-051"
+    client: Greenleaf Organics
+    period: May 2025
+    amount: "$8,500.00"
+    status: draft
+    due_date: "2025-06-01"
+    paid_date: "—"
+  - invoice_id: "INV-2025-052"
+    client: VeloCity Bikes
+    period: May 2025
+    amount: "$22,000.00"
+    status: draft
+    due_date: "2025-06-01"
+    paid_date: "—"
+  - invoice_id: "INV-2025-053"
+    client: NovaPay
+    period: May 2025
+    amount: "$3,200.00"
+    status: draft
+    due_date: "2025-06-01"
+    paid_date: "—"

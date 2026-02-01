@@ -1,0 +1,197 @@
+name: email-drafts
+description: Draft emails awaiting review and approval
+fields:
+  - name: subject
+    type: string
+  - name: to
+    type: string
+  - name: client
+    type: string
+  - name: campaign
+    type: string
+  - name: status
+    type: string
+  - name: created
+    type: string
+  - name: body
+    type: string
+
+entries:
+  - subject: "Welcome to NovaPay — let's get you set up"
+    to: "{{first_name}} <subscriber list>"
+    client: NovaPay
+    campaign: App Launch Drip
+    status: pending approval
+    created: "2025-04-28"
+    body: |
+      Hi {{first_name}},
+
+      Welcome to NovaPay! We're excited to have you.
+
+      Getting started takes less than 2 minutes:
+
+      1. **Download the app** — available on App Store and Google Play
+      2. **Verify your identity** — just a quick selfie + ID
+      3. **Link your bank** — we support 3,000+ institutions
+
+      Once you're set up, you can send money, split bills, and track spending — all in one place.
+
+      Need help? Reply to this email or chat with us in-app.
+
+      Welcome aboard,
+      The NovaPay Team
+
+  - subject: "Send your first payment in 30 seconds"
+    to: "{{first_name}} <subscriber list>"
+    client: NovaPay
+    campaign: App Launch Drip
+    status: pending approval
+    created: "2025-04-28"
+    body: |
+      Hi {{first_name}},
+
+      You signed up for NovaPay — awesome! Now let's put it to work.
+
+      Sending your first payment is simple:
+
+      1. Open the NovaPay app
+      2. Tap **Send Money**
+      3. Enter an amount and pick a recipient
+      4. Done. That's it. 🎉
+
+      Your first three transfers are fee-free, so there's no reason to wait.
+
+      Try it now →
+
+      Cheers,
+      The NovaPay Team
+
+  - subject: "Your spring wellness guide from Greenleaf"
+    to: "newsletter@greenleaf-subscribers.com"
+    client: Greenleaf Organics
+    campaign: Spring Product Launch
+    status: approved
+    created: "2025-04-25"
+    body: |
+      Hello {{first_name}},
+
+      Spring is here, and so is our freshest produce yet.
+
+      This month we're featuring:
+
+      🥬 **Organic Kale Bundles** — Farm-fresh, harvested this week
+      🍓 **Strawberry Season** — Sweet, organic, and perfect for smoothies
+      🧄 **Garlic Scapes** — Limited supply, incredible flavor
+
+      **Recipe of the Week:** Spring Pesto with Garlic Scapes
+      Blend garlic scapes, kale, olive oil, lemon juice, and parmesan for a vibrant pesto that pairs with everything.
+
+      Order by Thursday for weekend delivery.
+
+      Stay fresh,
+      The Greenleaf Team
+
+  - subject: "Join 10,000+ people managing money smarter"
+    to: "{{first_name}} <subscriber list>"
+    client: NovaPay
+    campaign: App Launch Drip
+    status: draft
+    created: "2025-04-29"
+    body: |
+      Hi {{first_name}},
+
+      In just two weeks, over 10,000 people have joined NovaPay. Here's what they're saying:
+
+      > "I split rent with my roommates in literally 5 seconds." — Sarah K.
+      > "Finally, a payment app that doesn't nickel-and-dime me." — Marcus T.
+      > "The spending insights alone are worth it." — Priya M.
+
+      You're already signed up. Make the most of it:
+
+      • **Split bills** with friends and roommates
+      • **Track spending** with automatic categories
+      • **Set budgets** and get alerts before you overspend
+
+      Open NovaPay →
+
+      Best,
+      The NovaPay Team
+
+  - subject: "E-Bike Season is Here — New Models Available"
+    to: "loyalty-members@velocitybikes.com"
+    client: VeloCity Bikes
+    campaign: Loyalty Program Re-engagement
+    status: pending approval
+    created: "2025-04-27"
+    body: |
+      Hey {{first_name}},
+
+      As a VeloCity loyalty member, you get first access to our 2025 lineup.
+
+      **New this season:**
+
+      🚲 **VeloCity X2** — Our lightest e-bike yet. 45-mile range, 28 lbs.
+      🚲 **VeloCity Cargo+** — Built for errands. Carries up to 150 lbs of cargo.
+      🚲 **VeloCity Kids Pro** — Sized for riders ages 8-12, with training mode.
+
+      **Loyalty member perk:** 15% off any new model through May 31st. Use code SPRING25 at checkout.
+
+      Shop the collection →
+
+      Ride on,
+      The VeloCity Team
+
+  - subject: "Your Patient Portal is Live"
+    to: "patients@pulsepoint-clinic.health"
+    client: PulsePoint Health
+    campaign: Patient Portal Announcement
+    status: revision requested
+    created: "2025-04-26"
+    body: |
+      Dear {{first_name}},
+
+      We're pleased to announce that PulsePoint Health's new Patient Portal is now available.
+
+      With the portal, you can:
+
+      • **View test results** as soon as they're ready
+      • **Schedule appointments** online, 24/7
+      • **Message your care team** securely
+      • **Request prescription refills** without calling
+      • **Access your medical records** anytime
+
+      Getting started:
+      1. Visit portal.pulsepoint.health
+      2. Click "First Time Login"
+      3. Enter the activation code from your welcome letter
+
+      If you need assistance, call our support line at (555) 234-5678.
+
+      To your health,
+      The PulsePoint Health Team
+
+      ---
+      IMPORTANT: This message contains confidential health information. If you received this in error, please contact us immediately.
+
+  - subject: "Summer Lookbook Preview — First Look Inside"
+    to: "vip@birchstone-interiors.co"
+    client: Birch & Stone Interiors
+    campaign: Summer Lookbook
+    status: draft
+    created: "2025-04-30"
+    body: |
+      Hi {{first_name}},
+
+      Our Summer 2025 Lookbook is almost ready — and as a VIP client, you're getting an exclusive first look.
+
+      **This season's themes:**
+
+      🏡 **Coastal Modern** — Whitewashed oak, linen textures, sea glass accents
+      🌿 **Garden Room** — Indoor-outdoor living with botanical prints and rattan
+      ☀️ **Warm Minimalism** — Clean lines, terracotta tones, natural stone
+
+      The full lookbook drops June 1st. Want early access to order? Reply to this email and we'll reserve your selections before they go public.
+
+      Warmly,
+      Ingrid Holm
+      Creative Director, Birch & Stone Interiors

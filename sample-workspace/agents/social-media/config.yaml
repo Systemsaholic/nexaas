@@ -1,0 +1,8 @@
+name: social-media
+role: Social Media Manager
+description: Schedules and publishes social media posts across platforms, tracks engagement, and manages community interactions.
+capabilities:
+  - chat
+  - generate
+  - schedule
+parent: director

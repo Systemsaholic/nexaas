@@ -1,0 +1,8 @@
+name: analytics
+role: Analytics Agent
+description: Tracks campaign performance, generates reports, and provides data-driven recommendations across all channels.
+capabilities:
+  - chat
+  - monitor
+  - report
+parent: director

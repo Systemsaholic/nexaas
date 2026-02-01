@@ -1,0 +1,8 @@
+name: email-manager
+role: Email Campaign Manager
+description: Manages email sequences, drip campaigns, newsletters, and list segmentation for clients.
+capabilities:
+  - chat
+  - generate
+  - schedule
+parent: director

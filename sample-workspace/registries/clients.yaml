@@ -1,0 +1,40 @@
+name: clients
+description: Client accounts managed by BrightWave Digital
+fields:
+  - name: name
+    type: string
+  - name: industry
+    type: string
+  - name: plan
+    type: string
+  - name: monthly_budget
+    type: string
+  - name: status
+    type: string
+
+entries:
+  - name: Greenleaf Organics
+    industry: Food & Beverage
+    plan: Growth
+    monthly_budget: "$8,500"
+    status: active
+  - name: VeloCity Bikes
+    industry: Retail / E-commerce
+    plan: Enterprise
+    monthly_budget: "$22,000"
+    status: active
+  - name: NovaPay
+    industry: Fintech
+    plan: Starter
+    monthly_budget: "$3,200"
+    status: active
+  - name: Birch & Stone Interiors
+    industry: Home & Design
+    plan: Growth
+    monthly_budget: "$6,000"
+    status: active
+  - name: PulsePoint Health
+    industry: Healthcare
+    plan: Enterprise
+    monthly_budget: "$18,500"
+    status: onboarding

@@ -1,0 +1,65 @@
+name: contacts
+description: Client contacts and stakeholders
+fields:
+  - name: name
+    type: string
+  - name: email
+    type: string
+  - name: role
+    type: string
+  - name: company
+    type: string
+  - name: status
+    type: string
+
+entries:
+  - name: Alice Chen
+    email: alice@greenleaf.com
+    role: Marketing Director
+    company: Greenleaf Organics
+    status: active
+  - name: Bob Martinez
+    email: bob@velocitybikes.com
+    role: CMO
+    company: VeloCity Bikes
+    status: active
+  - name: Carla Nguyen
+    email: carla@novapay.io
+    role: Growth Lead
+    company: NovaPay
+    status: active
+  - name: David Kim
+    email: david@birchstone.co
+    role: Brand Manager
+    company: Birch & Stone Interiors
+    status: active
+  - name: Elena Vasquez
+    email: elena@pulsepoint.health
+    role: VP Marketing
+    company: PulsePoint Health
+    status: onboarding
+  - name: Frank Osei
+    email: frank@velocitybikes.com
+    role: E-commerce Manager
+    company: VeloCity Bikes
+    status: active
+  - name: Grace Liu
+    email: grace@greenleaf.com
+    role: Social Media Coordinator
+    company: Greenleaf Organics
+    status: active
+  - name: Hassan Patel
+    email: hassan@novapay.io
+    role: Product Marketing Manager
+    company: NovaPay
+    status: active
+  - name: Ingrid Holm
+    email: ingrid@birchstone.co
+    role: Creative Director
+    company: Birch & Stone Interiors
+    status: active
+  - name: James Wright
+    email: james@pulsepoint.health
+    role: Content Strategist
+    company: PulsePoint Health
+    status: onboarding

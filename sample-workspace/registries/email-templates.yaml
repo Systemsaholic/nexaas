@@ -1,0 +1,65 @@
+name: email-templates
+description: Email templates and drafts across all client campaigns
+fields:
+  - name: name
+    type: string
+  - name: client
+    type: string
+  - name: type
+    type: string
+  - name: status
+    type: string
+  - name: open_rate
+    type: string
+  - name: last_sent
+    type: string
+
+entries:
+  - name: "Welcome Sequence: Email 1"
+    client: NovaPay
+    type: drip
+    status: draft
+    open_rate: "—"
+    last_sent: "—"
+  - name: "Welcome Sequence: Email 2"
+    client: NovaPay
+    type: drip
+    status: draft
+    open_rate: "—"
+    last_sent: "—"
+  - name: Spring Newsletter — April
+    client: Greenleaf Organics
+    type: newsletter
+    status: sent
+    open_rate: "38.4%"
+    last_sent: "2025-04-15"
+  - name: Spring Newsletter — May
+    client: Greenleaf Organics
+    type: newsletter
+    status: scheduled
+    open_rate: "—"
+    last_sent: "—"
+  - name: Loyalty Re-engagement Wave 3
+    client: VeloCity Bikes
+    type: drip
+    status: sent
+    open_rate: "29.1%"
+    last_sent: "2025-04-22"
+  - name: Loyalty Re-engagement Wave 4
+    client: VeloCity Bikes
+    type: drip
+    status: scheduled
+    open_rate: "—"
+    last_sent: "—"
+  - name: Product Catalog Update
+    client: Birch & Stone Interiors
+    type: promotional
+    status: sent
+    open_rate: "32.7%"
+    last_sent: "2025-04-10"
+  - name: Patient Portal Launch Announce
+    client: PulsePoint Health
+    type: announcement
+    status: review
+    open_rate: "—"
+    last_sent: "—"

@@ -1,0 +1,77 @@
+name: social-posts
+description: Scheduled and published social media posts
+fields:
+  - name: title
+    type: string
+  - name: client
+    type: string
+  - name: platform
+    type: string
+  - name: status
+    type: string
+  - name: scheduled_date
+    type: string
+  - name: engagement
+    type: string
+
+entries:
+  - title: "Farm to Table Reel"
+    client: Greenleaf Organics
+    platform: Instagram
+    status: published
+    scheduled_date: "2025-04-21"
+    engagement: "1,240 likes"
+  - title: "Organic Sourcing Article"
+    client: Greenleaf Organics
+    platform: LinkedIn
+    status: published
+    scheduled_date: "2025-04-22"
+    engagement: "89 reactions"
+  - title: "Weekend Recipe Carousel"
+    client: Greenleaf Organics
+    platform: Instagram
+    status: scheduled
+    scheduled_date: "2025-05-02"
+    engagement: "—"
+  - title: "New E-Bike Drop Teaser"
+    client: VeloCity Bikes
+    platform: Instagram
+    status: published
+    scheduled_date: "2025-04-18"
+    engagement: "3,890 likes"
+  - title: "Cycling Tips Thread"
+    client: VeloCity Bikes
+    platform: X / Twitter
+    status: published
+    scheduled_date: "2025-04-20"
+    engagement: "412 retweets"
+  - title: "VeloCity Brand Story"
+    client: VeloCity Bikes
+    platform: LinkedIn
+    status: scheduled
+    scheduled_date: "2025-05-05"
+    engagement: "—"
+  - title: "NovaPay Launch Teaser"
+    client: NovaPay
+    platform: X / Twitter
+    status: draft
+    scheduled_date: "2025-05-14"
+    engagement: "—"
+  - title: "Summer Lookbook Preview"
+    client: Birch & Stone Interiors
+    platform: Pinterest
+    status: draft
+    scheduled_date: "2025-06-01"
+    engagement: "—"
+  - title: "Interior Design Tips"
+    client: Birch & Stone Interiors
+    platform: Instagram
+    status: scheduled
+    scheduled_date: "2025-05-10"
+    engagement: "—"
+  - title: "Patient Portal Walkthrough"
+    client: PulsePoint Health
+    platform: LinkedIn
+    status: draft
+    scheduled_date: "2025-05-01"
+    engagement: "—"

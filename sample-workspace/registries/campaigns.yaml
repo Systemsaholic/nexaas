@@ -1,0 +1,53 @@
+name: campaigns
+description: Active marketing campaigns across all clients
+fields:
+  - name: name
+    type: string
+  - name: client
+    type: string
+  - name: channel
+    type: string
+  - name: status
+    type: string
+  - name: budget
+    type: string
+  - name: start_date
+    type: string
+
+entries:
+  - name: Spring Product Launch
+    client: Greenleaf Organics
+    channel: Email + Social
+    status: running
+    budget: "$4,200"
+    start_date: "2025-03-01"
+  - name: Brand Awareness Q2
+    client: VeloCity Bikes
+    channel: Paid Social + Blog
+    status: running
+    budget: "$12,000"
+    start_date: "2025-04-01"
+  - name: App Launch Drip
+    client: NovaPay
+    channel: Email
+    status: scheduled
+    budget: "$1,800"
+    start_date: "2025-05-15"
+  - name: Summer Lookbook
+    client: Birch & Stone Interiors
+    channel: Instagram + Pinterest
+    status: draft
+    budget: "$3,500"
+    start_date: "2025-06-01"
+  - name: Patient Portal Announcement
+    client: PulsePoint Health
+    channel: Email + LinkedIn
+    status: review
+    budget: "$5,000"
+    start_date: "2025-05-01"
+  - name: Loyalty Program Re-engagement
+    client: VeloCity Bikes
+    channel: Email
+    status: running
+    budget: "$2,400"
+    start_date: "2025-02-15"

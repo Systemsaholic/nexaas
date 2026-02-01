@@ -1,0 +1,12 @@
+name: director
+role: Agency Director
+description: Root orchestrator for the digital marketing agency. Delegates work to specialized sub-agents and monitors overall campaign performance.
+capabilities:
+  - chat
+  - delegate
+  - monitor
+sub_agents:
+  - content-writer
+  - email-manager
+  - social-media
+  - analytics

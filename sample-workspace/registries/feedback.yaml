@@ -1,0 +1,77 @@
+name: feedback
+description: Client feedback, approvals, and revision requests
+fields:
+  - name: client
+    type: string
+  - name: item
+    type: string
+  - name: type
+    type: string
+  - name: status
+    type: string
+  - name: submitted
+    type: string
+  - name: notes
+    type: string
+
+entries:
+  - client: Greenleaf Organics
+    item: "Spring Newsletter — April"
+    type: email
+    status: approved
+    submitted: "2025-04-12"
+    notes: "Love the tone. Ship it."
+  - client: Greenleaf Organics
+    item: "Farm to Table Reel"
+    type: social post
+    status: approved
+    submitted: "2025-04-19"
+    notes: "Perfect — matches brand guidelines."
+  - client: VeloCity Bikes
+    item: "E-Bike Buying Guide 2025"
+    type: blog post
+    status: revision requested
+    submitted: "2025-04-15"
+    notes: "Add comparison table for price tiers. Fix spec on Model X2."
+  - client: VeloCity Bikes
+    item: "Brand Awareness Landing Page"
+    type: landing page
+    status: approved
+    submitted: "2025-04-08"
+    notes: "Approved with minor copy tweak on CTA."
+  - client: NovaPay
+    item: "App Launch Landing Page"
+    type: landing page
+    status: pending review
+    submitted: "2025-04-28"
+    notes: "Awaiting sign-off from Growth Lead."
+  - client: NovaPay
+    item: "Google Ads Copy (5 variants)"
+    type: ad copy
+    status: revision requested
+    submitted: "2025-04-25"
+    notes: "Variant 3 too aggressive. Soften compliance language."
+  - client: Birch & Stone Interiors
+    item: "Summer Lookbook Descriptions"
+    type: product copy
+    status: pending review
+    submitted: "2025-04-30"
+    notes: "Sent to Creative Director for review."
+  - client: PulsePoint Health
+    item: "Patient Portal FAQ Page"
+    type: landing page
+    status: pending review
+    submitted: "2025-04-29"
+    notes: "Legal team reviewing HIPAA language."
+  - client: PulsePoint Health
+    item: "Portal Announcement Email"
+    type: email
+    status: revision requested
+    submitted: "2025-04-27"
+    notes: "Tone too casual for healthcare audience. Needs professional revision."
+  - client: VeloCity Bikes
+    item: "Loyalty Re-engagement Wave 3"
+    type: email
+    status: approved
+    submitted: "2025-04-20"
+    notes: "Good segmentation. Open rate exceeded expectations."
