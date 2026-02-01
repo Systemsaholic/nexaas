@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-const ENGINE_URL = process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL || "http://localhost:8400";
+const ENGINE_URL = process.env.ENGINE_INTERNAL_URL || process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL || "http://localhost:8400";
 
 export async function GET(
   req: NextRequest,

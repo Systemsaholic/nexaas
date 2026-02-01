@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
  * Body: { path: "/workspace", method?: "GET", body?: {...} }
  */
 export async function POST(req: NextRequest) {
-  const engineUrl = process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL;
+  const engineUrl = process.env.ENGINE_INTERNAL_URL || process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL;
   const engineKey = process.env.DEFAULT_GATEWAY_KEY;
 
   if (!engineUrl || !engineKey) {

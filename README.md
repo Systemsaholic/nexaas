@@ -1,11 +1,11 @@
 # AI Mission Control
 
-A platform for orchestrating and monitoring AI agent workspaces.
+A platform for orchestrating and monitoring AI agent workspaces with built-in authentication, deployment tooling, and self-healing operations.
 
 ## Components
 
-- **Engine** — Python FastAPI service: event engine, job queue, chat proxy, ops monitor, auth
-- **Dashboard** — Next.js app: workspace visualization, agent management, real-time monitoring
+- **Engine** — Python FastAPI backend: event engine, job queue, chat proxy, ops monitor, auth (bcrypt + JWT)
+- **Dashboard** — Next.js frontend: workspace visualization, agent management, real-time monitoring, login/register
 
 ## Quick Start (Docker)
 
@@ -13,10 +13,20 @@ A platform for orchestrating and monitoring AI agent workspaces.
 ./deploy.sh
 ```
 
-This builds both services, starts them, and walks you through setup. Once running:
+This will:
+1. Check prerequisites (Docker, Docker Compose)
+2. Generate a `.env` file with random API key and JWT secret
+3. Build and start both services
+4. Wait for the engine to become healthy
+5. Optionally authenticate Claude Code and seed demo data
+6. Run health checks and print a summary
 
-- **Dashboard**: http://localhost:3000 — register your account to get started
+Once running:
+
+- **Dashboard**: http://localhost:3000/register — create your first account
 - **Engine API**: http://localhost:8400
+
+The first user to register creates the company and becomes admin. Subsequent registrations join as members.
 
 ## Manual Setup
 
@@ -38,6 +48,39 @@ npm install
 npm run dev
 ```
 
+## Authentication
+
+The engine provides JWT-based auth at `/api/auth`:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/auth/register` | POST | Register a new user (first user becomes admin) |
+| `/api/auth/login` | POST | Log in, returns JWT |
+| `/api/auth/me` | GET | Current user info (requires Bearer token) |
+
+The dashboard proxies auth through `/api/auth/*`, storing the JWT in an httpOnly cookie. A Next.js middleware redirects unauthenticated users to `/login`.
+
+## Environment Variables
+
+### Engine
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_KEY` | _(required)_ | Bearer token for API access |
+| `JWT_SECRET` | `change-me-in-production` | Secret for signing JWTs |
+| `DATABASE_PATH` | `data/mission_control.db` | SQLite database location |
+| `HOST` | `0.0.0.0` | Bind address |
+| `PORT` | `8400` | Listen port |
+| `WORKSPACE_ROOT` | `.` | Root directory for workspaces |
+
+### Dashboard
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_DEFAULT_GATEWAY_URL` | `http://localhost:8400` | Engine URL (client-side) |
+| `ENGINE_INTERNAL_URL` | _(unset)_ | Engine URL for server-side routes (used in Docker: `http://engine:8400`) |
+| `DEFAULT_GATEWAY_KEY` | _(unset)_ | API key for engine (server-side only) |
+
 ## Production Deployment
 
 For systemd-based Linux servers:
@@ -45,6 +88,8 @@ For systemd-based Linux servers:
 ```bash
 cd engine && bash install.sh
 ```
+
+This installs Python deps, Node.js, Claude Code CLI, initializes the database, and sets up a systemd service.
 
 Or use the Claude Code command: `/deploy-engine`
 
@@ -58,16 +103,31 @@ bash scripts/health-check.sh
 bash scripts/health-check.sh --docker
 ```
 
+Checks engine health, database access, container status (Docker mode), and dashboard reachability. Exit code equals the number of failed checks.
+
 ## Architecture
 
 ```
-dashboard/          Next.js 16 frontend
-  app/              App router pages (workspace, login, register)
-  lib/stores/       Zustand state management
-  components/       Shared UI components
+dashboard/              Next.js 16 frontend
+  app/                  App router pages
+    login/              Login page
+    register/           Registration page
+    workspace/[id]/     Workspace views
+    api/auth/           Auth proxy (sets httpOnly cookie)
+    api/engine/         Engine API proxy
+  lib/stores/           Zustand stores (workspace, auth, chat, ops)
+  components/           Shared UI components
+  middleware.ts         Auth gate (redirects to /login)
 
-engine/             FastAPI backend
-  api/              REST endpoints (workspace, agents, events, auth, ops)
-  orchestrator/     Event engine, worker pool, ops monitor
-  db/               SQLite schema + migrations
+engine/                 FastAPI backend
+  api/                  REST endpoints (workspace, agents, events, auth, ops, chat)
+  orchestrator/         Event engine, worker pool, session manager, ops monitor
+  db/                   SQLite schema, migrations, database helpers
+  config.py             Environment-driven configuration
+
+scripts/
+  health-check.sh       System health verification
+
+deploy.sh               One-command Docker deployment
+docker-compose.yml      Engine + Dashboard services
 ```

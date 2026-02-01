@@ -18,9 +18,10 @@ services:
   dashboard:
     build: ./dashboard
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
-      - NEXT_PUBLIC_DEFAULT_GATEWAY_URL=http://engine:8400
+      - NEXT_PUBLIC_DEFAULT_GATEWAY_URL=http://localhost:8400
+      - ENGINE_INTERNAL_URL=http://engine:8400
       - DEFAULT_GATEWAY_KEY=${API_KEY:-dev-test-key}
     depends_on:
       - engine
