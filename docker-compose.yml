@@ -3,17 +3,27 @@ services:
     build: ./engine
     ports:
       - "8400:8400"
+    env_file: .env
     environment:
       - HOST=0.0.0.0
       - PORT=8400
-      - API_KEY=dev-test-key
       - WORKSPACE_ROOT=/workspace
       - DATABASE_PATH=/app/data/mission_control.db
-      - CLAUDE_API_KEY=${ANTHROPIC_API_KEY:-}
       - CORS_ORIGINS=*
     volumes:
       - .:/workspace
       - engine-data:/app/data
+      - ~/.claude:/root/.claude
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_DEFAULT_GATEWAY_URL=http://engine:8400
+      - DEFAULT_GATEWAY_KEY=${API_KEY:-dev-test-key}
+    depends_on:
+      - engine
 
 volumes:
   engine-data:

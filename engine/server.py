@@ -66,8 +66,12 @@ app.add_middleware(
 # Bearer token auth middleware
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
-    # Skip auth for health check and OPTIONS
-    if request.url.path == "/api/health" or request.method == "OPTIONS":
+    # Skip auth for health check, OPTIONS, and auth endpoints
+    if (
+        request.url.path == "/api/health"
+        or request.method == "OPTIONS"
+        or request.url.path.startswith("/api/auth/")
+    ):
         return await call_next(request)
 
     if settings.API_KEY:
@@ -97,6 +101,7 @@ from api.chat import router as chat_router
 from api.usage import router as usage_router
 from api.ops import router as ops_router
 from api.skills import router as skills_router
+from api.auth import router as auth_router
 
 app.include_router(workspace_router)
 app.include_router(agents_router)
@@ -107,6 +112,7 @@ app.include_router(chat_router)
 app.include_router(usage_router)
 app.include_router(ops_router)
 app.include_router(skills_router)
+app.include_router(auth_router)
 
 
 if __name__ == "__main__":

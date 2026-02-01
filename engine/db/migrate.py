@@ -7,7 +7,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 
 async def run_migrations(db: aiosqlite.Connection) -> None:

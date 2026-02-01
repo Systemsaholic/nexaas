@@ -144,3 +144,23 @@ CREATE TABLE IF NOT EXISTS ops_health_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_ops_alerts_severity ON ops_alerts(severity, created_at);
 CREATE INDEX IF NOT EXISTS idx_ops_health_snapshots_at ON ops_health_snapshots(snapshot_at);
+
+-- ---------------------------------------------------------------------------
+-- Auth
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS companies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);

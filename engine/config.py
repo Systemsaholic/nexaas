@@ -12,7 +12,6 @@ class Settings:
 
     WORKSPACE_ROOT: str = os.getenv("WORKSPACE_ROOT", ".")
     API_KEY: str = os.getenv("API_KEY", "")
-    CLAUDE_API_KEY: str = os.getenv("CLAUDE_API_KEY", "")
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/mission_control.db")
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8400"))
@@ -27,6 +26,9 @@ class Settings:
     # Framework & Claude Code
     FRAMEWORK_ROOT: str = os.getenv("FRAMEWORK_ROOT", "framework")
     CLAUDE_CODE_PATH: str = os.getenv("CLAUDE_CODE_PATH", "claude")
+
+    # Auth
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")
 
     # Ops monitor
     OPS_MONITOR_ENABLED: bool = os.getenv("OPS_MONITOR_ENABLED", "true").lower() in ("true", "1", "yes")
