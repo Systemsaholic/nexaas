@@ -14,8 +14,9 @@ import httpx
 from config import settings
 from db.database import get_db
 from db.usage import record_usage
-from engine.event_bus import publish
-from engine.job_queue import dequeue, complete_job
+from orchestrator.event_bus import publish
+from orchestrator.job_queue import dequeue, complete_job
+from orchestrator.session_manager import manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,40 +25,111 @@ _tasks: list[asyncio.Task] = []
 
 
 async def _execute_claude_chat(config: dict[str, Any]) -> str:
-    """Execute a Claude API chat action."""
-    try:
-        import anthropic
-    except ImportError:
-        return "error: anthropic package not installed"
-
-    api_key = config.get("api_key") or settings.CLAUDE_API_KEY
-    if not api_key:
-        return "error: no Claude API key configured"
-
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    """Execute a Claude Code chat action."""
+    agent = config.get("agent", "default")
+    prompt = config.get("prompt", "")
     messages = config.get("messages", [])
-    if not messages and config.get("prompt"):
-        messages = [{"role": "user", "content": config["prompt"]}]
 
-    model_used = config.get("model", "claude-sonnet-4-20250514")
-    response = await client.messages.create(
-        model=model_used,
-        max_tokens=config.get("max_tokens", 4096),
-        system=config.get("system", ""),
-        messages=messages,
-    )
+    if not prompt and messages:
+        # Combine messages into a single prompt
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                parts.insert(0, f"[System]: {content}")
+            else:
+                parts.append(content)
+        prompt = "\n\n".join(parts)
 
-    # Track usage
-    usage = response.usage
-    await record_usage(
-        source="event_engine",
-        model=model_used,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        agent=config.get("agent"),
-    )
+    if not prompt:
+        return "error: no prompt or messages provided"
 
-    return response.content[0].text if response.content else ""
+    session_id = manager.create_session(agent=agent)
+    try:
+        output_parts = []
+        total_input_tokens = 0
+        total_output_tokens = 0
+        model_used = "claude-code"
+
+        async for line in manager.send_message(session_id, prompt):
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            msg_type = chunk.get("type")
+
+            if msg_type == "assistant" and "message" in chunk:
+                msg = chunk["message"]
+                if isinstance(msg, dict):
+                    for block in msg.get("content", []):
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            output_parts.append(block.get("text", ""))
+                    usage = msg.get("usage", {})
+                    total_input_tokens += usage.get("input_tokens", 0)
+                    total_output_tokens += usage.get("output_tokens", 0)
+                    if msg.get("model"):
+                        model_used = msg["model"]
+
+            elif msg_type == "result":
+                result_text = chunk.get("result", "")
+                if result_text and not output_parts:
+                    output_parts.append(result_text)
+                usage = chunk.get("usage", {})
+                total_input_tokens += usage.get("input_tokens", 0)
+                total_output_tokens += usage.get("output_tokens", 0)
+                if chunk.get("model"):
+                    model_used = chunk["model"]
+
+        # Track usage
+        if total_input_tokens or total_output_tokens:
+            await record_usage(
+                source="event_engine",
+                model=model_used,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
+                agent=agent,
+            )
+
+        return "".join(output_parts)
+    finally:
+        await manager.destroy_session(session_id)
+
+
+async def _execute_skill(config: dict[str, Any]) -> str:
+    """Execute a skill via Claude Code session."""
+    skill_name = config.get("skill", "")
+    if not skill_name:
+        return "error: no skill name specified"
+
+    agent = config.get("agent", "default")
+    prompt = f"Execute the skill: {skill_name}"
+    if config.get("input"):
+        prompt += f"\n\nInput: {config['input']}"
+
+    session_id = manager.create_session(agent=agent)
+    try:
+        output_parts = []
+        async for line in manager.send_message(session_id, prompt):
+            try:
+                chunk = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("type") == "result":
+                result_text = chunk.get("result", "")
+                if result_text:
+                    output_parts.append(result_text)
+            elif chunk.get("type") == "assistant" and "message" in chunk:
+                msg = chunk["message"]
+                if isinstance(msg, dict):
+                    for block in msg.get("content", []):
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            output_parts.append(block.get("text", ""))
+
+        return "".join(output_parts) or "Skill executed (no output)"
+    finally:
+        await manager.destroy_session(session_id)
 
 
 async def _execute_script(config: dict[str, Any]) -> str:
@@ -105,6 +177,7 @@ async def _execute_webhook(config: dict[str, Any]) -> str:
 
 EXECUTORS = {
     "claude_chat": _execute_claude_chat,
+    "skill": _execute_skill,
     "script": _execute_script,
     "webhook": _execute_webhook,
 }

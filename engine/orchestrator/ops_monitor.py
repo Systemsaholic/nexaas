@@ -10,7 +10,7 @@ import httpx
 
 from config import settings
 from db.database import get_db
-from engine.event_bus import publish
+from orchestrator.event_bus import publish
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def _prune_timestamps(timestamps: list[float], window_s: int = 600) -> list[floa
 
 async def _check_engine() -> tuple[bool, bool]:
     """Check engine health. Returns (is_running, was_healed)."""
-    from engine import event_engine
+    from orchestrator import event_engine
 
     if event_engine._running and event_engine._task and not event_engine._task.done():
         return True, False
@@ -96,7 +96,7 @@ async def _check_engine() -> tuple[bool, bool]:
 
 async def _check_workers() -> tuple[int, int, bool]:
     """Check worker health. Returns (total, alive, was_healed)."""
-    from engine import workers
+    from orchestrator import workers
 
     total = len(workers._tasks)
     alive = sum(1 for t in workers._tasks if not t.done())
@@ -302,7 +302,7 @@ async def stop() -> None:
 # Manual heal actions (called from API)
 
 async def heal_restart_workers() -> str:
-    from engine import workers
+    from orchestrator import workers
     if workers._running:
         await workers.stop()
     workers.start()
@@ -311,7 +311,7 @@ async def heal_restart_workers() -> str:
 
 
 async def heal_restart_engine() -> str:
-    from engine import event_engine
+    from orchestrator import event_engine
     if event_engine._running:
         await event_engine.stop()
     event_engine.start()

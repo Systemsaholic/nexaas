@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from engine.job_queue import get_queue_status
+from orchestrator.job_queue import get_queue_status
 
 router = APIRouter(prefix="/api", tags=["queue"])
 

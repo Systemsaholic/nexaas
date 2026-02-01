@@ -1,4 +1,4 @@
-"""Gateway configuration loaded from environment variables."""
+"""Engine configuration loaded from environment variables."""
 
 import os
 from pathlib import Path
@@ -24,6 +24,10 @@ class Settings:
         if o.strip()
     ]
 
+    # Framework & Claude Code
+    FRAMEWORK_ROOT: str = os.getenv("FRAMEWORK_ROOT", "framework")
+    CLAUDE_CODE_PATH: str = os.getenv("CLAUDE_CODE_PATH", "claude")
+
     # Ops monitor
     OPS_MONITOR_ENABLED: bool = os.getenv("OPS_MONITOR_ENABLED", "true").lower() in ("true", "1", "yes")
     OPS_MONITOR_INTERVAL_S: int = int(os.getenv("OPS_MONITOR_INTERVAL_S", "30"))
@@ -34,6 +38,10 @@ class Settings:
     @property
     def workspace_path(self) -> Path:
         return Path(self.WORKSPACE_ROOT).resolve()
+
+    @property
+    def framework_path(self) -> Path:
+        return Path(self.FRAMEWORK_ROOT).resolve()
 
     @property
     def database_path(self) -> Path:

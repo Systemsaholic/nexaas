@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
 /**
- * Server-side proxy for gateway API calls.
+ * Server-side proxy for engine API calls.
  * The client sends requests here; this route adds the API key and
- * forwards to the actual gateway, keeping the key server-side.
+ * forwards to the actual engine, keeping the key server-side.
  *
- * Usage: POST /api/gateway/proxy
+ * Usage: POST /api/engine/proxy
  * Body: { path: "/workspace", method?: "GET", body?: {...} }
  */
 export async function POST(req: NextRequest) {
-  const gatewayUrl = process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL;
-  const gatewayKey = process.env.DEFAULT_GATEWAY_KEY;
+  const engineUrl = process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL;
+  const engineKey = process.env.DEFAULT_GATEWAY_KEY;
 
-  if (!gatewayUrl || !gatewayKey) {
+  if (!engineUrl || !engineKey) {
     return NextResponse.json(
       { error: "Gateway not configured" },
       { status: 503 }
@@ -43,13 +43,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden path" }, { status: 403 });
   }
 
-  const targetUrl = `${gatewayUrl}/api${path}`;
+  const targetUrl = `${engineUrl}/api${path}`;
 
   try {
     const res = await fetch(targetUrl, {
       method,
       headers: {
-        Authorization: `Bearer ${gatewayKey}`,
+        Authorization: `Bearer ${engineKey}`,
         "Content-Type": "application/json",
       },
       ...(body && method !== "GET" ? { body: JSON.stringify(body) } : {}),

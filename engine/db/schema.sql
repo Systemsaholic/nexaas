@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     started_at TEXT NOT NULL,
     last_message_at TEXT,
     status TEXT DEFAULT 'active',
-    metadata TEXT
+    metadata TEXT,
+    claude_session_id TEXT,
+    session_type TEXT DEFAULT 'claude_code'
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (

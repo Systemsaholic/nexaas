@@ -55,7 +55,7 @@ export default function ContentEditor({
   config: ContentEditorConfig;
   title?: string;
 }) {
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [drafts, setDrafts] = useState<ContentDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);

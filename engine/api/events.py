@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from db.database import get_db
-from engine.event_bus import create_sse_queue, remove_sse_queue, publish
+from orchestrator.event_bus import create_sse_queue, remove_sse_queue, publish
 
 router = APIRouter(prefix="/api", tags=["events"])
 

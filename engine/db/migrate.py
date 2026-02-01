@@ -7,7 +7,7 @@ import aiosqlite
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 
 async def run_migrations(db: aiosqlite.Connection) -> None:
@@ -27,8 +27,27 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
 
     if current < CURRENT_VERSION:
         logger.info("Migrating schema from v%d to v%d", current, CURRENT_VERSION)
+
+        # Re-run base schema (idempotent CREATE IF NOT EXISTS)
         schema_path = Path(__file__).parent / "schema.sql"
         await db.executescript(schema_path.read_text())
+
+        # Apply incremental migrations
+        migrations_dir = Path(__file__).parent / "migrations"
+        for version in range(current + 1, CURRENT_VERSION + 1):
+            migration_file = migrations_dir / f"{version:03d}_*.sql"
+            # Find the matching file
+            matches = list(migrations_dir.glob(f"{version:03d}_*.sql"))
+            for mf in matches:
+                logger.info("Applying migration: %s", mf.name)
+                try:
+                    await db.executescript(mf.read_text())
+                except Exception as exc:
+                    # Column already exists is OK for idempotent migrations
+                    if "duplicate column" in str(exc).lower():
+                        logger.debug("Migration %s: column already exists, skipping", mf.name)
+                    else:
+                        raise
 
         if current == 0:
             await db.execute(

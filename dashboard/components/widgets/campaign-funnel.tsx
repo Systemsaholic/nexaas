@@ -141,7 +141,7 @@ export default function CampaignFunnel({
   config: CampaignFunnelConfig;
   title?: string;
 }) {
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);

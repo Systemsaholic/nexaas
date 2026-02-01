@@ -61,10 +61,10 @@ export const useChatStore = create<ChatStoreState>()((set, get) => ({
       return sessionId;
     }
 
-    // We import GatewayClient here to avoid circular dep at module level
+    // We import EngineClient here to avoid circular dep at module level
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { GatewayClient } = require("../gateway-client") as typeof import("../gateway-client");
-    const client = new GatewayClient(config.url, config.apiKey);
+    const { EngineClient } = require("../engine-client") as typeof import("../engine-client");
+    const client = new EngineClient(config.url, config.apiKey);
 
     set((state) => {
       const next = new Map(state.sessions);

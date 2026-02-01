@@ -55,7 +55,7 @@ export default function EmailDrafts({
   config: EmailDraftsConfig;
   title?: string;
 }) {
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);

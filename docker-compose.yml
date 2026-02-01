@@ -1,6 +1,6 @@
 services:
-  gateway:
-    build: ./gateway
+  engine:
+    build: ./engine
     ports:
       - "8400:8400"
     environment:
@@ -12,8 +12,8 @@ services:
       - CLAUDE_API_KEY=${ANTHROPIC_API_KEY:-}
       - CORS_ORIGINS=*
     volumes:
-      - ./sample-workspace:/workspace
-      - gateway-data:/app/data
+      - .:/workspace
+      - engine-data:/app/data
 
 volumes:
-  gateway-data:
+  engine-data:

@@ -18,7 +18,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   // Subscribe to SSE for critical ops alerts
   useEffect(() => {
     if (connectionStatus !== "connected") return
-    const client = useWorkspaceStore.getState().getActiveGatewayClient()
+    const client = useWorkspaceStore.getState().getActiveEngineClient()
     if (!client) return
     // Fetch initial alerts for badge count
     useOpsStore.getState().fetchAlerts()
@@ -38,7 +38,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   // Bootstrap default gateway from server-side config endpoint
   useEffect(() => {
     if (gateways.size > 0) return
-    fetch("/api/gateway/config")
+    fetch("/api/engine/config")
       .then((res) => res.json())
       .then((data: { id: string; name: string; url: string; apiKey: string }) => {
         if (data.url && data.apiKey) {

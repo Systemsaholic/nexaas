@@ -62,7 +62,7 @@ export default function AdminOpsPage() {
   // Bootstrap gateway if needed (same pattern as workspace pages)
   useEffect(() => {
     if (gateways.size > 0) return;
-    fetch("/api/gateway/config")
+    fetch("/api/engine/config")
       .then((res) => res.json())
       .then((data: { id: string; name: string; url: string; apiKey: string }) => {
         if (data.url && data.apiKey) {
@@ -93,7 +93,7 @@ export default function AdminOpsPage() {
 
   // SSE subscription for real-time alerts
   useEffect(() => {
-    const client = useWorkspaceStore.getState().getActiveGatewayClient();
+    const client = useWorkspaceStore.getState().getActiveEngineClient();
     if (!client) return;
     const es = client.subscribeEvents((event) => {
       const data = event as unknown as Record<string, unknown>;

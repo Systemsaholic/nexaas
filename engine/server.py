@@ -21,16 +21,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    logger.info("Starting AI Mission Control Gateway on %s:%d", settings.HOST, settings.PORT)
+    logger.info("Starting AI Mission Control Engine on %s:%d", settings.HOST, settings.PORT)
 
     # Initialize database
     from db.database import init_db, close_db
     await init_db()
 
     # Start engine and workers
-    from engine.event_engine import start as start_engine, stop as stop_engine
-    from engine.workers import start as start_workers, stop as stop_workers
-    from engine.ops_monitor import start as start_ops, stop as stop_ops
+    from orchestrator.event_engine import start as start_engine, stop as stop_engine
+    from orchestrator.workers import start as start_workers, stop as stop_workers
+    from orchestrator.ops_monitor import start as start_ops, stop as stop_ops
     start_engine()
     start_workers()
     start_ops()
@@ -39,6 +39,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down...")
+    from orchestrator.session_manager import manager
+    await manager.shutdown()
     await stop_ops()
     await stop_engine()
     await stop_workers()
@@ -46,7 +48,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI Mission Control Gateway",
+    title="AI Mission Control Engine",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -94,6 +96,7 @@ from api.queue import router as queue_router
 from api.chat import router as chat_router
 from api.usage import router as usage_router
 from api.ops import router as ops_router
+from api.skills import router as skills_router
 
 app.include_router(workspace_router)
 app.include_router(agents_router)
@@ -103,6 +106,7 @@ app.include_router(queue_router)
 app.include_router(chat_router)
 app.include_router(usage_router)
 app.include_router(ops_router)
+app.include_router(skills_router)
 
 
 if __name__ == "__main__":

@@ -81,7 +81,7 @@ export default function SocialPostsGrid({
   config: SocialPostsGridConfig;
   title?: string;
 }) {
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);

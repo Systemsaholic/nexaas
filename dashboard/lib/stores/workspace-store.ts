@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { GatewayClient } from "../gateway-client";
-import type { Agent, Workspace } from "../types";
+import { EngineClient } from "../engine-client";
+import type { Agent, Skill, Workspace } from "../types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,6 +20,7 @@ interface WorkspaceState {
   workspace: Workspace | null;
   activePerspectiveId: string | null;
   agents: Agent[];
+  skills: Skill[];
   connectionStatus: ConnectionStatus;
 
   // Actions
@@ -29,20 +30,20 @@ interface WorkspaceState {
   setActivePerspective: (perspectiveId: string) => void;
 
   // Helpers
-  getActiveGatewayClient: () => GatewayClient | null;
+  getActiveEngineClient: () => EngineClient | null;
 }
 
 // ---------------------------------------------------------------------------
 // Client cache – avoids recreating clients on every access
 // ---------------------------------------------------------------------------
 
-const clientCache = new Map<string, GatewayClient>();
+const clientCache = new Map<string, EngineClient>();
 
-function getOrCreateClient(config: GatewayConfig): GatewayClient {
+function getOrCreateClient(config: GatewayConfig): EngineClient {
   const key = `${config.url}::${config.apiKey}`;
   let client = clientCache.get(key);
   if (!client) {
-    client = new GatewayClient(config.url, config.apiKey);
+    client = new EngineClient(config.url, config.apiKey);
     clientCache.set(key, client);
   }
   return client;
@@ -58,6 +59,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   workspace: null,
   activePerspectiveId: null,
   agents: [],
+  skills: [],
   connectionStatus: "disconnected",
 
   addGateway(id, config) {
@@ -82,6 +84,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
               workspace: null,
               activePerspectiveId: null,
               agents: [],
+              skills: [],
               connectionStatus: "disconnected" as const,
             }
           : {}),
@@ -93,13 +96,14 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     const config = get().gateways.get(id);
     if (!config) return;
 
-    set({ activeWorkspaceId: id, connectionStatus: "connecting", workspace: null, agents: [] });
+    set({ activeWorkspaceId: id, connectionStatus: "connecting", workspace: null, agents: [], skills: [] });
 
     try {
       const client = getOrCreateClient(config);
-      const [workspace, agents] = await Promise.all([
+      const [workspace, agents, skills] = await Promise.all([
         client.getWorkspace(),
         client.getAgents(),
+        client.getSkills().catch(() => [] as Skill[]),
       ]);
 
       const defaultPerspective = workspace.perspectives[0]?.id ?? null;
@@ -107,6 +111,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
       set({
         workspace,
         agents,
+        skills,
         activePerspectiveId: defaultPerspective,
         connectionStatus: "connected",
       });
@@ -120,7 +125,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     set({ activePerspectiveId: perspectiveId });
   },
 
-  getActiveGatewayClient() {
+  getActiveEngineClient() {
     const { activeWorkspaceId, gateways } = get();
     if (!activeWorkspaceId) return null;
     const config = gateways.get(activeWorkspaceId);

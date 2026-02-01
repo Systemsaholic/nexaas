@@ -57,7 +57,7 @@ export default function RegistryTable({
   title?: string;
 }) {
   const searchable = config.searchable !== false;
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [registry, setRegistry] = useState<RegistryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");

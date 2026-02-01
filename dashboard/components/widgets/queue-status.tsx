@@ -54,7 +54,7 @@ export default function QueueStatus({
   config: QueueStatusConfig;
   title?: string;
 }) {
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [data, setData] = useState<QueueData | null>(null);
   const [loading, setLoading] = useState(true);
 

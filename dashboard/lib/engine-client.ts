@@ -7,21 +7,22 @@ import type {
   OpsHealthSnapshot,
   QueueStatus,
   RegistryEntry,
+  Skill,
   Workspace,
 } from "./types";
 
-export class GatewayClientError extends Error {
+export class EngineClientError extends Error {
   constructor(
     message: string,
     public status: number,
     public body?: unknown,
   ) {
     super(message);
-    this.name = "GatewayClientError";
+    this.name = "EngineClientError";
   }
 }
 
-export class GatewayClient {
+export class EngineClient {
   private baseUrl: string;
   private apiKey: string;
 
@@ -55,8 +56,8 @@ export class GatewayClient {
       } catch {
         body = await res.text().catch(() => null);
       }
-      throw new GatewayClientError(
-        `Gateway request failed: ${res.status} ${res.statusText}`,
+      throw new EngineClientError(
+        `Engine request failed: ${res.status} ${res.statusText}`,
         res.status,
         body,
       );
@@ -172,6 +173,21 @@ export class GatewayClient {
     return this.request<{ action: string; result: string }>(`/ops/heal/${encodeURIComponent(action)}`, {
       method: "POST",
     });
+  }
+
+  // -----------------------------------------------------------------------
+  // Skills
+  // -----------------------------------------------------------------------
+
+  async getSkills(): Promise<Skill[]> {
+    return this.request<Skill[]>("/skills");
+  }
+
+  async executeSkill(name: string): Promise<{ skill: string; result: string }> {
+    return this.request<{ skill: string; result: string }>(
+      `/skills/${encodeURIComponent(name)}/execute`,
+      { method: "POST" },
+    );
   }
 
   // -----------------------------------------------------------------------

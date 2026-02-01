@@ -24,7 +24,7 @@ export const useOpsStore = create<OpsState>()((set, get) => ({
   unacknowledgedCriticalCount: 0,
 
   async fetchHealth() {
-    const client = useWorkspaceStore.getState().getActiveGatewayClient();
+    const client = useWorkspaceStore.getState().getActiveEngineClient();
     if (!client) return;
     try {
       const health = await client.getOpsHealth();
@@ -35,7 +35,7 @@ export const useOpsStore = create<OpsState>()((set, get) => ({
   },
 
   async fetchAlerts(limit?: number, severity?: string) {
-    const client = useWorkspaceStore.getState().getActiveGatewayClient();
+    const client = useWorkspaceStore.getState().getActiveEngineClient();
     if (!client) return;
     set({ loading: true, error: null });
     try {
@@ -50,7 +50,7 @@ export const useOpsStore = create<OpsState>()((set, get) => ({
   },
 
   async acknowledge(id: number) {
-    const client = useWorkspaceStore.getState().getActiveGatewayClient();
+    const client = useWorkspaceStore.getState().getActiveEngineClient();
     if (!client) return;
     try {
       await client.acknowledgeAlert(id);
@@ -69,7 +69,7 @@ export const useOpsStore = create<OpsState>()((set, get) => ({
   },
 
   async heal(action: string) {
-    const client = useWorkspaceStore.getState().getActiveGatewayClient();
+    const client = useWorkspaceStore.getState().getActiveEngineClient();
     if (!client) throw new Error("No gateway client");
     const res = await client.triggerHeal(action);
     return res.result;

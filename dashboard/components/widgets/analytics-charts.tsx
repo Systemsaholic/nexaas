@@ -29,7 +29,7 @@ export default function AnalyticsCharts({
   config: AnalyticsChartsConfig;
   title?: string;
 }) {
-  const client = useWorkspaceStore((s) => s.getActiveGatewayClient());
+  const client = useWorkspaceStore((s) => s.getActiveEngineClient());
   const [data, setData] = useState<UsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
