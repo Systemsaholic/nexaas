@@ -13,7 +13,7 @@ if [[ "$MODE" != "demo" && "$MODE" != "fresh" ]]; then
   exit 1
 fi
 
-echo "=== AI Mission Control — Deploy ($MODE mode) ==="
+echo "=== Nexaas — Deploy ($MODE mode) ==="
 echo ""
 
 # 1. Check prerequisites
@@ -104,7 +104,7 @@ bash scripts/health-check.sh --docker || true
 # 10. Summary
 echo ""
 echo "========================================="
-echo "  AI Mission Control is running!"
+echo "  Nexaas is running!"
 echo "========================================="
 echo ""
 echo "  Mode:      $MODE"

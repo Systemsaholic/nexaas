@@ -12,7 +12,7 @@ class Settings:
 
     WORKSPACE_ROOT: str = os.getenv("WORKSPACE_ROOT", ".")
     API_KEY: str = os.getenv("API_KEY", "")
-    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/mission_control.db")
+    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "data/nexaas.db")
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8400"))
     ENGINE_TICK_SECONDS: int = int(os.getenv("ENGINE_TICK_SECONDS", "30"))

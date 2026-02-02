@@ -1,6 +1,6 @@
 # Deploy Engine
 
-You are deploying or updating the AI Mission Control engine service. This assumes a Linux server with systemd.
+You are deploying or updating the Nexaas engine service. This assumes a Linux server with systemd.
 
 ## Step 1: Environment Check
 
@@ -15,16 +15,16 @@ Also check:
 - Python 3.11+ is installed
 - Node.js 22+ is installed (for Claude Code CLI)
 - The current workspace has a valid `workspace.yaml`
-- Identify the engine source directory (the `engine/` directory in the ai-mission-control repo)
+- Identify the engine source directory (the `engine/` directory in the nexaas repo)
 
-Ask the user to confirm the deployment target directory (default: `/opt/mission-control/engine`).
+Ask the user to confirm the deployment target directory (default: `/opt/nexaas/engine`).
 
 ## Step 2: Copy Engine Files
 
 ```bash
-sudo mkdir -p /opt/mission-control/engine
-sudo cp -r {engine_source}/* /opt/mission-control/engine/
-sudo cp {workspace_root}/workspace.yaml /opt/mission-control/engine/
+sudo mkdir -p /opt/nexaas/engine
+sudo cp -r {engine_source}/* /opt/nexaas/engine/
+sudo cp {workspace_root}/workspace.yaml /opt/nexaas/engine/
 ```
 
 Ensure the workspace database path is correctly referenced. Ask the user for the workspace root path on the server if different from local.
@@ -32,7 +32,7 @@ Ensure the workspace database path is correctly referenced. Ask the user for the
 ## Step 3: Create/Update Virtual Environment
 
 ```bash
-cd /opt/mission-control/engine
+cd /opt/nexaas/engine
 sudo python3 -m venv .venv
 sudo ./.venv/bin/pip install --upgrade pip
 sudo ./.venv/bin/pip install -r requirements.txt
@@ -56,10 +56,10 @@ If it exists, check for and apply any pending migrations:
 
 ## Step 6: Configure Environment
 
-Create or update `/opt/mission-control/engine/.env`:
+Create or update `/opt/nexaas/engine/.env`:
 ```
 WORKSPACE_ROOT={workspace_root_on_server}
-DATABASE_PATH={workspace_root_on_server}/data/mission_control.db
+DATABASE_PATH={workspace_root_on_server}/data/nexaas.db
 HOST=0.0.0.0
 PORT=8400
 JWT_SECRET={generate_a_random_secret}

@@ -55,7 +55,7 @@ Read `.mcp.json`:
 
 ### 5. Database Integrity
 
-Check `data/mission_control.db`:
+Check `data/nexaas.db`:
 - [ ] File exists
 - [ ] SQLite can open it without errors
 - [ ] Required tables exist: `events`, `jobs`, `agent_logs`

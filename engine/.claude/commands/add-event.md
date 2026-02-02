@@ -96,7 +96,7 @@ INSERT INTO events (name, type, condition, action_type, action_config, priority,
 VALUES ('{name}', '{type}', '{condition}', '{action_type}', '{action_config_json}', {priority}, '{key}', {retries});
 ```
 
-Use the database at `{workspace_root}/data/mission_control.db`.
+Use the database at `{workspace_root}/data/nexaas.db`.
 
 ## Completion
 

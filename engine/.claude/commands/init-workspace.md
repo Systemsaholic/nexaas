@@ -1,6 +1,6 @@
 # Initialize Workspace
 
-You are bootstrapping a new AI Mission Control workspace. Walk through each step interactively, confirming with the user before proceeding.
+You are bootstrapping a new Nexaas workspace. Walk through each step interactively, confirming with the user before proceeding.
 
 ## Step 1: Gather Business Context
 
@@ -69,7 +69,7 @@ perspectives:
 Create `{workspace_root}/CLAUDE.md` with business context, workspace conventions, and instructions for Claude Code when working in this workspace:
 
 ```markdown
-# {Business Name} - AI Mission Control Workspace
+# {Business Name} - Nexaas Workspace
 
 ## Business Context
 {business_description}
@@ -97,7 +97,7 @@ Copy the gateway's `.claude/commands/` directory contents into `{workspace_root}
 
 ## Step 6: Initialize SQLite Database
 
-Create the SQLite database at `{workspace_root}/data/mission_control.db` with the core schema:
+Create the SQLite database at `{workspace_root}/data/nexaas.db` with the core schema:
 
 ```sql
 CREATE TABLE IF NOT EXISTS events (

@@ -1,12 +1,12 @@
 [Unit]
-Description=AI Mission Control Engine
+Description=Nexaas Engine
 After=network.target
 
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/mission-control/engine
-ExecStart=/opt/mission-control/engine/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 8400
+WorkingDirectory=/opt/nexaas/engine
+ExecStart=/opt/nexaas/engine/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 8400
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1

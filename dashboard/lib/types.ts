@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Gateway API types for AI Mission Control
+// Gateway API types for Nexaas
 // ---------------------------------------------------------------------------
 
 export interface Workspace {

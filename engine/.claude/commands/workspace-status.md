@@ -55,7 +55,7 @@ Perspectives (N total):
 ```
 
 ### 6. Events
-Query the SQLite database at `data/mission_control.db`:
+Query the SQLite database at `data/nexaas.db`:
 ```sql
 SELECT type, COUNT(*) as count, SUM(enabled) as active FROM events GROUP BY type;
 ```
@@ -98,7 +98,7 @@ Display:
 Present everything in a clean, structured format:
 
 ```
-=== AI Mission Control: {Workspace Name} ===
+=== Nexaas: {Workspace Name} ===
 {description}
 
 Agents:       {N} total

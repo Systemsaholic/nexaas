@@ -23,7 +23,7 @@ check() {
   fi
 }
 
-echo "=== AI Mission Control Health Check ==="
+echo "=== Nexaas Health Check ==="
 echo ""
 
 # Engine health

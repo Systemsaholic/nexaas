@@ -1,4 +1,4 @@
-# AI Mission Control
+# Nexaas
 
 A platform for orchestrating and monitoring AI agent workspaces with built-in authentication, deployment tooling, and self-healing operations.
 
@@ -93,7 +93,7 @@ The dashboard proxies auth through `/api/auth/*`, storing the JWT in an httpOnly
 |----------|---------|-------------|
 | `API_KEY` | _(required)_ | Bearer token for API access |
 | `JWT_SECRET` | `change-me-in-production` | Secret for signing JWTs |
-| `DATABASE_PATH` | `data/mission_control.db` | SQLite database location |
+| `DATABASE_PATH` | `data/nexaas.db` | SQLite database location |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `8400` | Listen port |
 | `WORKSPACE_ROOT` | `.` | Root directory for workspaces |

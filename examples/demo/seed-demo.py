@@ -6,7 +6,7 @@ import json
 import random
 from datetime import datetime, timedelta, timezone
 
-DB_PATH = "/app/data/mission_control.db"
+DB_PATH = "/app/data/nexaas.db"
 
 now = datetime.now(timezone.utc)
 

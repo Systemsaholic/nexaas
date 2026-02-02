@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown lifecycle."""
-    logger.info("Starting AI Mission Control Engine on %s:%d", settings.HOST, settings.PORT)
+    logger.info("Starting Nexaas Engine on %s:%d", settings.HOST, settings.PORT)
 
     # Initialize database
     from db.database import init_db, close_db
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="AI Mission Control Engine",
+    title="Nexaas Engine",
     version="0.1.0",
     lifespan=lifespan,
 )

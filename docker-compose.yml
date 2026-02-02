@@ -8,7 +8,7 @@ services:
       - HOST=0.0.0.0
       - PORT=8400
       - WORKSPACE_ROOT=/workspace
-      - DATABASE_PATH=/app/data/mission_control.db
+      - DATABASE_PATH=/app/data/nexaas.db
       - CORS_ORIGINS=*
     volumes:
       - ./workspace:/workspace
