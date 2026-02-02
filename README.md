@@ -10,16 +10,21 @@ A platform for orchestrating and monitoring AI agent workspaces with built-in au
 ## Quick Start (Docker)
 
 ```bash
+# Fresh workspace (default) — blank slate, ready to customize
 ./deploy.sh
+
+# Demo mode — pre-loaded BrightWave Digital agency data
+./deploy.sh demo
 ```
 
 This will:
 1. Check prerequisites (Docker, Docker Compose)
 2. Generate a `.env` file with random API key and JWT secret
-3. Build and start both services
-4. Wait for the engine to become healthy
-5. Optionally authenticate Claude Code and seed demo data
-6. Run health checks and print a summary
+3. Copy the selected template into `workspace/` (fresh or demo)
+4. Build and start both services
+5. Wait for the engine to become healthy
+6. Optionally authenticate Claude Code (and seed demo data in demo mode)
+7. Run health checks and print a summary
 
 Once running:
 
@@ -27,6 +32,26 @@ Once running:
 - **Engine API**: http://localhost:8400
 
 The first user to register creates the company and becomes admin. Subsequent registrations join as members.
+
+### Switching Modes
+
+To switch between fresh and demo modes, remove the workspace and redeploy:
+
+```bash
+docker compose down -v
+rm -rf workspace/
+./deploy.sh demo   # or ./deploy.sh for fresh
+```
+
+### Customizing Your Workspace
+
+Edit files in `workspace/` to configure your deployment:
+
+- `workspace/workspace.yaml` — perspectives, pages, and dashboard layout
+- `workspace/agents/` — agent definitions
+- `workspace/registries/` — data registries
+
+The `workspace/` directory is gitignored so your local configuration stays private.
 
 ## Manual Setup
 
@@ -108,6 +133,19 @@ Checks engine health, database access, container status (Docker mode), and dashb
 ## Architecture
 
 ```
+examples/demo/          BrightWave Digital demo data
+  workspace.yaml        Demo workspace config
+  agents/               Demo agent definitions
+  registries/           Demo data registries
+  seed-demo.py          Database seeder for demo mode
+
+templates/fresh/        Blank workspace template
+  workspace.yaml        Minimal workspace config
+  agents/               Empty (add your agents here)
+  registries/           Empty (add your registries here)
+
+workspace/              Active workspace (gitignored, created by deploy.sh)
+
 dashboard/              Next.js 16 frontend
   app/                  App router pages
     login/              Login page
@@ -128,6 +166,6 @@ engine/                 FastAPI backend
 scripts/
   health-check.sh       System health verification
 
-deploy.sh               One-command Docker deployment
+deploy.sh               One-command Docker deployment (accepts demo|fresh)
 docker-compose.yml      Engine + Dashboard services
 ```

@@ -11,7 +11,7 @@ services:
       - DATABASE_PATH=/app/data/mission_control.db
       - CORS_ORIGINS=*
     volumes:
-      - .:/workspace
+      - ./workspace:/workspace
       - engine-data:/app/data
       - ~/.claude:/root/.claude
 

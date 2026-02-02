@@ -4,7 +4,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "=== AI Mission Control — Deploy ==="
+MODE="${1:-fresh}"
+
+if [[ "$MODE" != "demo" && "$MODE" != "fresh" ]]; then
+  echo "Usage: ./deploy.sh [demo|fresh]"
+  echo "  fresh  — blank workspace (default)"
+  echo "  demo   — BrightWave Digital sample data"
+  exit 1
+fi
+
+echo "=== AI Mission Control — Deploy ($MODE mode) ==="
 echo ""
 
 # 1. Check prerequisites
@@ -33,16 +42,31 @@ else
   set -a; source .env; set +a
 fi
 
-# 3. Build
+# 3. Prepare workspace
+if [ -d workspace ]; then
+  echo "Using existing workspace/"
+else
+  echo "Initializing workspace from $MODE template..."
+  if [ "$MODE" = "demo" ]; then
+    cp -r examples/demo/ workspace/
+  else
+    cp -r templates/fresh/ workspace/
+  fi
+  # Remove .gitkeep files from workspace copy
+  find workspace -name '.gitkeep' -delete 2>/dev/null || true
+  echo "Workspace ready"
+fi
+
+# 4. Build
 echo ""
 echo "Building containers..."
 docker compose build
 
-# 4. Start
+# 5. Start
 echo "Starting services..."
 docker compose up -d
 
-# 5. Wait for engine health
+# 6. Wait for engine health
 echo -n "Waiting for engine"
 for i in $(seq 1 30); do
   if curl -sf http://localhost:8400/api/health &>/dev/null; then
@@ -58,31 +82,32 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# 6. Claude Code authentication (optional)
+# 7. Claude Code authentication (optional)
 echo ""
 read -rp "Authenticate Claude Code in engine container? [y/N] " auth_claude
 if [[ "$auth_claude" =~ ^[Yy] ]]; then
   docker compose exec -it engine claude login
 fi
 
-# 7. Seed demo data (optional)
-if [ -f engine/seed-demo.py ]; then
+# 8. Seed demo data (demo mode only)
+if [[ "$MODE" = "demo" && -f workspace/seed-demo.py ]]; then
   read -rp "Seed demo data? [y/N] " seed
   if [[ "$seed" =~ ^[Yy] ]]; then
-    docker compose exec engine python seed-demo.py
+    docker compose exec engine python /workspace/seed-demo.py
   fi
 fi
 
-# 8. Health check
+# 9. Health check
 echo ""
 bash scripts/health-check.sh --docker || true
 
-# 9. Summary
+# 10. Summary
 echo ""
 echo "========================================="
 echo "  AI Mission Control is running!"
 echo "========================================="
 echo ""
+echo "  Mode:      $MODE"
 echo "  Engine:    http://localhost:8400"
 echo "  Dashboard: http://localhost:3000"
 echo ""

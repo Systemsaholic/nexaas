@@ -1,0 +1,65 @@
+name: My Workspace
+description: A fresh AI Mission Control workspace
+
+registries: []
+
+perspectives:
+  - id: operations
+    name: Operations
+    icon: activity
+    default_page: overview
+    pages:
+      - id: overview
+        name: Overview
+        icon: "📊"
+        layout: grid
+        components:
+          - type: agent-tree
+            title: Agent Team
+            span: 6
+            config:
+              show_sub_agents: true
+          - type: event-timeline
+            title: Recent Activity
+            span: 6
+            config:
+              limit: 20
+      - id: chat
+        name: Chat
+        icon: "💬"
+        layout: single
+        components:
+          - type: agent-chat
+            title: Agent Chat
+            config:
+              show_tool_calls: true
+
+  - id: admin
+    name: Admin
+    icon: shield
+    default_page: overview
+    pages:
+      - id: overview
+        name: Overview
+        icon: "📊"
+        layout: grid
+        components:
+          - type: agent-tree
+            title: Agent Management
+            span: 6
+            config:
+              show_sub_agents: true
+          - type: event-timeline
+            title: Event Log
+            span: 6
+            config:
+              limit: 50
+      - id: queue
+        name: Queue
+        icon: "📋"
+        layout: grid
+        components:
+          - type: queue-status
+            title: Job Queue
+            config:
+              show_workers: true
