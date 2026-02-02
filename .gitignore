@@ -24,6 +24,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Playwright MCP
+.playwright-mcp/
+
 # SQLite
 *.db
 *.db-journal
