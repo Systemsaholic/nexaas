@@ -1,0 +1,38 @@
+name: docuseal
+description: E-signature and document management via DocuSeal.
+category: documents
+requires_env:
+  - DOCUSEAL_URL
+  - DOCUSEAL_API_KEY
+
+# Deployment
+# 1. You need a running DocuSeal instance (self-hosted or cloud).
+#    https://www.docuseal.co/ or https://github.com/docusealco/docuseal
+#
+# 2. Get your API key from:
+#      Settings → API → copy the API key
+#
+# 3. Add to .env:
+#      DOCUSEAL_URL=https://docuseal.yourdomain.com
+#      DOCUSEAL_API_KEY=your-api-key
+#
+#    The URL should be the root of your DocuSeal instance (no trailing slash).
+#    For DocuSeal Cloud, use https://api.docuseal.co
+#
+# 4. Enable in workspace.yaml:
+#      mcp_servers:
+#        - docuseal
+#
+# 5. Pass env vars through docker-compose.yml if not already:
+#      environment:
+#        - DOCUSEAL_URL=${DOCUSEAL_URL}
+#        - DOCUSEAL_API_KEY=${DOCUSEAL_API_KEY}
+
+config:
+  command: python
+  args:
+    - "-m"
+    - "docuseal_mcp"
+  env:
+    DOCUSEAL_URL: "${DOCUSEAL_URL}"
+    DOCUSEAL_API_KEY: "${DOCUSEAL_API_KEY}"

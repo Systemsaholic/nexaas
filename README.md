@@ -53,6 +53,39 @@ Edit files in `workspace/` to configure your deployment:
 
 The `workspace/` directory is gitignored so your local configuration stays private.
 
+## Framework
+
+The `framework/` directory contains workspace-agnostic defaults that ship with Nexaas:
+
+- **`agents/`** — default agents (e.g., `ops-monitor`) visible in every workspace
+- **`skills/`** — default skills (e.g., `health-check`) available to all agents
+- **`playbooks/`** — step-by-step guides for common tasks (adding agents, skills, registries, etc.)
+- **`templates/`** — skeleton files to copy into your workspace (agent configs, skills, registries, memory)
+- **`packages/`** — documentation for each Nexaas subsystem
+- **`GLOSSARY.md`** — standardized terminology
+
+### Framework / Workspace Merge
+
+The engine discovers agents and skills from both `framework/` and `workspace/`. When both define an item with the same name, **the workspace version wins**. This lets you override any framework default by creating a matching file in your workspace.
+
+### Getting Started
+
+See the playbooks in `framework/playbooks/`:
+
+1. [Initial Setup](framework/playbooks/01-initial-setup.md)
+2. [Add an Agent](framework/playbooks/02-add-agent.md)
+3. [Add a Skill](framework/playbooks/03-add-skill.md)
+4. [Add a Registry](framework/playbooks/04-add-registry.md)
+5. [Memory System](framework/playbooks/05-memory-system.md)
+6. [Custom Dashboard](framework/playbooks/06-custom-dashboard.md)
+7. [MCP Integration](framework/playbooks/07-mcp-integration.md)
+
+To customize, copy a template into your workspace:
+
+```bash
+cp framework/templates/agent-config.yaml workspace/agents/my-agent/config.yaml
+```
+
 ## Manual Setup
 
 ### Engine
@@ -133,16 +166,27 @@ Checks engine health, database access, container status (Docker mode), and dashb
 ## Architecture
 
 ```
+framework/              Workspace-agnostic defaults (tracked in git)
+  agents/               Default agents (ops-monitor)
+  skills/               Default skills (health-check)
+  playbooks/            Step-by-step guides
+  templates/            Skeleton files to copy into workspace
+  packages/             Subsystem documentation
+  scripts/              Validation tooling
+
 examples/demo/          BrightWave Digital demo data
   workspace.yaml        Demo workspace config
   agents/               Demo agent definitions
   registries/           Demo data registries
+  memory/               Empty followups and checks
   seed-demo.py          Database seeder for demo mode
 
 templates/fresh/        Blank workspace template
   workspace.yaml        Minimal workspace config
   agents/               Empty (add your agents here)
   registries/           Empty (add your registries here)
+  memory/               Empty followups and checks
+  CLAUDE.md             Minimal workspace context
 
 workspace/              Active workspace (gitignored, created by deploy.sh)
 

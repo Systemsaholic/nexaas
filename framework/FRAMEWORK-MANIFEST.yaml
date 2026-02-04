@@ -1,0 +1,42 @@
+name: nexaas-framework
+version: "1.0.0"
+description: Default framework for Nexaas workspaces — agents, skills, playbooks, and templates.
+last_updated: "2025-02-02"
+
+packages:
+  - agent-framework
+  - dashboard-system
+  - event-engine
+  - memory-system
+  - skills-framework
+  - yaml-registries
+
+default_agents:
+  - ops-monitor
+
+default_skills:
+  - health-check
+
+mcp_servers:
+  # Infrastructure (zero-config)
+  - filesystem
+  - fetch
+  - memory
+  - sequential-thinking
+  - postgres
+  # Search
+  - brave-search
+  # Development
+  - github
+  # Communication
+  - email
+  - telegram
+  - slack
+  # CRM
+  - groundhogg
+  # Productivity
+  - nextcloud
+  # Secrets
+  - vaultwarden
+  # Documents
+  - docuseal

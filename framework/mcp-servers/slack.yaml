@@ -1,0 +1,31 @@
+name: slack
+description: Send and read Slack messages.
+category: communication
+requires_env:
+  - SLACK_BOT_TOKEN
+
+# Deployment
+# 1. Create a Slack app at https://api.slack.com/apps
+#    Add bot token scopes: channels:history, channels:read, chat:write, users:read
+#    Install to your workspace
+#
+# 2. Copy the Bot User OAuth Token (starts with xoxb-)
+#
+# 3. Add to .env:
+#      SLACK_BOT_TOKEN=xoxb-your-token
+#
+# 4. Enable in workspace.yaml:
+#      mcp_servers:
+#        - slack
+#
+# 5. Pass the env var through docker-compose.yml if not already:
+#      environment:
+#        - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-slack"
+  env:
+    SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"

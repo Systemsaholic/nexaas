@@ -1,0 +1,27 @@
+name: postgres
+description: Query PostgreSQL databases. Read-only access by default.
+category: infrastructure
+requires_env:
+  - POSTGRES_CONNECTION_STRING
+
+# Deployment
+# 1. Add to .env:
+#      POSTGRES_CONNECTION_STRING=postgresql://user:password@host:5432/dbname
+#
+# 2. Enable in workspace.yaml:
+#      mcp_servers:
+#        - postgres
+#
+# 3. Pass the env var through docker-compose.yml if not already:
+#      environment:
+#        - POSTGRES_CONNECTION_STRING=${POSTGRES_CONNECTION_STRING}
+#
+# The connection string must be a valid PostgreSQL URI.
+# The server provides read-only query access by default.
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-postgres"
+    - "${POSTGRES_CONNECTION_STRING}"

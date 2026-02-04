@@ -1,0 +1,8 @@
+checks: []
+# checks:
+#   - id: check-example
+#     description: Example recurring check
+#     agent: {{AGENT_NAME}}
+#     interval: 3600
+#     action:
+#       prompt: "Describe what the agent should check"

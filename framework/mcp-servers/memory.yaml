@@ -1,0 +1,19 @@
+name: memory
+description: Persistent key-value memory for agents. Stores data in a local JSON file.
+category: infrastructure
+requires_env: []
+
+# Deployment
+# No credentials needed. Works out of the box.
+# Provides persistent key-value storage that survives between chat sessions.
+# Data is stored as a JSON file inside the container.
+#
+# Enable in workspace.yaml:
+#   mcp_servers:
+#     - memory
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-memory"

@@ -3,6 +3,13 @@ description: A fresh Nexaas workspace
 
 registries: []
 
+# Framework MCP servers to enable (see: GET /api/mcp-catalog)
+mcp_servers: []
+# mcp_servers:
+#   - filesystem
+#   - fetch
+#   - memory
+
 perspectives:
   - id: operations
     name: Operations

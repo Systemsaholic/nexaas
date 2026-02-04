@@ -1,0 +1,8 @@
+followups: []
+# followups:
+#   - id: followup-example
+#     description: Example one-time followup task
+#     agent: {{AGENT_NAME}}
+#     due: "2025-04-01T09:00:00Z"
+#     action:
+#       prompt: "Describe what the agent should do"

@@ -1,0 +1,49 @@
+name: email
+description: IMAP/SMTP email management. Read, send, and organize emails.
+category: communication
+requires_env:
+  - IMAP_HOST
+  - SMTP_HOST
+  - EMAIL_USER
+  - EMAIL_PASSWORD
+
+# Deployment
+# 1. Get your mail server credentials:
+#      IMAP_HOST — IMAP server hostname (e.g., imap.gmail.com, mail.yourdomain.com)
+#      SMTP_HOST — SMTP server hostname (e.g., smtp.gmail.com, mail.yourdomain.com)
+#      EMAIL_USER — full email address (e.g., {{EMAIL_USER}})
+#      EMAIL_PASSWORD — email password or app-specific password
+#
+#    For Gmail: enable 2FA and create an App Password at
+#    https://myaccount.google.com/apppasswords
+#
+#    For cPanel-hosted email: use the full email address and mailbox password.
+#    IMAP/SMTP host is typically mail.yourdomain.com.
+#
+# 2. Add to .env:
+#      IMAP_HOST=mail.yourdomain.com
+#      SMTP_HOST=mail.yourdomain.com
+#      EMAIL_USER={{EMAIL_USER}}
+#      EMAIL_PASSWORD=your-password
+#
+# 3. Enable in workspace.yaml:
+#      mcp_servers:
+#        - email
+#
+# 4. Pass env vars through docker-compose.yml if not already:
+#      environment:
+#        - IMAP_HOST=${IMAP_HOST}
+#        - SMTP_HOST=${SMTP_HOST}
+#        - EMAIL_USER=${EMAIL_USER}
+#        - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+
+config:
+  command: python
+  args:
+    - "-m"
+    - "email_mcp"
+  env:
+    IMAP_HOST: "${IMAP_HOST}"
+    SMTP_HOST: "${SMTP_HOST}"
+    EMAIL_USER: "${EMAIL_USER}"
+    EMAIL_PASSWORD: "${EMAIL_PASSWORD}"

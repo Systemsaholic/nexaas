@@ -1,0 +1,28 @@
+name: github
+description: Interact with GitHub repositories, issues, and pull requests.
+category: development
+requires_env:
+  - GITHUB_PERSONAL_ACCESS_TOKEN
+
+# Deployment
+# 1. Create a personal access token at https://github.com/settings/tokens
+#    Required scopes: repo, read:org (adjust based on your needs)
+#
+# 2. Add to .env:
+#      GITHUB_PERSONAL_ACCESS_TOKEN=ghp_your-token
+#
+# 3. Enable in workspace.yaml:
+#      mcp_servers:
+#        - github
+#
+# 4. Pass the env var through docker-compose.yml if not already:
+#      environment:
+#        - GITHUB_PERSONAL_ACCESS_TOKEN=${GITHUB_PERSONAL_ACCESS_TOKEN}
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-github"
+  env:
+    GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"

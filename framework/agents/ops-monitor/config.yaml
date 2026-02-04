@@ -1,0 +1,6 @@
+name: ops-monitor
+role: Operations Monitor
+description: Monitors system health, worker status, and engine metrics. Provides operational visibility across the workspace.
+capabilities:
+  - monitor
+  - alert

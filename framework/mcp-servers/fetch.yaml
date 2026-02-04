@@ -1,0 +1,18 @@
+name: fetch
+description: Fetch content from URLs. Useful for reading web pages and APIs.
+category: infrastructure
+requires_env: []
+
+# Deployment
+# No credentials needed. Works out of the box.
+# Allows agents to fetch and read content from any public URL.
+#
+# Enable in workspace.yaml:
+#   mcp_servers:
+#     - fetch
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-fetch"

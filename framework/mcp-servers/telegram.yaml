@@ -1,0 +1,37 @@
+name: telegram
+description: Telegram bot notifications and messaging.
+category: communication
+requires_env:
+  - TELEGRAM_BOT_TOKEN
+  - TELEGRAM_CHAT_ID
+
+# Deployment
+# 1. Create a Telegram bot via @BotFather (https://t.me/BotFather):
+#      /newbot → follow prompts → copy the bot token
+#
+# 2. Get your chat ID:
+#      - Send a message to your bot
+#      - Visit https://api.telegram.org/bot<TOKEN>/getUpdates
+#      - Find "chat":{"id": YOUR_CHAT_ID} in the response
+#
+# 3. Add to .env:
+#      TELEGRAM_BOT_TOKEN=123456:ABC-DEF1234
+#      TELEGRAM_CHAT_ID=your-chat-id
+#
+# 4. Enable in workspace.yaml:
+#      mcp_servers:
+#        - telegram
+#
+# 5. Pass env vars through docker-compose.yml if not already:
+#      environment:
+#        - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+#        - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+
+config:
+  command: python
+  args:
+    - "-m"
+    - "telegram_mcp"
+  env:
+    TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+    TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"

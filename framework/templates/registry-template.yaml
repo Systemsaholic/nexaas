@@ -1,0 +1,15 @@
+name: {{REGISTRY_NAME}}
+description: {{REGISTRY_DESCRIPTION}}
+
+fields:
+  - name: name
+    type: string
+  - name: status
+    type: string
+  # - name: created
+  #   type: date
+
+entries: []
+# entries:
+#   - name: Example Item
+#     status: active

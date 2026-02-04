@@ -1,0 +1,37 @@
+name: vaultwarden
+description: Self-hosted Bitwarden password manager via Vaultwarden.
+category: secrets
+requires_env:
+  - VAULTWARDEN_URL
+  - VAULTWARDEN_API_KEY
+
+# Deployment
+# 1. You need a running Vaultwarden instance.
+#    https://github.com/dani-garcia/vaultwarden
+#
+# 2. Get the admin API key from your Vaultwarden configuration
+#    (set via ADMIN_TOKEN env var on the Vaultwarden server).
+#
+# 3. Add to .env:
+#      VAULTWARDEN_URL=https://vault.yourdomain.com
+#      VAULTWARDEN_API_KEY=your-admin-token
+#
+#    The URL should be the root of your Vaultwarden instance (no trailing slash).
+#
+# 4. Enable in workspace.yaml:
+#      mcp_servers:
+#        - vaultwarden
+#
+# 5. Pass env vars through docker-compose.yml if not already:
+#      environment:
+#        - VAULTWARDEN_URL=${VAULTWARDEN_URL}
+#        - VAULTWARDEN_API_KEY=${VAULTWARDEN_API_KEY}
+
+config:
+  command: python
+  args:
+    - "-m"
+    - "vaultwarden_mcp"
+  env:
+    VAULTWARDEN_URL: "${VAULTWARDEN_URL}"
+    VAULTWARDEN_API_KEY: "${VAULTWARDEN_API_KEY}"

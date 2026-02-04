@@ -1,0 +1,18 @@
+name: sequential-thinking
+description: Step-by-step reasoning tool for complex problem solving.
+category: infrastructure
+requires_env: []
+
+# Deployment
+# No credentials needed. Works out of the box.
+# Provides a structured thinking tool that breaks complex problems into steps.
+#
+# Enable in workspace.yaml:
+#   mcp_servers:
+#     - sequential-thinking
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-sequential-thinking"

@@ -1,0 +1,42 @@
+name: groundhogg
+description: WordPress CRM and marketing automation via Groundhogg.
+category: crm
+requires_env:
+  - GROUNDHOGG_URL
+  - GROUNDHOGG_API_KEY
+  - GROUNDHOGG_API_SECRET
+
+# Deployment
+# 1. Install the Groundhogg plugin on your WordPress site:
+#      https://wordpress.org/plugins/groundhogg/
+#
+# 2. Generate API credentials in WordPress:
+#      Groundhogg → Settings → API → Add New API Key
+#      Copy the API Key (public) and API Secret (private)
+#
+# 3. Add to .env:
+#      GROUNDHOGG_URL=https://yourdomain.com
+#      GROUNDHOGG_API_KEY=your-public-key
+#      GROUNDHOGG_API_SECRET=your-secret-key
+#
+#    The URL should be the root of your WordPress site (no trailing slash).
+#
+# 4. Enable in workspace.yaml:
+#      mcp_servers:
+#        - groundhogg
+#
+# 5. Pass env vars through docker-compose.yml if not already:
+#      environment:
+#        - GROUNDHOGG_URL=${GROUNDHOGG_URL}
+#        - GROUNDHOGG_API_KEY=${GROUNDHOGG_API_KEY}
+#        - GROUNDHOGG_API_SECRET=${GROUNDHOGG_API_SECRET}
+
+config:
+  command: python
+  args:
+    - "-m"
+    - "groundhogg_mcp"
+  env:
+    GROUNDHOGG_URL: "${GROUNDHOGG_URL}"
+    GROUNDHOGG_API_KEY: "${GROUNDHOGG_API_KEY}"
+    GROUNDHOGG_API_SECRET: "${GROUNDHOGG_API_SECRET}"

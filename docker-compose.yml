@@ -9,9 +9,11 @@ services:
       - PORT=8400
       - WORKSPACE_ROOT=/workspace
       - DATABASE_PATH=/app/data/nexaas.db
+      - FRAMEWORK_ROOT=/framework
       - CORS_ORIGINS=*
     volumes:
       - ./workspace:/workspace
+      - ./framework:/framework
       - engine-data:/app/data
       - ~/.claude:/root/.claude
 

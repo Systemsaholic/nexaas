@@ -1,0 +1,8 @@
+name: {{AGENT_NAME}}
+role: {{AGENT_ROLE}}
+description: {{AGENT_DESCRIPTION}}
+capabilities:
+  - chat
+# parent: {{PARENT_AGENT}}          # uncomment to nest under another agent
+# sub_agents:                        # informational list of child agents
+#   - {{SUB_AGENT}}

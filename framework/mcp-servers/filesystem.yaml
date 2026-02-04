@@ -1,0 +1,19 @@
+name: filesystem
+description: Read and write files within the workspace directory.
+category: infrastructure
+requires_env: []
+
+# Deployment
+# No credentials needed. Works out of the box.
+# Gives agents read/write access to the /workspace directory.
+#
+# Enable in workspace.yaml:
+#   mcp_servers:
+#     - filesystem
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@modelcontextprotocol/server-filesystem"
+    - "/workspace"

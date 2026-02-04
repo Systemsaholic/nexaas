@@ -1,0 +1,41 @@
+name: nextcloud
+description: Nextcloud file and calendar management.
+category: productivity
+requires_env:
+  - NEXTCLOUD_URL
+  - NEXTCLOUD_USER
+  - NEXTCLOUD_PASSWORD
+
+# Deployment
+# 1. You need a Nextcloud instance with a user account.
+#    The account needs access to the files and calendars you want to manage.
+#
+# 2. Create an app password (recommended over using your main password):
+#      Settings → Security → Devices & sessions → Create new app password
+#
+# 3. Add to .env:
+#      NEXTCLOUD_URL=https://cloud.yourdomain.com
+#      NEXTCLOUD_USER=your-username
+#      NEXTCLOUD_PASSWORD=your-app-password
+#
+#    The URL should be the root of your Nextcloud instance (no trailing slash).
+#
+# 4. Enable in workspace.yaml:
+#      mcp_servers:
+#        - nextcloud
+#
+# 5. Pass env vars through docker-compose.yml if not already:
+#      environment:
+#        - NEXTCLOUD_URL=${NEXTCLOUD_URL}
+#        - NEXTCLOUD_USER=${NEXTCLOUD_USER}
+#        - NEXTCLOUD_PASSWORD=${NEXTCLOUD_PASSWORD}
+
+config:
+  command: python
+  args:
+    - "-m"
+    - "nextcloud_mcp"
+  env:
+    NEXTCLOUD_URL: "${NEXTCLOUD_URL}"
+    NEXTCLOUD_USER: "${NEXTCLOUD_USER}"
+    NEXTCLOUD_PASSWORD: "${NEXTCLOUD_PASSWORD}"
