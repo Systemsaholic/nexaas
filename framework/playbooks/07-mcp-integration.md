@@ -22,6 +22,7 @@ Available servers:
 | `filesystem` | infrastructure | Read/write workspace files | — |
 | `fetch` | infrastructure | Fetch content from URLs | — |
 | `playwright` | infrastructure | Browser automation, scraping, screenshots | — |
+| `m365` | productivity | Microsoft 365 admin (users, groups, mail, Teams) | `M365_TENANT_ID`, `M365_CLIENT_ID`, `M365_CLIENT_SECRET` |
 | `memory` | infrastructure | Persistent key-value memory | — |
 | `sequential-thinking` | infrastructure | Step-by-step reasoning | — |
 | `postgres` | infrastructure | PostgreSQL queries | `POSTGRES_CONNECTION_STRING` |

@@ -1,0 +1,59 @@
+name: m365
+description: Microsoft 365 administration via Microsoft Graph API. Manage users, groups, licenses, mailboxes, Teams, SharePoint, and security policies.
+category: productivity
+requires_env:
+  - M365_TENANT_ID
+  - M365_CLIENT_ID
+  - M365_CLIENT_SECRET
+
+# Deployment
+# 1. Create an Azure AD App Registration:
+#    - Go to Azure Portal > Azure Active Directory > App Registrations
+#    - New Registration > Name it (e.g., "Nexaas M365 Integration")
+#    - Note the Application (client) ID and Directory (tenant) ID
+#
+# 2. Create a Client Secret:
+#    - Certificates & Secrets > New Client Secret
+#    - Copy the secret value immediately (shown only once)
+#
+# 3. Grant API Permissions:
+#    - API Permissions > Add Permission > Microsoft Graph
+#    - Application Permissions (for unattended access):
+#      * User.Read.All, User.ReadWrite.All
+#      * Group.Read.All, Group.ReadWrite.All
+#      * Directory.Read.All
+#      * Mail.Read, Mail.ReadWrite
+#      * Organization.Read.All
+#      * Policy.Read.All
+#      * AuditLog.Read.All
+#      * DeviceManagementManagedDevices.Read.All
+#    - Grant Admin Consent for your organization
+#
+# 4. Add to .env:
+#    M365_TENANT_ID=your-tenant-id
+#    M365_CLIENT_ID=your-client-id
+#    M365_CLIENT_SECRET=your-client-secret
+#
+# Capabilities:
+# - List/read/create/update users
+# - Manage groups and memberships
+# - View and manage licenses
+# - Read mailbox settings
+# - View organization info
+# - Read security policies
+# - View audit logs
+# - Manage devices (Intune)
+#
+# Enable in workspace.yaml:
+#   mcp_servers:
+#     - m365
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@anthropic/mcp-server-microsoft365"
+  env:
+    TENANT_ID: "${M365_TENANT_ID}"
+    CLIENT_ID: "${M365_CLIENT_ID}"
+    CLIENT_SECRET: "${M365_CLIENT_SECRET}"

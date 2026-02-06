@@ -298,6 +298,7 @@ Show available MCP servers:
 | `fetch` | Retrieve web content | — |
 | `playwright` | Browser automation, scraping, screenshots | — |
 | `memory` | Persistent key-value store | — |
+| `m365` | Microsoft 365 admin (users, groups, mail, Teams) | `M365_TENANT_ID`, `M365_CLIENT_ID`, `M365_CLIENT_SECRET` |
 | `github` | Repo, issues, PRs | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | `email` | IMAP/SMTP | `IMAP_HOST`, `SMTP_HOST`, `EMAIL_USER`, `EMAIL_PASSWORD` |
 | `slack` | Team messaging | `SLACK_BOT_TOKEN` |
