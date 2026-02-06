@@ -180,4 +180,28 @@ export class ProxyEngineClient {
       { method: "POST" },
     );
   }
+
+  // -----------------------------------------------------------------------
+  // SSE – Event stream (proxied through server)
+  // -----------------------------------------------------------------------
+
+  subscribeEvents(callback: (event: Event) => void): EventSource {
+    // Use the server-side SSE proxy endpoint
+    const es = new EventSource("/api/engine/events");
+
+    es.onmessage = (msg) => {
+      try {
+        const parsed = JSON.parse(msg.data) as Event;
+        callback(parsed);
+      } catch {
+        // ignore malformed messages
+      }
+    };
+
+    es.onerror = () => {
+      // EventSource will auto-reconnect
+    };
+
+    return es;
+  }
 }
