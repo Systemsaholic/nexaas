@@ -102,6 +102,7 @@ from api.usage import router as usage_router
 from api.ops import router as ops_router
 from api.skills import router as skills_router
 from api.auth import router as auth_router
+from api.flows import router as flows_router
 
 app.include_router(workspace_router)
 app.include_router(agents_router)
@@ -113,6 +114,7 @@ app.include_router(usage_router)
 app.include_router(ops_router)
 app.include_router(skills_router)
 app.include_router(auth_router)
+app.include_router(flows_router)
 
 
 if __name__ == "__main__":

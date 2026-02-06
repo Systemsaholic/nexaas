@@ -39,6 +39,14 @@ async def init_db() -> None:
     from db.migrate import run_migrations
     await run_migrations(db)
 
+    # Sync memory items (followups, checks) to events
+    from readers.memory_reader import sync_memory_to_events
+    await sync_memory_to_events(db)
+
+    # Sync flows to events
+    from readers.flow_reader import sync_flows_to_events
+    await sync_flows_to_events(db)
+
 
 async def close_db() -> None:
     """Close the database connection."""

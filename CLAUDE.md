@@ -293,6 +293,7 @@ Event Engine (tick every 30s)
 | `skill` | `_execute_skill` | `{skill, agent, input}` |
 | `script` | `_execute_script` | `{command, cwd, timeout}` |
 | `webhook` | `_execute_webhook` | `{url, method, headers, body}` |
+| `flow` | `_execute_flow` | `{flow_id, steps[], trigger_payload}` |
 
 ### Database Tables
 
@@ -332,3 +333,4 @@ Detailed guides in `framework/playbooks/`:
 | 06 | `custom-dashboard.md` | Dashboard layout |
 | 07 | `mcp-integration.md` | External tools |
 | 08 | `contribute-upstream.md` | Exporting changes |
+| 09 | `flows.md` | Multi-step automations |
