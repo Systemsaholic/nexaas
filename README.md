@@ -7,7 +7,92 @@ A platform for orchestrating and monitoring AI agent workspaces with built-in au
 - **Engine** — Python FastAPI backend: event engine, job queue, chat proxy, ops monitor, auth (bcrypt + JWT)
 - **Dashboard** — Next.js frontend: workspace visualization, agent management, real-time monitoring, login/register
 
-## Quick Start (Docker)
+## Deployment Options
+
+Nexaas supports two deployment models:
+
+| Model | Use Case | Clients | Infrastructure |
+|-------|----------|---------|----------------|
+| **VPS** | Dedicated single-tenant deployment | 1 | Dedicated server |
+| **Docker** | Multi-tenant shared infrastructure | Multiple | Shared VPS or cluster |
+
+---
+
+## VPS Deployment (Single-Tenant)
+
+Best for dedicated client deployments where each client gets their own server.
+
+### Recommended Specs
+
+| Tier | vCPU | RAM | Storage | Clients | Use Case |
+|------|------|-----|---------|---------|----------|
+| **Starter** | 2 | 4 GB | 50 GB SSD | 1 | Small teams, <5 agents |
+| **Standard** | 4 | 8 GB | 100 GB SSD | 1 | Medium teams, 5-15 agents |
+| **Performance** | 8 | 16 GB | 200 GB NVMe | 1 | Large teams, 15+ agents, heavy automation |
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/Systemsaholic/nexaas.git
+cd nexaas
+
+# Run the VPS installer
+cd engine && bash install.sh
+```
+
+The installer will:
+1. Install Python 3.11+ and create a virtual environment
+2. Install Node.js 20+ and npm
+3. Install Claude Code CLI
+4. Initialize the SQLite database
+5. Build the Next.js dashboard
+6. Create systemd services for engine and dashboard
+7. Configure automatic restarts and logging
+
+### Post-Installation
+
+```bash
+# Check service status
+sudo systemctl status nexaas-engine
+sudo systemctl status nexaas-dashboard
+
+# View logs
+journalctl -u nexaas-engine -f
+journalctl -u nexaas-dashboard -f
+```
+
+Access the dashboard at `http://your-server-ip:3000/register`.
+
+### HTTP-Only Deployments (Tailscale/VPN)
+
+For internal networks without HTTPS, add to your systemd environment:
+
+```bash
+Environment=COOKIE_SECURE=false
+```
+
+---
+
+## Docker Deployment (Multi-Tenant)
+
+Best for hosting multiple clients on shared infrastructure. Each client runs as an isolated container stack.
+
+### Recommended Specs (Host Server)
+
+| Tier | vCPU | RAM | Storage | Clients | Use Case |
+|------|------|-----|---------|---------|----------|
+| **Micro** | 2 | 4 GB | 80 GB SSD | 2-3 | Freelancer, small agency |
+| **Mini** | 4 | 8 GB | 150 GB SSD | 5-8 | Growing agency |
+| **Standard** | 8 | 16 GB | 300 GB NVMe | 10-15 | Established agency |
+| **Scale** | 16 | 32 GB | 500 GB NVMe | 20-30 | Large MSP |
+
+**Per-client resource allocation:**
+- ~0.5 vCPU per client (burstable)
+- ~512 MB - 1 GB RAM per client
+- ~5-10 GB storage per client
+
+### Quick Start
 
 ```bash
 # Fresh workspace (default) — blank slate, ready to customize
@@ -33,6 +118,20 @@ Once running:
 
 The first user to register creates the company and becomes admin. Subsequent registrations join as members.
 
+### Multi-Client Setup
+
+For multiple clients on the same host, use separate compose projects with unique ports:
+
+```bash
+# Client A (ports 3001/8401)
+COMPOSE_PROJECT_NAME=client-a DASHBOARD_PORT=3001 ENGINE_PORT=8401 ./deploy.sh
+
+# Client B (ports 3002/8402)
+COMPOSE_PROJECT_NAME=client-b DASHBOARD_PORT=3002 ENGINE_PORT=8402 ./deploy.sh
+```
+
+Or use a reverse proxy (Traefik, Caddy, nginx) for subdomain routing.
+
 ### Switching Modes
 
 To switch between fresh and demo modes, remove the workspace and redeploy:
@@ -52,6 +151,8 @@ Edit files in `workspace/` to configure your deployment:
 - `workspace/registries/` — data registries
 
 The `workspace/` directory is gitignored so your local configuration stays private.
+
+---
 
 ## Framework
 
@@ -86,7 +187,9 @@ To customize, copy a template into your workspace:
 cp framework/templates/agent-config.yaml workspace/agents/my-agent/config.yaml
 ```
 
-## Manual Setup
+## Development Setup
+
+For local development without Docker:
 
 ### Engine
 
@@ -140,17 +243,19 @@ The dashboard proxies auth through `/api/auth/*`, storing the JWT in an httpOnly
 | `DEFAULT_GATEWAY_KEY` | _(unset)_ | API key for engine (server-side only). Alias: `GATEWAY_KEY` |
 | `COOKIE_SECURE` | _(auto)_ | Set to `false` for HTTP-only deployments (e.g., Tailscale VPN). Defaults to `true` in production |
 
-## Production Deployment
+## Production Checklist
 
-For systemd-based Linux servers:
+Before going live:
 
-```bash
-cd engine && bash install.sh
-```
+- [ ] Set strong `API_KEY` and `JWT_SECRET` values
+- [ ] Configure HTTPS via reverse proxy (Caddy, nginx, Traefik)
+- [ ] Set `COOKIE_SECURE=true` (default in production with HTTPS)
+- [ ] Enable firewall (allow only 80/443, SSH)
+- [ ] Set up automated backups for `data/nexaas.db`
+- [ ] Configure log rotation for systemd journals
+- [ ] Set up monitoring/alerting (optional)
 
-This installs Python deps, Node.js, Claude Code CLI, initializes the database, and sets up a systemd service.
-
-Or use the Claude Code command: `/deploy-engine`
+For VPS deployment details, see [VPS Deployment](#vps-deployment-single-tenant) above.
 
 ## Health Check
 
