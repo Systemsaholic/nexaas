@@ -1,21 +1,21 @@
-# {{COMPANY_NAME}} — Workspace Context
+# {{COMPANY_NAME}} — Workspace
 
-## Platform
+You are an AI agent on this team. Your job is to execute tasks, maintain data, and collaborate with other agents in the hierarchy.
 
-This is a Nexaas workspace. Nexaas orchestrates AI agents with an event-driven engine, YAML-based configuration, and a dynamic dashboard.
+## What You Have Access To
 
-## Workspace Configuration
+```
+workspace/
+├── agents/             # Team members (config.yaml + prompt.md each)
+├── registries/         # Data stores (YAML files)
+├── skills/             # Reusable task instructions (markdown)
+├── memory/
+│   ├── followups.yaml  # One-time scheduled tasks
+│   └── checks.yaml     # Recurring scheduled tasks
+└── workspace.yaml      # Dashboard config
+```
 
-- `workspace.yaml` — dashboard layout: perspectives, pages, components
-- `agents/` — agent definitions (config.yaml + prompt.md per agent)
-- `registries/` — YAML data stores (fields + entries)
-- `skills/` — markdown skill definitions
-- `memory/` — followups.yaml (one-time) and checks.yaml (recurring)
-- `.mcp.json` — MCP server configuration
-
-## Agent Hierarchy
-
-Agents are organized in a tree. Each agent has a `config.yaml` defining its role and capabilities. The `parent` field creates hierarchy. Root agents have no parent.
+## Team
 
 ```
 {{ROOT_AGENT}}
@@ -24,25 +24,91 @@ Agents are organized in a tree. Each agent has a `config.yaml` defining its role
 └── {{SUB_AGENT_3}}
 ```
 
-## Registries
+## Active Registries
 
-Data is stored in YAML registries under `registries/`. Each registry has typed fields and entries.
+{{REGISTRIES_LIST}}
 
-Active registries: (list your registries here)
+## Working with Data (Registries)
 
-## Key Conventions
+Registries are YAML files that store structured data. Each has a schema (`fields`) and data (`entries`).
 
-- Agent names: lowercase, hyphenated (e.g., `content-writer`)
-- Registry names: lowercase, hyphenated (e.g., `client-list`)
-- All config is YAML — maintain valid YAML syntax
-- Workspace files override framework defaults with the same name
+### Read a Registry
 
-## API Reference
+```bash
+cat registries/{{REGISTRY_NAME}}.yaml
+```
 
-- Engine: http://localhost:8400
-- Dashboard: http://localhost:3000
-- Health: GET /api/health
-- Agents: GET /api/agents
-- Events: GET /api/events
-- Registries: GET /api/registries
-- Skills: GET /api/skills
+### Update a Registry
+
+Edit the YAML file. Only modify the `entries` section — preserve `name`, `description`, and `fields`:
+
+```yaml
+name: {{REGISTRY_NAME}}
+description: {{REGISTRY_DESCRIPTION}}
+fields:
+  - name: field_name
+    type: string
+entries:
+  - field_name: value
+  - field_name: new_value    # Add entries here
+```
+
+## Executing Skills
+
+Skills are markdown files with step-by-step instructions. Find them in `skills/` or `framework/skills/`.
+
+To execute a skill: read it and follow the steps. Skills typically include:
+- **Steps**: What to do
+- **Output Format**: How to present results
+
+## Scheduling Work
+
+### One-Time Task
+
+Add to `memory/followups.yaml`:
+
+```yaml
+followups:
+  - id: unique-task-id
+    description: Task description
+    agent: {{AGENT_NAME}}
+    due: "2025-04-01T09:00:00Z"
+    action:
+      prompt: "Instructions for the agent"
+```
+
+### Recurring Task
+
+Add to `memory/checks.yaml`:
+
+```yaml
+checks:
+  - id: unique-check-id
+    description: Check description
+    agent: {{AGENT_NAME}}
+    interval: 86400    # Seconds (86400 = 24 hours)
+    action:
+      prompt: "Instructions for the agent"
+```
+
+## Agent Hierarchy
+
+Agents are organized in a tree. Know your position:
+
+- **Root agents**: Coordinate work, delegate to sub-agents
+- **Sub-agents**: Handle specialized domains
+- **Delegation**: Route tasks to the agent with matching capabilities
+
+Check `agents/` to see the team structure.
+
+## Guidelines
+
+1. **Read before writing** — Check current state before modifying files
+2. **Preserve structure** — When editing YAML, keep the schema intact
+3. **Use stable IDs** — Memory items need unique `id` values
+4. **Report clearly** — Include output so results can be tracked
+5. **Escalate blockers** — If you lack data or access, say so clearly
+
+## Key Skills
+
+{{SKILLS_LIST}}

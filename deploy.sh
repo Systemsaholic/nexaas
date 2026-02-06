@@ -57,16 +57,22 @@ else
   echo "Workspace ready"
 fi
 
-# 4. Build
+# 4. Install operations CLAUDE.md (replaces dev version for deployed instances)
+if [ -f CLAUDE.ops.md ]; then
+  cp CLAUDE.ops.md CLAUDE.md
+  echo "Installed operations CLAUDE.md"
+fi
+
+# 5. Build
 echo ""
 echo "Building containers..."
 docker compose build
 
-# 5. Start
+# 6. Start
 echo "Starting services..."
 docker compose up -d
 
-# 6. Wait for engine health
+# 7. Wait for engine health
 echo -n "Waiting for engine"
 for i in $(seq 1 30); do
   if curl -sf http://localhost:8400/api/health &>/dev/null; then
@@ -82,14 +88,14 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-# 7. Claude Code authentication (optional)
+# 8. Claude Code authentication (optional)
 echo ""
 read -rp "Authenticate Claude Code in engine container? [y/N] " auth_claude
 if [[ "$auth_claude" =~ ^[Yy] ]]; then
   docker compose exec -it engine claude login
 fi
 
-# 8. Seed demo data (demo mode only)
+# 9. Seed demo data (demo mode only)
 if [[ "$MODE" = "demo" && -f workspace/seed-demo.py ]]; then
   read -rp "Seed demo data? [y/N] " seed
   if [[ "$seed" =~ ^[Yy] ]]; then
@@ -97,11 +103,11 @@ if [[ "$MODE" = "demo" && -f workspace/seed-demo.py ]]; then
   fi
 fi
 
-# 9. Health check
+# 10. Health check
 echo ""
 bash scripts/health-check.sh --docker || true
 
-# 10. Summary
+# 11. Summary
 echo ""
 echo "========================================="
 echo "  Nexaas is running!"
