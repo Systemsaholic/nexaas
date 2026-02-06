@@ -259,7 +259,15 @@ For VPS deployment details, see [VPS Deployment](#vps-deployment-single-tenant) 
 
 ## Auto-Update
 
-Update deployed instances to the latest version:
+Smart update script that detects change types and applies minimal required actions:
+
+| Change Type | Action |
+|-------------|--------|
+| Prompts, skills, commands | Pull only (hot reload) |
+| Agents, MCP configs, YAML | Pull only (picked up on next request) |
+| Python code (engine) | Pull + restart engine |
+| Dashboard code (TypeScript) | Pull + rebuild + restart dashboard |
+| Dependencies | Pull + install deps + rebuild + restart |
 
 ```bash
 # Interactive update (auto-detects Docker vs VPS)
@@ -271,14 +279,18 @@ bash scripts/update.sh --vps
 
 # Non-interactive (for cron/automation)
 bash scripts/update.sh --force
+
+# Force full rebuild regardless of changes
+bash scripts/update.sh --full
 ```
 
 The update script will:
-1. Check for new commits on `origin/main`
-2. Backup the database (kept in `backups/`, last 10 retained)
-3. Pull latest changes
-4. Rebuild and restart services
-5. Verify health check passes
+1. Fetch and analyze incoming changes
+2. Determine minimal required actions (content-only vs rebuild)
+3. Show update plan for confirmation
+4. Backup database if code changes detected
+5. Apply changes with minimal downtime
+6. Verify health check passes
 
 ### Scheduled Updates (Cron)
 
