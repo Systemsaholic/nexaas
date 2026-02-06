@@ -180,6 +180,7 @@ See the playbooks in `framework/playbooks/`:
 5. [Memory System](framework/playbooks/05-memory-system.md)
 6. [Custom Dashboard](framework/playbooks/06-custom-dashboard.md)
 7. [MCP Integration](framework/playbooks/07-mcp-integration.md)
+8. [Contributing Upstream](framework/playbooks/08-contribute-upstream.md)
 
 To customize, copy a template into your workspace:
 
@@ -303,6 +304,33 @@ crontab -e
 # Add (runs at 3 AM daily)
 0 3 * * * cd /path/to/nexaas && bash scripts/update.sh --force >> /var/log/nexaas-update.log 2>&1
 ```
+
+## Contributing Improvements
+
+When you fix bugs or improve prompts on a customer deployment, contribute them back:
+
+```bash
+# Interactive contribution helper with sanitization
+bash scripts/contribute.sh
+
+# Dry-run to preview
+bash scripts/contribute.sh --dry-run
+```
+
+**Sanitization guardrails** automatically block:
+- API keys, tokens, secrets
+- Customer company names and domains
+- Webhook URLs, phone numbers
+- Account/org IDs
+
+The script will:
+1. Detect framework vs customer-specific changes
+2. Scan for sensitive/customer-specific content (blocks if found)
+3. Guide you to replace with placeholders (`${API_KEY}`, `example.com`)
+4. Create branch, commit, and PR
+5. After merge, all deployments get the fix via auto-update
+
+See [Contributing Upstream](framework/playbooks/08-contribute-upstream.md) for details.
 
 ## Health Check
 
