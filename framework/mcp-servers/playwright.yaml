@@ -1,0 +1,32 @@
+name: playwright
+description: Browser automation for web scraping, testing, and interaction. Navigate pages, fill forms, click elements, take screenshots.
+category: infrastructure
+requires_env: []
+
+# Deployment
+# No credentials needed. Works out of the box.
+# Requires a browser to be available (Chromium installed automatically).
+#
+# Capabilities:
+# - Navigate to URLs
+# - Click elements, fill forms
+# - Take screenshots
+# - Extract page content
+# - Handle JavaScript-rendered pages
+#
+# Useful for:
+# - Web scraping (JavaScript-heavy sites)
+# - Form automation
+# - Website testing
+# - Screenshot capture
+# - Data extraction from web apps
+#
+# Enable in workspace.yaml:
+#   mcp_servers:
+#     - playwright
+
+config:
+  command: npx
+  args:
+    - "-y"
+    - "@anthropic/mcp-server-playwright"

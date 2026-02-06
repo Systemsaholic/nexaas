@@ -21,6 +21,7 @@ Available servers:
 |---|---|---|---|
 | `filesystem` | infrastructure | Read/write workspace files | — |
 | `fetch` | infrastructure | Fetch content from URLs | — |
+| `playwright` | infrastructure | Browser automation, scraping, screenshots | — |
 | `memory` | infrastructure | Persistent key-value memory | — |
 | `sequential-thinking` | infrastructure | Step-by-step reasoning | — |
 | `postgres` | infrastructure | PostgreSQL queries | `POSTGRES_CONNECTION_STRING` |

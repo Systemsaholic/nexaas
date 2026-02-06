@@ -296,6 +296,7 @@ Show available MCP servers:
 |--------|---------|----------|
 | `filesystem` | Read/write workspace files | — |
 | `fetch` | Retrieve web content | — |
+| `playwright` | Browser automation, scraping, screenshots | — |
 | `memory` | Persistent key-value store | — |
 | `github` | Repo, issues, PRs | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | `email` | IMAP/SMTP | `IMAP_HOST`, `SMTP_HOST`, `EMAIL_USER`, `EMAIL_PASSWORD` |
