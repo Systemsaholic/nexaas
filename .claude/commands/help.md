@@ -10,6 +10,7 @@ List available operator commands.
 | `/status` | Show workspace health, agents, registries, scheduled tasks |
 | `/add-agent` | Add a new agent to the workspace |
 | `/add-registry` | Add a new data registry |
+| `/add-flow` | Create an automation flow (multi-step workflows) |
 | `/add-schedule` | Add a recurring or one-time task |
 | `/health` | Quick health check of engine and services |
 
