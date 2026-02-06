@@ -2,9 +2,88 @@
 
 Walk the operator through setting up their workspace after deployment. This is a conversational flow — ask questions, wait for responses, then configure.
 
+## Phase 0: Website Discovery (Optional)
+
+Ask: "Do you have a company website I can learn from? This helps me understand your business faster."
+
+If they provide a URL:
+
+### 0a. Fetch and Analyze Website
+
+Fetch the homepage and key pages:
+- Homepage
+- About page (try `/about`, `/about-us`, `/company`)
+- Services/Products page (try `/services`, `/products`, `/solutions`)
+- Contact page (try `/contact`, `/contact-us`)
+
+For each page, extract:
+- **Company name** — from title, logo alt text, or header
+- **Business description** — from meta description, hero text, about section
+- **Services/Products** — what they offer
+- **Industry** — infer from content
+- **Contact info** — email, phone, address
+- **Social links** — LinkedIn, Twitter, etc.
+- **Team members** — if listed on about page
+- **Tone/voice** — formal, casual, technical, friendly
+
+### 0b. Present Findings
+
+Show what was discovered:
+
+```
+========================================
+  Website Analysis: {domain}
+========================================
+
+Company:     {company_name}
+Industry:    {industry}
+Description: {business_description}
+
+Services/Products:
+- {service_1}
+- {service_2}
+- {service_3}
+
+Contact:
+- Email: {email}
+- Phone: {phone}
+- Address: {address}
+
+Social:
+- LinkedIn: {url}
+- Twitter: {url}
+
+Tone: {formal/casual/technical}
+========================================
+```
+
+Ask: "Does this look right? Anything to correct or add?"
+
+Let them confirm or adjust before proceeding.
+
+### 0c. Suggest Automation Based on Business
+
+Based on the website analysis, suggest what to automate:
+
+**If they're a service business:**
+> "Looks like you offer {services}. Would you like to automate client communication, project updates, or lead follow-up?"
+
+**If they're e-commerce:**
+> "I see you sell {products}. Would you like to automate order updates, customer support, or inventory alerts?"
+
+**If they're B2B/SaaS:**
+> "You offer {product}. Would you like to automate onboarding emails, support tickets, or usage reporting?"
+
+**If they're an agency:**
+> "You provide {services} for clients. Would you like to automate client reporting, content workflows, or project coordination?"
+
+This context flows into Phase 1.
+
+---
+
 ## Phase 1: Business Context
 
-Ask the operator:
+If website was analyzed, confirm the extracted info. Otherwise, ask:
 
 1. **Company name** — What's your company or project name?
 2. **What does your business do?** — One or two sentences.
@@ -15,17 +94,24 @@ Ask the operator:
    - Internal operations / reporting
    - Something else (let them describe)
 
+If website data exists, pre-fill and ask for confirmation:
+> "Based on your website, you're {company_name}, a {industry} company that {description}. Is that right?"
+
 Wait for their responses before continuing.
 
 ---
 
 ## Phase 2: Update Workspace CLAUDE.md
 
-Using their answers, update `workspace/CLAUDE.md`:
+Using their answers (and website data if available), update `workspace/CLAUDE.md`:
 
 1. Replace `{{COMPANY_NAME}}` with their company name
 2. Add a "## About" section with their business description
 3. Add their automation goals to provide context for agents
+4. If website was scraped, add:
+   - Industry
+   - Key services/products
+   - Contact info for reference
 
 Read the current file first, then edit it.
 
@@ -33,7 +119,7 @@ Read the current file first, then edit it.
 
 ## Phase 3: Design Agent Team
 
-Based on their automation goals, suggest an agent structure. Present options:
+Based on their automation goals (and website analysis), suggest an agent structure.
 
 **For Customer Support:**
 ```
@@ -68,6 +154,15 @@ ops-director
 └── alert-monitor
 ```
 
+**For Agency (if detected from website):**
+```
+agency-director
+├── client-manager
+├── project-coordinator
+├── content-creator
+└── reporting
+```
+
 Ask: "Which structure fits best, or would you like a custom setup?"
 
 If custom, ask them to describe their ideal team structure.
@@ -95,17 +190,28 @@ sub_agents:
 
 ### 4b. Create prompt.md
 
-Create `workspace/agents/{name}/prompt.md`:
+Create `workspace/agents/{name}/prompt.md` using business context:
 
 ```markdown
 You are the {Role Title} for {Company Name}.
 
-Your responsibilities:
+## About {Company Name}
+{business_description from website or user input}
+
+## Your Responsibilities
 - {responsibility 1}
 - {responsibility 2}
 - {responsibility 3}
 
-When delegating, route to:
+## Services/Products We Offer
+{from website analysis if available}
+
+## Tone & Voice
+{from website analysis: formal/casual/technical}
+Keep communications consistent with our brand.
+
+## When Delegating
+Route to:
 - {sub-agent}: for {task type}
 ```
 
@@ -137,6 +243,15 @@ Based on their use case, suggest registries:
 - `reports` — name, frequency, last_run, recipients
 - `alerts` — type, severity, status, created_at
 
+**For Agency:**
+- `clients` — name, contact_email, plan, status, start_date
+- `projects` — client, name, status, deadline, assigned_team
+- `deliverables` — project, type, status, due_date, approved
+
+**Pre-populate from website (if available):**
+- If contact info found, offer to create a `company-info` registry with the details
+- If team members found, offer to create a `team` registry
+
 Ask: "Which registries do you need? I can create these or suggest others."
 
 For each selected registry, create `workspace/registries/{name}.yaml` with the schema and empty entries.
@@ -156,6 +271,11 @@ Show available MCP servers:
 | `email` | IMAP/SMTP | `IMAP_HOST`, `SMTP_HOST`, `EMAIL_USER`, `EMAIL_PASSWORD` |
 | `slack` | Team messaging | `SLACK_BOT_TOKEN` |
 | `telegram` | Bot notifications | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
+
+**Smart suggestions based on website:**
+- If email found → suggest `email` server
+- If GitHub/code mentioned → suggest `github` server
+- If Slack mentioned → suggest `slack` server
 
 Ask: "Which integrations do you need?"
 
@@ -218,10 +338,12 @@ checks:
 
 Now that everything is configured, update `workspace/CLAUDE.md` with:
 
-1. **Team** section — List the agent hierarchy
-2. **Active Registries** section — List registries with descriptions
-3. **Key Skills** section — Note any custom skills created
-4. **Integrations** section — List enabled MCP servers
+1. **About** section — Company info (from website + user input)
+2. **Team** section — List the agent hierarchy
+3. **Active Registries** section — List registries with descriptions
+4. **Key Skills** section — Note any custom skills created
+5. **Integrations** section — List enabled MCP servers
+6. **Contact** section — Company contact info (if scraped from website)
 
 ---
 
@@ -247,6 +369,8 @@ Print a summary:
 ========================================
 
 Company:     {company_name}
+Website:     {url if provided}
+Industry:    {industry if detected}
 Agents:      {count} agents created
 Registries:  {count} registries created
 MCP Servers: {list}
@@ -279,3 +403,6 @@ Need to change something? Just ask!
 - Offer to show file contents before writing
 - If they're unsure, provide recommendations based on their use case
 - Keep track of what's been created to give accurate summary
+- Website scraping is optional — works fine without it
+- Use WebFetch tool to retrieve website content
+- Handle missing pages gracefully (404s are fine, just skip)
