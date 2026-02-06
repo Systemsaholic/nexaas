@@ -1,0 +1,44 @@
+id: weather-report
+name: Weather Report
+description: Fetch weather data and generate a report every 5 minutes
+
+trigger:
+  type: interval
+  seconds: 300  # 5 minutes
+
+steps:
+  - id: fetch-weather
+    action: webhook
+    config:
+      url: "https://wttr.in/Sydney?format=j1"
+      method: GET
+      timeout: 30
+
+  - id: generate-report
+    action: claude_chat
+    agent: default
+    config:
+      prompt: |
+        Analyze this weather data and create a brief report:
+
+        {{steps.fetch-weather.output}}
+
+        Create a concise weather report with:
+        1. Current conditions (temperature, humidity, wind)
+        2. Today's forecast summary
+        3. Any weather alerts or notable conditions
+
+        Format it nicely for reading.
+
+  - id: save-report
+    action: script
+    config:
+      command: |
+        mkdir -p /opt/nexaas/workspace/reports
+        echo "=== Weather Report $(date) ===" >> /opt/nexaas/workspace/reports/weather.log
+        echo "{{steps.generate-report.output}}" >> /opt/nexaas/workspace/reports/weather.log
+        echo "" >> /opt/nexaas/workspace/reports/weather.log
+
+output:
+  type: report
+  description: Weather report saved to workspace/reports/weather.log

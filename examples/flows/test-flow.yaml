@@ -1,0 +1,29 @@
+id: test-flow
+name: Test Flow
+description: Simple test flow to verify the flow system works
+
+trigger:
+  type: manual  # Only runs when triggered via API
+
+steps:
+  - id: step-1
+    action: script
+    config:
+      command: echo "Step 1 executed at $(date)"
+
+  - id: step-2
+    action: script
+    config:
+      command: echo "Step 2 received from step 1 - Previous output was captured"
+
+  - id: step-3
+    action: script
+    config:
+      command: |
+        echo "Step 3 - Final step"
+        echo "Flow completed successfully!"
+        echo "Date: {{date.today}}"
+
+output:
+  type: notification
+  description: Test flow completed
