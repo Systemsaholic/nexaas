@@ -2,13 +2,25 @@
 
 Show current workspace configuration and health.
 
+## Step 0: Detect Deployment Type
+
+```bash
+if docker compose ps 2>/dev/null | grep -q "engine"; then
+  DEPLOY_TYPE="docker"
+elif systemctl is-active nexaas-engine 2>/dev/null; then
+  DEPLOY_TYPE="systemd"
+else
+  DEPLOY_TYPE="local"
+fi
+```
+
 ## Step 1: Check Services
 
 ```bash
 curl -s http://localhost:8400/api/health | jq .
 ```
 
-Report: Engine healthy/unhealthy
+Report: Engine healthy/unhealthy, deployment type: {DEPLOY_TYPE}
 
 ## Step 2: List Agents
 

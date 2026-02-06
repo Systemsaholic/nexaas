@@ -2,6 +2,36 @@
 
 Walk the operator through setting up their workspace after deployment. This is a conversational flow — ask questions, wait for responses, then configure.
 
+## Pre-flight: Detect Deployment Type
+
+Before starting, detect how Nexaas is deployed:
+
+```bash
+# Check for Docker
+docker compose ps 2>/dev/null | grep -q "engine" && echo "docker" || echo "local"
+
+# Check for systemd service
+systemctl is-active nexaas-engine 2>/dev/null && echo "systemd"
+
+# Check for running process
+pgrep -f "python server.py" && echo "local-process"
+```
+
+Set `DEPLOY_TYPE` based on findings:
+- `docker` — Docker Compose deployment
+- `systemd` — Systemd service (VPS)
+- `local` — Direct process (dev/VPS)
+
+Use this throughout for appropriate commands:
+
+| Action | Docker | Systemd | Local |
+|--------|--------|---------|-------|
+| Restart engine | `docker compose restart engine` | `sudo systemctl restart nexaas-engine` | `pkill -f server.py && cd engine && python server.py &` |
+| View logs | `docker compose logs -f engine` | `journalctl -u nexaas-engine -f` | `tail -f engine/logs/engine.log` |
+| Health check | `bash scripts/health-check.sh --docker` | `bash scripts/health-check.sh` | `curl localhost:8400/api/health` |
+
+---
+
 ## Phase 0: Website Discovery (Optional)
 
 Ask: "Do you have a company website I can learn from? This helps me understand your business faster."
@@ -349,12 +379,31 @@ Now that everything is configured, update `workspace/CLAUDE.md` with:
 
 ## Phase 9: Restart Engine
 
-Tell the operator:
+Tell the operator (based on detected deployment type):
 
+**Docker:**
 ```
 Configuration complete! Restart the engine to load memory tasks:
 
 docker compose restart engine
+```
+
+**Systemd (VPS):**
+```
+Configuration complete! Restart the engine to load memory tasks:
+
+sudo systemctl restart nexaas-engine
+```
+
+**Local/Direct:**
+```
+Configuration complete! Restart the engine to load memory tasks.
+
+If running in foreground, stop it (Ctrl+C) and restart:
+cd engine && python server.py
+
+If running in background:
+pkill -f "python server.py" && cd engine && nohup python server.py > logs/engine.log 2>&1 &
 ```
 
 ---
@@ -384,11 +433,12 @@ Files created/updated:
 - workspace/memory/checks.yaml
 
 Next steps:
-1. Restart engine: docker compose restart engine
+1. Restart engine (see command above for your deployment type)
 2. Open dashboard: http://localhost:3000
 3. Test agent chat in the Operations perspective
 4. Add more agents: /add-agent
 5. Add more registries: /add-registry
+6. Check health: /health
 
 Need to change something? Just ask!
 ========================================
