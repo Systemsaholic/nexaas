@@ -135,9 +135,10 @@ The dashboard proxies auth through `/api/auth/*`, storing the JWT in an httpOnly
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NEXT_PUBLIC_DEFAULT_GATEWAY_URL` | `http://localhost:8400` | Engine URL (client-side) |
+| `NEXT_PUBLIC_DEFAULT_GATEWAY_URL` | `http://localhost:8400` | Engine URL (client-side). Alias: `NEXT_PUBLIC_GATEWAY_URL` |
 | `ENGINE_INTERNAL_URL` | _(unset)_ | Engine URL for server-side routes (used in Docker: `http://engine:8400`) |
-| `DEFAULT_GATEWAY_KEY` | _(unset)_ | API key for engine (server-side only) |
+| `DEFAULT_GATEWAY_KEY` | _(unset)_ | API key for engine (server-side only). Alias: `GATEWAY_KEY` |
+| `COOKIE_SECURE` | _(auto)_ | Set to `false` for HTTP-only deployments (e.g., Tailscale VPN). Defaults to `true` in production |
 
 ## Production Deployment
 
