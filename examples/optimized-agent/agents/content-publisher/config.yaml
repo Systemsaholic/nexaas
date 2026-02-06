@@ -1,0 +1,23 @@
+name: content-publisher
+description: "Publishes content to social media platforms with validation"
+version: "1.0.0"
+parent: director
+
+mcp_servers:
+  - social-scheduler
+  - content-storage
+
+tool_filters:
+  - "posts_*"
+  - "media_*"
+  - "schedule_*"
+
+sub_agents:
+  - name: video-handler
+    path: sub-agents/video-handler/
+    trigger: "video|mp4|mov|upload"
+    model: haiku
+  - name: image-validator
+    path: sub-agents/image-validator/
+    trigger: "image|validate|freshness"
+    model: haiku

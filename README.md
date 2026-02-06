@@ -269,9 +269,25 @@ bash scripts/health-check.sh --docker
 
 Checks engine health, database access, container status (Docker mode), and dashboard reachability. Exit code equals the number of failed checks.
 
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [Token Optimization](docs/token-optimization.md) | Reduce context usage with tiered prompt loading |
+
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| `examples/demo/` | BrightWave Digital agency demo |
+| `examples/optimized-agent/` | Token-efficient agent with reference files |
+
 ## Architecture
 
 ```
+docs/                   Documentation
+  token-optimization.md Guide to reducing context window usage
+
 framework/              Workspace-agnostic defaults (tracked in git)
   agents/               Default agents (ops-monitor)
   skills/               Default skills (health-check)
@@ -286,6 +302,11 @@ examples/demo/          BrightWave Digital demo data
   registries/           Demo data registries
   memory/               Empty followups and checks
   seed-demo.py          Database seeder for demo mode
+
+examples/optimized-agent/ Token-efficient agent example
+  agents/content-publisher/
+    prompt.md           Core workflow (~100 lines)
+    reference/          Detailed procedures (on-demand)
 
 templates/fresh/        Blank workspace template
   workspace.yaml        Minimal workspace config

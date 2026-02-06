@@ -1,0 +1,15 @@
+name: "Optimized Agent Example"
+description: "Demonstrates token-optimized agent structure with tiered loading"
+
+perspectives:
+  - name: operations
+    label: Operations
+    icon: settings
+    pages:
+      - name: agents
+        label: Agents
+        widget: agent-grid
+
+agents:
+  - path: agents/content-publisher
+    role: publisher
