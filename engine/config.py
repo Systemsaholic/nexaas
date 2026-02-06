@@ -26,6 +26,7 @@ class Settings:
     # Framework & Claude Code
     FRAMEWORK_ROOT: str = os.getenv("FRAMEWORK_ROOT", "framework")
     CLAUDE_CODE_PATH: str = os.getenv("CLAUDE_CODE_PATH", "claude")
+    CLAUDE_SKIP_PERMISSIONS: bool = os.getenv("CLAUDE_SKIP_PERMISSIONS", "true").lower() in ("true", "1", "yes")
 
     # Auth
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")

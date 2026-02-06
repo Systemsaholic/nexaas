@@ -62,8 +62,10 @@ class SessionManager:
             claude_bin,
             "--print",
             "--output-format", "stream-json",
-            "--session-id", session.session_id,
         ]
+        if settings.CLAUDE_SKIP_PERMISSIONS:
+            cmd.append("--dangerously-skip-permissions")
+        cmd.extend(["--session-id", session.session_id])
 
         logger.info("Spawning Claude Code: %s (cwd=%s)", " ".join(cmd), session.workspace_dir)
 
