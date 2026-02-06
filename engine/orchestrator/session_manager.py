@@ -35,7 +35,7 @@ class SessionManager:
         workspace_dir: str | None = None,
     ) -> str:
         """Create a session record. Returns the session ID."""
-        sid = session_id or uuid.uuid4().hex
+        sid = session_id or str(uuid.uuid4())
         ws_dir = workspace_dir or str(settings.workspace_path)
         self._sessions[sid] = Session(
             session_id=sid,
@@ -61,6 +61,7 @@ class SessionManager:
         cmd = [
             claude_bin,
             "--print",
+            "--verbose",
             "--output-format", "stream-json",
         ]
         if settings.CLAUDE_SKIP_PERMISSIONS:
