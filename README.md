@@ -257,6 +257,41 @@ Before going live:
 
 For VPS deployment details, see [VPS Deployment](#vps-deployment-single-tenant) above.
 
+## Auto-Update
+
+Update deployed instances to the latest version:
+
+```bash
+# Interactive update (auto-detects Docker vs VPS)
+bash scripts/update.sh
+
+# Force specific mode
+bash scripts/update.sh --docker
+bash scripts/update.sh --vps
+
+# Non-interactive (for cron/automation)
+bash scripts/update.sh --force
+```
+
+The update script will:
+1. Check for new commits on `origin/main`
+2. Backup the database (kept in `backups/`, last 10 retained)
+3. Pull latest changes
+4. Rebuild and restart services
+5. Verify health check passes
+
+### Scheduled Updates (Cron)
+
+For automatic nightly updates:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add (runs at 3 AM daily)
+0 3 * * * cd /path/to/nexaas && bash scripts/update.sh --force >> /var/log/nexaas-update.log 2>&1
+```
+
 ## Health Check
 
 ```bash
