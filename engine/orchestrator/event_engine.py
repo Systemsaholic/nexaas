@@ -41,7 +41,7 @@ async def _evaluate_condition(condition_type: str, condition_expr: str) -> bool:
     if condition_type == "once":
         return True
 
-    logger.warning("Unknown condition_type: %s", condition_type)
+    logger.debug("Skipping event with unhandled condition_type: %s", condition_type)
     return False
 
 

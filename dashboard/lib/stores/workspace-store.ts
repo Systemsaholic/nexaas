@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { EngineClient } from "../engine-client";
+import { ProxyEngineClient } from "../proxy-engine-client";
 import type { Agent, Skill, Workspace } from "../types";
+
+type EngineClientType = EngineClient | ProxyEngineClient;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,16 +33,28 @@ interface WorkspaceState {
   setActivePerspective: (perspectiveId: string) => void;
 
   // Helpers
-  getActiveEngineClient: () => EngineClient | null;
+  getActiveEngineClient: () => EngineClientType | null;
 }
 
 // ---------------------------------------------------------------------------
 // Client cache – avoids recreating clients on every access
 // ---------------------------------------------------------------------------
 
-const clientCache = new Map<string, EngineClient>();
+const clientCache = new Map<string, EngineClientType>();
 
-function getOrCreateClient(config: GatewayConfig): EngineClient {
+// Use proxy client by default to avoid direct browser-to-engine calls
+// which fail when the browser cannot reach the engine directly
+let proxyClient: ProxyEngineClient | null = null;
+
+function getOrCreateClient(config: GatewayConfig, useProxy = true): EngineClientType {
+  if (useProxy) {
+    if (!proxyClient) {
+      proxyClient = new ProxyEngineClient();
+    }
+    return proxyClient;
+  }
+
+  // Direct mode (fallback for when browser can reach engine)
   const key = `${config.url}::${config.apiKey}`;
   let client = clientCache.get(key);
   if (!client) {

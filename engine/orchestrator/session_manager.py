@@ -63,16 +63,16 @@ class SessionManager:
             "--print",
             "--output-format", "stream-json",
             "--session-id", session.session_id,
-            "--directory", session.workspace_dir,
         ]
 
-        logger.info("Spawning Claude Code: %s", " ".join(cmd))
+        logger.info("Spawning Claude Code: %s (cwd=%s)", " ".join(cmd), session.workspace_dir)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            cwd=session.workspace_dir,
         )
         session.process = proc
 

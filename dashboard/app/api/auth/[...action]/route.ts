@@ -75,7 +75,8 @@ export async function POST(
       const jar = await cookies();
       jar.set("auth_token", data.token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.COOKIE_SECURE === "true" ||
+          (process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "false"),
         sameSite: "lax",
         path: "/",
         maxAge: 60 * 60 * 24 * 7, // 7 days

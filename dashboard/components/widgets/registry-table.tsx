@@ -34,11 +34,23 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { toast } from "sonner";
 import { SparklesIcon, FileTextIcon, PencilIcon, Trash2Icon, MoreHorizontalIcon, AlertCircleIcon } from "lucide-react";
 
+interface ColumnConfig {
+  field: string;
+  label: string;
+}
+
 interface RegistryTableConfig {
   registry?: string;
-  columns?: string[];
+  columns?: (string | ColumnConfig)[];
   searchable?: boolean;
   [key: string]: unknown;
+}
+
+function normalizeColumn(col: string | ColumnConfig): ColumnConfig {
+  if (typeof col === "string") {
+    return { field: col, label: col.replace(/_/g, " ") };
+  }
+  return col;
 }
 
 interface RegistryData {
@@ -87,7 +99,8 @@ export default function RegistryTable({
   }, [client, config.registry]);
 
   const fields = registry?.data?.fields ?? [];
-  const columns = config.columns ?? fields.map((f) => f.name);
+  const rawColumns = config.columns ?? fields.map((f) => f.name);
+  const columns = rawColumns.map(normalizeColumn);
   const entries = registry?.data?.entries ?? [];
 
   const filtered = search
@@ -172,8 +185,8 @@ export default function RegistryTable({
               <thead>
                 <tr className="border-b">
                   {columns.map((col) => (
-                    <th key={col} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground capitalize">
-                      {col.replace(/_/g, " ")}
+                    <th key={col.field} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground capitalize">
+                      {col.label}
                     </th>
                   ))}
                   <th className="w-10 px-2 py-2" />
@@ -184,7 +197,7 @@ export default function RegistryTable({
                   ? [1, 2, 3].map((n) => (
                       <tr key={n} className="border-b last:border-0">
                         {columns.map((col) => (
-                          <td key={col} className="px-3 py-2">
+                          <td key={col.field} className="px-3 py-2">
                             <Skeleton className="h-4 w-20" />
                           </td>
                         ))}
@@ -196,15 +209,15 @@ export default function RegistryTable({
                         <ContextMenuTrigger asChild>
                           <tr className="border-b last:border-0 hover:bg-muted/50 cursor-context-menu">
                             {columns.map((col) => (
-                              <td key={col} className="px-3 py-2">
+                              <td key={col.field} className="px-3 py-2">
                                 {editingRow === i ? (
                                   <Input
                                     className="h-7 text-xs"
-                                    value={editValues[col] ?? ""}
-                                    onChange={(e) => setEditValues((v) => ({ ...v, [col]: e.target.value }))}
+                                    value={editValues[col.field] ?? ""}
+                                    onChange={(e) => setEditValues((v) => ({ ...v, [col.field]: e.target.value }))}
                                   />
                                 ) : (
-                                  String(entry[col] ?? "—")
+                                  String(entry[col.field] ?? "—")
                                 )}
                               </td>
                             ))}
@@ -269,7 +282,7 @@ export default function RegistryTable({
                     ))}
                 {!loading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={columns.length + 1} className="px-3 py-6 text-center text-muted-foreground">
+                    <td colSpan={(columns.length || 0) + 1} className="px-3 py-6 text-center text-muted-foreground">
                       No entries found.
                     </td>
                   </tr>

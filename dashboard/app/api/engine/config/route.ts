@@ -9,8 +9,8 @@ import { NextResponse } from "next/server";
  * (e.g. NextAuth.js) so only authenticated users can retrieve the key.
  */
 export async function GET() {
-  const url = process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL;
-  const key = process.env.DEFAULT_GATEWAY_KEY;
+  const url = process.env.NEXT_PUBLIC_DEFAULT_GATEWAY_URL || process.env.NEXT_PUBLIC_GATEWAY_URL;
+  const key = process.env.DEFAULT_GATEWAY_KEY || process.env.GATEWAY_KEY;
 
   if (!url || !key) {
     return NextResponse.json(

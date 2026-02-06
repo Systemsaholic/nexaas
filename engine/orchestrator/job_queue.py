@@ -38,8 +38,10 @@ async def dequeue(worker_id: str) -> dict[str, Any] | None:
     """Claim the next available job, respecting concurrency keys.
 
     Returns the job dict or None if no jobs available.
+    Uses atomic UPDATE with subquery to prevent race conditions.
     """
     db = await get_db()
+    now = datetime.now(timezone.utc).isoformat()
 
     # Find running concurrency keys to exclude
     cursor = await db.execute(
@@ -48,25 +50,31 @@ async def dequeue(worker_id: str) -> dict[str, Any] | None:
     )
     running_keys = {row[0] for row in await cursor.fetchall()}
 
-    # Find next queued job
-    cursor = await db.execute(
-        "SELECT id, event_id, source, priority, concurrency_key, action_type, "
-        "action_config, queued_at FROM job_queue "
-        "WHERE status = 'queued' ORDER BY priority ASC, queued_at ASC"
-    )
-    for row in await cursor.fetchall():
-        ck = row[4]  # concurrency_key
-        if ck and ck in running_keys:
-            continue
+    # Build exclusion clause for running concurrency keys
+    if running_keys:
+        placeholders = ",".join("?" * len(running_keys))
+        concurrency_filter = f"AND (concurrency_key IS NULL OR concurrency_key NOT IN ({placeholders}))"
+        params = list(running_keys)
+    else:
+        concurrency_filter = ""
+        params = []
 
-        # Claim it
-        now = datetime.now(timezone.utc).isoformat()
-        await db.execute(
-            "UPDATE job_queue SET status = 'running', worker_id = ?, started_at = ? "
-            "WHERE id = ? AND status = 'queued'",
-            (worker_id, now, row[0]),
+    # Atomic claim: UPDATE with subquery and RETURNING
+    cursor = await db.execute(
+        f"""UPDATE job_queue SET status = 'running', worker_id = ?, started_at = ?
+        WHERE id = (
+            SELECT id FROM job_queue
+            WHERE status = 'queued' {concurrency_filter}
+            ORDER BY priority ASC, queued_at ASC
+            LIMIT 1
         )
-        await db.commit()
+        RETURNING id, event_id, source, priority, concurrency_key, action_type, action_config, queued_at""",
+        (worker_id, now, *params),
+    )
+    row = await cursor.fetchone()
+    await db.commit()
+
+    if row:
         return {
             "id": row[0],
             "event_id": row[1],
