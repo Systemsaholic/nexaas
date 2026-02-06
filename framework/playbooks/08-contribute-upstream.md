@@ -2,22 +2,39 @@
 
 When you fix bugs or improve prompts/MCP servers on a customer deployment, contribute them back to the framework so all customers benefit.
 
+## Infrastructure
+
+```
+Customer VPS ──patch──> Dev VPS ──git push──> GitHub ──update──> All Customers
+```
+
+You need:
+- **Dev VPS** (Starter tier: 2 vCPU, 4GB RAM) with git push access to GitHub
+- **Customer VPSs** that can SSH to dev server to send patches
+
 ## Quick Reference
 
 ```bash
-# From customer deployment, run the contribute skill
-/contribute
+# 1. On customer server: export sanitized patch
+bash scripts/contribute.sh --export
 
-# Or manually (with sanitization checks)
-bash scripts/contribute.sh
+# 2. Copy to dev server
+scp exports/*.patch user@dev-vps:/opt/nexaas/exports/
 
-# Dry-run to preview without changes
-bash scripts/contribute.sh --dry-run
+# 3. On dev server: apply and push
+cd /opt/nexaas
+git checkout -b fix/description
+git apply exports/*.patch
+git add -A && git commit -m "Fix: description"
+git push && gh pr create
+
+# 4. After merge: update all customers
+bash scripts/update-all.sh
 ```
 
 ## Sanitization Guardrails
 
-The contribution script automatically blocks customer-specific content:
+The export script automatically blocks customer-specific content:
 
 | Blocked | Examples |
 |---------|----------|

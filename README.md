@@ -24,11 +24,37 @@ Best for dedicated client deployments where each client gets their own server.
 
 ### Recommended Specs
 
-| Tier | vCPU | RAM | Storage | Clients | Use Case |
-|------|------|-----|---------|---------|----------|
-| **Starter** | 2 | 4 GB | 50 GB SSD | 1 | Small teams, <5 agents |
-| **Standard** | 4 | 8 GB | 100 GB SSD | 1 | Medium teams, 5-15 agents |
-| **Performance** | 8 | 16 GB | 200 GB NVMe | 1 | Large teams, 15+ agents, heavy automation |
+| Tier | vCPU | RAM | Storage | Use Case |
+|------|------|-----|---------|----------|
+| **Dev** | 2 | 4 GB | 50 GB SSD | Dev/master server (git push, update-all) |
+| **Starter** | 2 | 4 GB | 50 GB SSD | Small teams, <5 agents |
+| **Standard** | 4 | 8 GB | 100 GB SSD | Medium teams, 5-15 agents |
+| **Performance** | 8 | 16 GB | 200 GB NVMe | Large teams, 15+ agents, heavy automation |
+
+### Dev Server Setup
+
+Your dev server is the central hub for git operations and deploying updates:
+
+```bash
+# Clone the repo with push access
+git clone git@github.com:Systemsaholic/nexaas.git /opt/nexaas
+cd /opt/nexaas
+
+# Install GitHub CLI for PR creation
+sudo apt install gh
+gh auth login
+
+# Configure customer deployments
+mkdir -p ~/.nexaas
+cat > ~/.nexaas/deployments.conf << 'EOF'
+root@customer-a.ovh.com:/opt/nexaas
+root@customer-b.ovh.com:/opt/nexaas
+EOF
+
+# Set up SSH keys for passwordless access to customer servers
+ssh-copy-id root@customer-a.ovh.com
+ssh-copy-id root@customer-b.ovh.com
+```
 
 ### Installation
 
@@ -307,28 +333,80 @@ crontab -e
 
 ## Contributing Improvements
 
-When you fix bugs or improve prompts on a customer deployment, contribute them back:
+When you fix bugs or improve prompts on a customer deployment, contribute them back to the framework so all customers benefit.
 
-```bash
-# Interactive contribution helper with sanitization
-bash scripts/contribute.sh
+### Infrastructure Setup
 
-# Dry-run to preview
-bash scripts/contribute.sh --dry-run
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  YOUR OVH CLOUD                                                     │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │ Customer A   │  │ Customer B   │  │ Customer C   │  ...         │
+│  │ VPS          │  │ VPS          │  │ VPS          │              │
+│  └──────┬───────┘  └──────────────┘  └──────────────┘              │
+│         │ fix here                        ▲                         │
+│         ▼ export patch                    │ auto-update             │
+│  ┌──────────────┐                         │                         │
+│  │ Dev VPS      │─── git push ──> GitHub ─┘                         │
+│  │ (master)     │                                                   │
+│  └──────────────┘                                                   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Sanitization guardrails** automatically block:
+**Dev VPS specs:** Starter tier (2 vCPU, 4GB RAM) is sufficient — it only needs git and SSH access.
+
+### Workflow
+
+**1. On customer server (where you fixed a bug):**
+```bash
+bash scripts/contribute.sh --export
+```
+Creates sanitized patch in `exports/` (blocks secrets, customer names, etc.)
+
+**2. Copy patch to dev server:**
+```bash
+scp exports/nexaas-patch-*.patch user@dev-vps:/opt/nexaas/exports/
+```
+
+**3. On dev server (apply and push):**
+```bash
+cd /opt/nexaas
+git checkout -b fix/description
+git apply exports/*.patch
+git add -A && git commit -m "Fix: description"
+git push origin fix/description
+gh pr create --fill
+```
+
+**4. After merge — update all deployments:**
+```bash
+bash scripts/update-all.sh
+```
+
+### Configure Deployments
+
+Create `~/.nexaas/deployments.conf` on your dev server:
+
+```bash
+mkdir -p ~/.nexaas
+cat > ~/.nexaas/deployments.conf << 'EOF'
+# Customer deployments (user@host:/path)
+root@customer-a.ovh.com:/opt/nexaas
+root@customer-b.ovh.com:/opt/nexaas
+root@customer-c.ovh.com:/opt/nexaas
+EOF
+```
+
+### Sanitization Guardrails
+
+The export script automatically blocks:
 - API keys, tokens, secrets
 - Customer company names and domains
 - Webhook URLs, phone numbers
 - Account/org IDs
 
-The script will:
-1. Detect framework vs customer-specific changes
-2. Scan for sensitive/customer-specific content (blocks if found)
-3. Guide you to replace with placeholders (`${API_KEY}`, `example.com`)
-4. Create branch, commit, and PR
-5. After merge, all deployments get the fix via auto-update
+Allowed placeholders: `${API_KEY}`, `example.com`, `your-api-key-here`
 
 See [Contributing Upstream](framework/playbooks/08-contribute-upstream.md) for details.
 
