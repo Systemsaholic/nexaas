@@ -37,6 +37,12 @@ framework/              # Git-tracked defaults (ships with platform)
 └── mcp-servers/
 
 workspace/              # User config (gitignored, per-deployment)
+├── agents/
+├── registries/
+├── skills/
+├── flows/              # Multi-step automations
+├── scripts/            # Python scripts for flow automation
+└── memory/
 templates/              # Workspace templates for deploy.sh
 ```
 
@@ -83,6 +89,7 @@ npm run dev
 API_KEY=required          # Bearer token for API
 JWT_SECRET=required       # JWT signing secret
 DATABASE_PATH=data/nexaas.db
+WORKSPACE_ROOT=.          # Path to workspace/ directory
 ENGINE_TICK_SECONDS=30
 WORKER_POOL_SIZE=3
 ```

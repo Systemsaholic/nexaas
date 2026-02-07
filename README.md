@@ -469,6 +469,12 @@ templates/fresh/        Blank workspace template
   CLAUDE.md             Minimal workspace context
 
 workspace/              Active workspace (gitignored, created by deploy.sh)
+  agents/               Agent definitions
+  registries/           Data stores
+  skills/               Reusable task instructions
+  flows/                Multi-step automations
+  scripts/              Python scripts for flow automation
+  memory/               Scheduled tasks
 
 dashboard/              Next.js 16 frontend
   app/                  App router pages

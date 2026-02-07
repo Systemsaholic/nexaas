@@ -37,6 +37,8 @@ Your workspace now contains:
 - `workspace/agents/` — empty, ready for your agents
 - `workspace/registries/` — empty, ready for your data
 - `workspace/skills/` — empty, ready for your skills
+- `workspace/flows/` — empty, ready for your automations
+- `workspace/scripts/` — empty, ready for custom scripts
 - `workspace/memory/` — empty followups and checks files
 
 The framework provides a default `ops-monitor` agent and `health-check` skill that are already active.
