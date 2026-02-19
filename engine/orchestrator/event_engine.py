@@ -116,9 +116,9 @@ async def _tick() -> None:
                     await publish("event.paused", {"event_id": event_id, "reason": "max_retries"})
                     continue
 
-                # Enqueue the job
+                # Enqueue the job (may return None if deduplicated)
                 action_config = json.loads(event[4]) if isinstance(event[4], str) else event[4]
-                await enqueue(
+                job_id = await enqueue(
                     action_type=event[3],
                     action_config=action_config,
                     event_id=event_id,
@@ -126,6 +126,15 @@ async def _tick() -> None:
                     priority=event[5] or 5,
                     concurrency_key=event[6],
                 )
+
+                if job_id is None:
+                    # Duplicate — release lock and move to next eval
+                    await db.execute(
+                        "UPDATE events SET lock_holder = NULL WHERE id = ?",
+                        (event_id,),
+                    )
+                    await db.commit()
+                    continue
 
                 next_eval = _compute_next_eval(event[1], event[2])
                 await db.execute(

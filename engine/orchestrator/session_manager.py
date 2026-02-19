@@ -3,13 +3,49 @@
 import asyncio
 import json
 import logging
+import tempfile
 import uuid
 from dataclasses import dataclass, field
-from typing import AsyncIterator
+from pathlib import Path
+from typing import Any, AsyncIterator
 
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+_mcp_tmp_dir = tempfile.mkdtemp(prefix="nexaas-mcp-")
+
+
+def generate_agent_mcp_config(
+    mcp_server_names: list[str],
+) -> str | None:
+    """Generate a minimal .mcp.json for an agent, returning the file path.
+
+    Reads the full workspace MCP config and filters to only the servers
+    the agent needs. Returns None if no servers matched or the list is empty.
+    """
+    if not mcp_server_names:
+        return None
+
+    from readers.workspace_reader import read_workspace
+
+    ws = read_workspace()
+    full_config = ws.get("mcp_config") or {}
+    all_servers = full_config.get("mcpServers", {})
+
+    filtered: dict[str, Any] = {}
+    for name in mcp_server_names:
+        if name in all_servers:
+            filtered[name] = all_servers[name]
+        else:
+            logger.warning("Agent requests MCP server '%s' but it's not available", name)
+
+    if not filtered:
+        return None
+
+    config_path = Path(_mcp_tmp_dir) / f"mcp-{uuid.uuid4().hex[:8]}.json"
+    config_path.write_text(json.dumps({"mcpServers": filtered}, indent=2))
+    return str(config_path)
 
 
 @dataclass
@@ -19,6 +55,7 @@ class Session:
     session_id: str
     agent: str
     workspace_dir: str
+    mcp_servers: list[str] = field(default_factory=list)
     process: asyncio.subprocess.Process | None = None
 
 
@@ -33,6 +70,7 @@ class SessionManager:
         agent: str,
         session_id: str | None = None,
         workspace_dir: str | None = None,
+        mcp_servers: list[str] | None = None,
     ) -> str:
         """Create a session record. Returns the session ID."""
         sid = session_id or str(uuid.uuid4())
@@ -41,6 +79,7 @@ class SessionManager:
             session_id=sid,
             agent=agent,
             workspace_dir=ws_dir,
+            mcp_servers=mcp_servers or [],
         )
         logger.info("Created session %s for agent %s (dir=%s)", sid, agent, ws_dir)
         return sid
@@ -67,6 +106,12 @@ class SessionManager:
         if settings.CLAUDE_SKIP_PERMISSIONS:
             cmd.append("--dangerously-skip-permissions")
         cmd.extend(["--session-id", session.session_id])
+
+        # Per-agent MCP config: only load the servers the agent needs
+        if session.mcp_servers:
+            mcp_config_path = generate_agent_mcp_config(session.mcp_servers)
+            if mcp_config_path:
+                cmd.extend(["--mcp-config", mcp_config_path])
 
         logger.info("Spawning Claude Code: %s (cwd=%s)", " ".join(cmd), session.workspace_dir)
 

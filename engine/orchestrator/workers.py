@@ -19,6 +19,7 @@ from db.usage import record_usage
 from orchestrator.event_bus import publish
 from orchestrator.job_queue import dequeue, complete_job
 from orchestrator.session_manager import manager
+from readers.agent_reader import get_agent
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,11 @@ async def _execute_claude_chat(config: dict[str, Any]) -> str:
     if not prompt:
         return "error: no prompt or messages provided"
 
-    session_id = manager.create_session(agent=agent)
+    # Look up agent's declared MCP servers for per-agent filtering
+    agent_info = get_agent(agent)
+    mcp_servers = agent_info["config"].get("mcp_servers", []) if agent_info else []
+
+    session_id = manager.create_session(agent=agent, mcp_servers=mcp_servers)
     try:
         output_parts = []
         total_input_tokens = 0
@@ -110,7 +115,10 @@ async def _execute_skill(config: dict[str, Any]) -> str:
     if config.get("input"):
         prompt += f"\n\nInput: {config['input']}"
 
-    session_id = manager.create_session(agent=agent)
+    agent_info = get_agent(agent)
+    mcp_servers = agent_info["config"].get("mcp_servers", []) if agent_info else []
+
+    session_id = manager.create_session(agent=agent, mcp_servers=mcp_servers)
     try:
         output_parts = []
         async for line in manager.send_message(session_id, prompt):

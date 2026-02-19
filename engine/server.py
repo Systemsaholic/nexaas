@@ -118,7 +118,22 @@ app.include_router(flows_router)
 
 
 if __name__ == "__main__":
+    import socket
     import uvicorn
+
+    # Fail fast if port is already in use
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((settings.HOST, settings.PORT))
+        except OSError:
+            logger.error(
+                "Port %d is already in use. Is another engine instance running?\n"
+                "  Hint: Check `systemctl status nexaas-engine` or "
+                "`ps aux | grep server.py`",
+                settings.PORT,
+            )
+            sys.exit(1)
+
     uvicorn.run(
         "server:app",
         host=settings.HOST,

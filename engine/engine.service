@@ -10,6 +10,8 @@ ExecStart=/opt/nexaas/engine/.venv/bin/uvicorn server:app --host 0.0.0.0 --port 
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+MemoryMax=6G
+MemoryHigh=4G
 
 [Install]
 WantedBy=multi-user.target

@@ -16,7 +16,7 @@ class Settings:
     HOST: str = os.getenv("HOST", "0.0.0.0")
     PORT: int = int(os.getenv("PORT", "8400"))
     ENGINE_TICK_SECONDS: int = int(os.getenv("ENGINE_TICK_SECONDS", "30"))
-    WORKER_POOL_SIZE: int = int(os.getenv("WORKER_POOL_SIZE", "3"))
+    WORKER_POOL_SIZE: int = int(os.getenv("WORKER_POOL_SIZE", "1"))
     CORS_ORIGINS: list[str] = [
         o.strip()
         for o in os.getenv("CORS_ORIGINS", "*").split(",")
@@ -24,7 +24,10 @@ class Settings:
     ]
 
     # Framework & Claude Code
-    FRAMEWORK_ROOT: str = os.getenv("FRAMEWORK_ROOT", "framework")
+    FRAMEWORK_ROOT: str = os.getenv(
+        "FRAMEWORK_ROOT",
+        str(Path(__file__).resolve().parent.parent / "framework"),
+    )
     CLAUDE_CODE_PATH: str = os.getenv("CLAUDE_CODE_PATH", "claude")
     CLAUDE_SKIP_PERMISSIONS: bool = os.getenv("CLAUDE_SKIP_PERMISSIONS", "true").lower() in ("true", "1", "yes")
 

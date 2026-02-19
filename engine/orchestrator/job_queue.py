@@ -17,9 +17,26 @@ async def enqueue(
     source: str = "engine",
     priority: int = 5,
     concurrency_key: str | None = None,
-) -> int:
-    """Add a job to the queue. Returns the job id."""
+) -> int | None:
+    """Add a job to the queue. Returns the job id, or None if deduplicated."""
     db = await get_db()
+
+    # Dedup: skip if a job with the same concurrency_key is already active
+    if concurrency_key:
+        cursor = await db.execute(
+            "SELECT id FROM job_queue "
+            "WHERE concurrency_key = ? AND status IN ('queued', 'running') "
+            "LIMIT 1",
+            (concurrency_key,),
+        )
+        existing = await cursor.fetchone()
+        if existing:
+            logger.debug(
+                "Skipped enqueue for %s — job %d already active (key=%s)",
+                action_type, existing[0], concurrency_key,
+            )
+            return None
+
     now = datetime.now(timezone.utc).isoformat()
     cursor = await db.execute(
         "INSERT INTO job_queue (event_id, source, priority, concurrency_key, "
