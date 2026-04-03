@@ -1,0 +1,92 @@
+version: "3.8"
+
+services:
+  trigger-webapp:
+    image: ghcr.io/triggerdotdev/trigger.dev:latest
+    restart: unless-stopped
+    ports:
+      - "3040:3000"
+    environment:
+      - DATABASE_URL=postgresql://trigger:${TRIGGER_DB_PASSWORD}@postgres:5432/trigger
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${TRIGGER_SECRET_KEY}
+      - APP_ORIGIN=${TRIGGER_APP_ORIGIN}
+      - LOGIN_ORIGIN=${TRIGGER_LOGIN_ORIGIN}
+      - MAGIC_LINK_SECRET=${MAGIC_LINK_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - WHITELISTED_EMAILS=${WHITELISTED_EMAILS}
+      - TRIGGER_TELEMETRY_DISABLED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - trigger-registry:/registry
+      - trigger-objects:/objects
+
+  trigger-supervisor:
+    image: ghcr.io/triggerdotdev/supervisor:latest
+    restart: unless-stopped
+    privileged: true
+    environment:
+      - TRIGGER_API_URL=http://trigger-webapp:3000
+      - TRIGGER_API_KEY=${TRIGGER_WORKER_API_KEY}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /opt/nexaas:/opt/nexaas:ro
+      - /opt/workspaces:/opt/workspaces:rw
+    depends_on:
+      - trigger-webapp
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: trigger
+      POSTGRES_PASSWORD: ${TRIGGER_DB_PASSWORD}
+      POSTGRES_DB: trigger
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trigger"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  trigger-registry:
+  trigger-objects:
