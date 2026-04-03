@@ -27,8 +27,12 @@ export interface WorkspaceManifest {
     workerUrl: string;
   };
   domainMap?: Record<string, string>;
+  network?: {
+    privateIp: string;   // VLAN IP (e.g., 10.10.0.11) — used for SSH + inter-VPS
+    publicIp?: string;   // Public IP (e.g., 15.235.40.168) — for external webhooks
+  };
   ssh?: {
-    host: string;
+    host: string;        // Should be the privateIp for VLAN setups
     user: string;
     port?: number;
   };

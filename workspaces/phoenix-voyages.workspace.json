@@ -51,6 +51,9 @@
     "operations": "operations",
     "accounting": "accounting"
   },
+  "network": {
+    "publicIp": "100.76.237.12"
+  },
   "ssh": {
     "host": "phoenix-services",
     "user": "ubuntu",

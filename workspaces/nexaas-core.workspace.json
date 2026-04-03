@@ -22,6 +22,10 @@
     "projectId": "proj_nexaas_core",
     "workerUrl": "http://localhost:3000"
   },
+  "network": {
+    "privateIp": "10.10.0.10",
+    "publicIp": "51.79.29.29"
+  },
   "context": {
     "threadTtlDays": 90,
     "maxTurnsBeforeSummary": 10
