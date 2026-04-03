@@ -282,7 +282,7 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
     // Strip Claude nesting detection env vars so spawned Claude doesn't
     // think it's inside another session (happens when worker is started
     // from a Claude Code terminal)
-    const cleanEnv = { ...process.env, TERM: "dumb" };
+    const cleanEnv: Record<string, string | undefined> = { ...process.env, TERM: "dumb" };
     delete cleanEnv.CLAUDECODE;
     delete cleanEnv.CLAUDE_CODE_ENTRYPOINT;
 

@@ -7,7 +7,7 @@
  * run-check tasks.
  *
  * Dispatcher:
- *   check-dispatch-frequent   */15 * * * *   All due checks (daily, weekly, monthly, interval)
+ *   check-dispatch-frequent   every 15 min   All due checks (daily, weekly, monthly, interval)
  *
  * Queue: "yaml-checks" (concurrency 2) — separate from agent runs
  */
@@ -58,13 +58,8 @@ export const runCheck = task({
     minTimeoutInMs: 10_000,
     maxTimeoutInMs: 60_000,
   },
-  // Deduplicate by check ID — if the same check is still running from a previous
-  // dispatcher tick, skip this run instead of stacking them up
-  idempotencyKey: (check: CheckConfig) => {
-    // Guard before accessing check.id
-    if (!check || !check.id) return "run-check-malformed";
-    return `run-check-${check.id}`;
-  },
+  // Deduplicate by check ID — callers should pass idempotencyKey when triggering
+  // to prevent the same check from stacking up across dispatcher ticks
   run: async (check: CheckConfig): Promise<ClaudeResult & { checkId: string }> => {
     // Guard against malformed checks
     if (!check || !check.id || !check.agent) {
