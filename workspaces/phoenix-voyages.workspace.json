@@ -51,6 +51,11 @@
     "operations": "operations",
     "accounting": "accounting"
   },
+  "ssh": {
+    "host": "phoenix-services",
+    "user": "ubuntu",
+    "port": 22
+  },
   "context": {
     "threadTtlDays": 90,
     "maxTurnsBeforeSummary": 10

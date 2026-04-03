@@ -27,6 +27,11 @@ export interface WorkspaceManifest {
     workerUrl: string;
   };
   domainMap?: Record<string, string>;
+  ssh?: {
+    host: string;
+    user: string;
+    port?: number;
+  };
   context?: {
     threadTtlDays?: number;
     maxTurnsBeforeSummary?: number;
