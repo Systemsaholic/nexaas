@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS skill_feedback (
     evidence                JSONB,
     claude_reflection       TEXT,
     proposed_improvement    TEXT,
+    collected               BOOLEAN DEFAULT FALSE,
     created_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -249,3 +250,4 @@ CREATE INDEX IF NOT EXISTS idx_skill_feedback_signal ON skill_feedback(signal);
 CREATE INDEX IF NOT EXISTS idx_skill_proposals_status ON skill_proposals(status);
 CREATE INDEX IF NOT EXISTS idx_skill_proposals_skill ON skill_proposals(skill_id);
 CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id);
+CREATE INDEX IF NOT EXISTS idx_skill_feedback_collected ON skill_feedback(collected) WHERE collected = false;
