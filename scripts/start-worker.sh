@@ -30,5 +30,6 @@ MAX_CONCURRENT="${MAX_CONCURRENT_RUNS:-5}"
 exec ./node_modules/.bin/trigger dev \
   --skip-update-check \
   --max-concurrent-runs "$MAX_CONCURRENT" \
+  --config trigger/trigger.config.ts \
   --log-level log \
   2>&1
