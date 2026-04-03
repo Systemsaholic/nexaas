@@ -1,0 +1,28 @@
+{
+  "id": "client-id",
+  "name": "Client Display Name",
+  "workspaceRoot": "/opt/workspaces/client-id",
+  "claudeMd": {
+    "full": "/opt/workspaces/client-id/CLAUDE.md",
+    "summary": "/opt/workspaces/client-id/CLAUDE.summary.md",
+    "minimal": "/opt/workspaces/client-id/CLAUDE.minimal.md"
+  },
+  "skills": [],
+  "agents": [],
+  "mcp": {
+    "filesystem": "http://localhost:3100"
+  },
+  "capabilities": {
+    "playwright": false,
+    "docker": false,
+    "bash": true
+  },
+  "trigger": {
+    "projectId": "proj_",
+    "workerUrl": "http://client-vps:3000"
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}
