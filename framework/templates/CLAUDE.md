@@ -72,7 +72,7 @@ entries:
 
 ## Executing Skills
 
-Skills are markdown files with step-by-step instructions. Find them in `skills/` or `framework/skills/`.
+Skills are markdown files with step-by-step instructions. Find them in `skills/`.
 
 To execute a skill: read it and follow the steps. Skills typically include:
 - **Steps**: What to do

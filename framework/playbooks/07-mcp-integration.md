@@ -9,7 +9,7 @@ Configure Model Context Protocol (MCP) servers for your workspace.
 
 ## MCP Server Catalog
 
-The framework ships a catalog of MCP servers in `framework/mcp-servers/`. List the available servers:
+The framework ships a catalog of MCP servers in `mcp/configs/` (registry at `mcp/_registry.yaml`). List the available servers:
 
 ```bash
 curl -H "Authorization: Bearer $API_KEY" http://localhost:8400/api/mcp-catalog
@@ -89,7 +89,7 @@ Add custom (non-framework) servers directly to `mcpServers`:
 
 ## How Updates Work
 
-- **New servers** added to `framework/mcp-servers/` become available in the catalog after pulling the framework update, but aren't active until an admin enables them.
+- **New servers** added to `mcp/configs/` become available in the catalog after pulling the framework update, but aren't active until an admin enables them.
 - **Updates to existing servers** (e.g., new args, version bumps) take effect automatically for any instance that has the server enabled, since the engine reads the framework catalog at runtime.
 - **Workspace overrides** are never affected by framework updates — if you define a server in `mcpServers` with the same name, it always wins.
 

@@ -5,7 +5,7 @@
 | **Workspace** | A user's deployment configuration directory. Contains `workspace.yaml`, agents, registries, skills, and memory files. Gitignored by default. |
 | **Framework** | The shared, workspace-agnostic layer shipped with Nexaas. Contains default agents, skills, playbooks, and templates. |
 | **Agent** | An AI actor defined by a `config.yaml` and optional `prompt.md`. Agents form a hierarchy via the `parent` field and are discovered from both framework and workspace. |
-| **Skill** | A markdown file defining a reusable capability (e.g., `/health-check`). Discovered from `framework/skills/` and `workspace/skills/`. |
+| **Skill** | A reusable AI capability defined by a `skill.yaml` manifest and `prompt.md`. Discovered from `skills/` (global registry) and workspace-specific overrides. |
 | **Registry** | A YAML data store with typed `fields` and `entries`. Used for structured business data (clients, invoices, etc.). |
 | **Perspective** | A top-level navigation section in the dashboard (e.g., Operations, Marketing). Defined in `workspace.yaml`. |
 | **Page** | A view within a perspective. Contains one or more components arranged in a layout. |
