@@ -8,5 +8,9 @@
 // Skill runner schedules (batch dispatch)
 export { dispatchFrequent, scheduledCheck } from "../tasks/run-skill.js";
 
+// Core orchestration schedules
+export { scanWorkspacesSchedule } from "../tasks/scan-workspaces.js";
+export { checkApprovalsSchedule } from "../tasks/check-approvals.js";
+
 // Cron task schedules (add workspace-specific exports here)
 // export { myTaskSchedule } from "../tasks/cron-tasks.js";

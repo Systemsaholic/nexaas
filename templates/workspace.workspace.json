@@ -19,7 +19,16 @@
   },
   "trigger": {
     "projectId": "proj_",
-    "workerUrl": "http://client-vps:3000"
+    "workerUrl": "http://localhost:3000"
+  },
+  "network": {
+    "privateIp": "",
+    "publicIp": ""
+  },
+  "ssh": {
+    "host": "",
+    "user": "ubuntu",
+    "port": 22
   },
   "context": {
     "threadTtlDays": 90,

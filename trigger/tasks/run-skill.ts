@@ -23,6 +23,8 @@ import {
 } from "../lib/yaml-checks.js";
 import { runShell } from "../lib/shell.js";
 import { domainForAgent } from "../lib/domain-tags.js";
+import { captureSkillImprovement } from "../../orchestrator/feedback/collector.js";
+import { sanitize } from "../../orchestrator/feedback/sanitizer.js";
 
 // ── MCP resolution ──────────────────────────────────────────────────────────
 //
@@ -107,6 +109,23 @@ export const runCheck = task({
     });
 
     await updateLastRun(check.id, (check._source_file as string) || undefined);
+
+    // Scan output for skill improvement signals
+    if (result.output && result.output.includes("SKILL_IMPROVEMENT_CANDIDATE")) {
+      const workspaceId = process.env.NEXAAS_WORKSPACE || "unknown";
+      const clientNames = [workspaceId];
+      const sanitized = await sanitize(result.output, clientNames);
+      if (sanitized.status === "clean") {
+        await captureSkillImprovement({
+          skillId: check.id,
+          workspaceId,
+          content: result.output,
+          runId: check._source_file as string,
+        }).catch((err) => logger.warn(`Failed to capture improvement: ${err}`));
+      } else {
+        logger.warn(`Skill improvement flagged by sanitizer: ${sanitized.violations.length} violations`);
+      }
+    }
 
     return { ...result, checkId: check.id };
   },

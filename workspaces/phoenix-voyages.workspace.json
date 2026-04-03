@@ -51,6 +51,14 @@
     "operations": "operations",
     "accounting": "accounting"
   },
+  "network": {
+    "publicIp": "100.76.237.12"
+  },
+  "ssh": {
+    "host": "phoenix-services",
+    "user": "ubuntu",
+    "port": 22
+  },
   "context": {
     "threadTtlDays": 90,
     "maxTurnsBeforeSummary": 10

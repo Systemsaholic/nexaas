@@ -1,0 +1,37 @@
+{
+  "id": "envirotem",
+  "name": "Envirotem",
+  "workspaceRoot": "/opt/workspaces/envirotem",
+  "claudeMd": {
+    "full": "/opt/workspaces/envirotem/CLAUDE.md",
+    "summary": "/opt/workspaces/envirotem/CLAUDE.summary.md",
+    "minimal": "/opt/workspaces/envirotem/CLAUDE.minimal.md"
+  },
+  "skills": [],
+  "agents": [],
+  "mcp": {
+    "filesystem": "http://localhost:3100"
+  },
+  "capabilities": {
+    "playwright": false,
+    "docker": true,
+    "bash": true
+  },
+  "trigger": {
+    "projectId": "proj_envirotem",
+    "workerUrl": "http://localhost:3000"
+  },
+  "network": {
+    "privateIp": "10.10.0.11",
+    "publicIp": "15.235.40.168"
+  },
+  "ssh": {
+    "host": "10.10.0.11",
+    "user": "ubuntu",
+    "port": 22
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}
