@@ -26,6 +26,8 @@ workspace/
 ├── agents/             # Team members (config.yaml + prompt.md each)
 ├── registries/         # Data stores (YAML files)
 ├── skills/             # Reusable task instructions (markdown)
+├── flows/              # Multi-step automations (YAML files)
+├── scripts/            # Python scripts for flow automation
 ├── memory/
 │   ├── followups.yaml  # One-time scheduled tasks
 │   └── checks.yaml     # Recurring scheduled tasks
