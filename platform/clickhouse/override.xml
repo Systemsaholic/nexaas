@@ -1,0 +1,16 @@
+<clickhouse>
+    <logger>
+        <level>warning</level>
+    </logger>
+    <!-- Low-memory config for 4GB VPS -->
+    <mark_cache_size>268435456</mark_cache_size>
+    <concurrent_threads_soft_limit_num>1</concurrent_threads_soft_limit_num>
+    <profiles>
+        <default>
+        <max_block_size>8192</max_block_size>
+        <max_download_threads>1</max_download_threads>
+        <input_format_parallel_parsing>0</input_format_parallel_parsing>
+        <output_format_parallel_formatting>0</output_format_parallel_formatting>
+        </default>
+    </profiles>
+</clickhouse>

@@ -114,7 +114,7 @@ RUN_REPLICATION_CLICKHOUSE_URL=http://default:${CH_PASS}@trigger-clickhouse:8123
 MINIO_ROOT_USER=triggeradmin
 MINIO_ROOT_PASSWORD=${MINIO_PASS}
 OBJECT_STORE_ACCESS_KEY_ID=triggeradmin
-OBJECT_STORE_SECRET_ACCESS_KEY=${OBJ_SECRET}
+OBJECT_STORE_SECRET_ACCESS_KEY=${MINIO_PASS}
 WHITELISTED_EMAILS=${ADMIN_EMAIL}
 TRIGGER_TELEMETRY_DISABLED=1
 RESTART_POLICY=unless-stopped
@@ -199,11 +199,14 @@ fi
 
 info "Step 5/9: Generating access token..."
 
-# Copy the PAT creation script to VPS and run it
-run "cd ${NEXAAS_ROOT} && node scripts/create-trigger-pat.mjs ${ENCRYPTION_KEY} ${USER_ID} ${PG_CONTAINER}"
+# Run PAT creation once, capture output, and insert into DB
+PAT_OUTPUT=$(run "cd ${NEXAAS_ROOT} && node scripts/create-trigger-pat.mjs ${ENCRYPTION_KEY} ${USER_ID} ${PG_CONTAINER}" 2>&1)
+PAT_TOKEN=$(echo "${PAT_OUTPUT}" | grep '^TOKEN=' | cut -d= -f2)
 
-# Extract the token from output
-PAT_TOKEN=$(run "cd ${NEXAAS_ROOT} && node scripts/create-trigger-pat.mjs ${ENCRYPTION_KEY} ${USER_ID}" | grep '^TOKEN=' | cut -d= -f2)
+if [ -z "${PAT_TOKEN}" ]; then
+  warn "PAT creation output: ${PAT_OUTPUT}"
+  fail "Failed to extract PAT token"
+fi
 
 # Write CLI config
 run "mkdir -p ~/.config/trigger && echo '{\"version\":2,\"currentProfile\":\"default\",\"profiles\":{\"default\":{\"accessToken\":\"${PAT_TOKEN}\",\"apiUrl\":\"http://localhost:3040\"}},\"settings\":{}}' > ~/.config/trigger/config.json"
