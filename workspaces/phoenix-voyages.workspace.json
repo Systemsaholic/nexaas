@@ -1,0 +1,58 @@
+{
+  "id": "phoenix-voyages",
+  "name": "Phoenix Voyages",
+  "workspaceRoot": "/home/ubuntu/Phoenix-Voyages",
+  "claudeMd": {
+    "full": "/home/ubuntu/Phoenix-Voyages/CLAUDE.md",
+    "summary": "/home/ubuntu/Phoenix-Voyages/CLAUDE.md",
+    "minimal": "/home/ubuntu/Phoenix-Voyages/CLAUDE.md"
+  },
+  "skills": [
+    "msp/health-check",
+    "finance/receipt-scanner"
+  ],
+  "agents": [
+    "pa",
+    "crm",
+    "marketing",
+    "operations",
+    "social-inbox",
+    "accounting",
+    "hr",
+    "seo"
+  ],
+  "mcp": {
+    "filesystem": "http://localhost:3100",
+    "email": "http://localhost:3101",
+    "groundhogg": "http://localhost:3102",
+    "github": "http://localhost:3103",
+    "nextcloud": "http://localhost:3104",
+    "playwright": "http://localhost:3105"
+  },
+  "capabilities": {
+    "playwright": true,
+    "docker": true,
+    "bash": true
+  },
+  "trigger": {
+    "projectId": "proj_phoenix_local",
+    "workerUrl": "http://localhost:3000"
+  },
+  "domainMap": {
+    "crm": "crm",
+    "hr": "hr",
+    "marketing": "marketing",
+    "pa": "pa",
+    "pa/al": "pa",
+    "pa/mireille": "pa",
+    "pa/seb": "pa",
+    "seo": "seo",
+    "social-inbox": "social",
+    "operations": "operations",
+    "accounting": "accounting"
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}
