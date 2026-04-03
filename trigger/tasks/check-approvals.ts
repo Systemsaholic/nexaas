@@ -11,7 +11,7 @@ import { syncSkills } from "./sync-skills.js";
 
 export const checkApprovals = task({
   id: "check-approvals",
-  queue: { name: "orchestrator", concurrencyLimit: 1 },
+  queue: { name: "orchestrator", concurrencyLimit: 5 },
   maxDuration: 120,
   run: async () => {
     const expired = await expireStaleProposals();

@@ -195,6 +195,21 @@ else
   info "Project exists: ${PROJECT_ID} (ref: ${EXTERNAL_REF})"
 fi
 
+# Create DEVELOPMENT runtime environment
+MEMBER_ID=$(run "${DB_CMD} -c \"SELECT id FROM \\\"OrgMember\\\" WHERE \\\"organizationId\\\" = '${ORG_ID}' LIMIT 1\"" | tr -d '[:space:]')
+ENV_ID=$(run "${DB_CMD} -c \"SELECT id FROM \\\"RuntimeEnvironment\\\" WHERE type = 'DEVELOPMENT' AND \\\"projectId\\\" = '${PROJECT_ID}' LIMIT 1\"" | tr -d '[:space:]')
+DEV_KEY="tr_dev_$(openssl rand -hex 12)"
+PK_KEY="pk_dev_$(openssl rand -hex 12)"
+
+if [ -z "${ENV_ID}" ]; then
+  ENV_ID="env_$(openssl rand -hex 12)"
+  run "${DB_CMD} -c \"INSERT INTO \\\"RuntimeEnvironment\\\" (id, slug, \\\"apiKey\\\", \\\"pkApiKey\\\", \\\"organizationId\\\", \\\"projectId\\\", \\\"orgMemberId\\\", type, \\\"autoEnableInternalSources\\\", shortcode, \\\"maximumConcurrencyLimit\\\", paused, \\\"isBranchableEnvironment\\\", \\\"concurrencyLimitBurstFactor\\\", \\\"createdAt\\\", \\\"updatedAt\\\") VALUES ('${ENV_ID}', 'dev', '${DEV_KEY}', '${PK_KEY}', '${ORG_ID}', '${PROJECT_ID}', '${MEMBER_ID}', 'DEVELOPMENT', false, '${WORKSPACE_ID}-dev', 300, false, false, 2.00, NOW(), NOW())\""
+  info "Created dev environment: ${ENV_ID}"
+else
+  DEV_KEY=$(run "${DB_CMD} -c \"SELECT \\\"apiKey\\\" FROM \\\"RuntimeEnvironment\\\" WHERE id = '${ENV_ID}'\"" | tr -d '[:space:]')
+  info "Dev environment exists: ${ENV_ID}"
+fi
+
 # ── Step 5: Generate PAT ────────────────────────────────────────────────────
 
 info "Step 5/9: Generating access token..."
@@ -217,13 +232,7 @@ info "PAT created and CLI configured"
 
 info "Step 6/9: Retrieving project credentials..."
 
-PROJECT_REF=$(run "${DB_CMD} -c \"SELECT \\\"externalRef\\\" FROM \\\"Project\\\" LIMIT 1\"" | tr -d '[:space:]')
-DEV_KEY=$(run "${DB_CMD} -c \"SELECT \\\"apiKey\\\" FROM \\\"RuntimeEnvironment\\\" WHERE type = 'DEVELOPMENT' LIMIT 1\"" | tr -d '[:space:]')
-
-if [ -z "${DEV_KEY}" ]; then
-  warn "Dev environment not yet created — Trigger.dev creates it on first project access"
-  warn "Visit the dashboard to trigger creation, or the worker will create it on connect"
-fi
+PROJECT_REF="${EXTERNAL_REF}"
 
 info "Project ref: ${PROJECT_REF}"
 info "Dev key: ${DEV_KEY:-pending}"

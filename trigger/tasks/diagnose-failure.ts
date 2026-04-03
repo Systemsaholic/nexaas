@@ -17,7 +17,7 @@ const NEXAAS_ROOT = process.env.NEXAAS_ROOT || process.cwd();
 
 export const diagnoseFailure = task({
   id: "diagnose-failure",
-  queue: { name: "orchestrator", concurrencyLimit: 2 },
+  queue: { name: "orchestrator", concurrencyLimit: 5 },
   maxDuration: 300,
   run: async (payload: {
     skillId: string;

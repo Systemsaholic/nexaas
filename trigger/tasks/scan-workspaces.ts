@@ -23,7 +23,7 @@ function getWorkspaceIds(): string[] {
 
 export const scanWorkspaces = task({
   id: "scan-workspaces",
-  queue: { name: "orchestrator", concurrencyLimit: 1 },
+  queue: { name: "orchestrator", concurrencyLimit: 5 },
   maxDuration: 600,
   run: async () => {
     const workspaceIds = getWorkspaceIds();
