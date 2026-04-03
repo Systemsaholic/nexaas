@@ -243,7 +243,7 @@ else
 fi
 
 # Install npm deps
-run "cd ${NEXAAS_ROOT} && npm install --production 2>&1 | tail -3"
+run "cd ${NEXAAS_ROOT} && npm install 2>&1 | tail -3"
 
 info "Dependencies installed"
 

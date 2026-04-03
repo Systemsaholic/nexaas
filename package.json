@@ -13,6 +13,7 @@
     "better-sqlite3": "^11.0.0",
     "js-yaml": "^4.1.1",
     "pg": "^8.20.0",
+    "trigger.dev": "^4.4.3",
     "zod": "^3.23.0"
   },
   "devDependencies": {
@@ -20,7 +21,6 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.20.0",
-    "trigger.dev": "^4.4.3",
     "typescript": "^5.5.0"
   }
 }
