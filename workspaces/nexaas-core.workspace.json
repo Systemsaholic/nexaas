@@ -1,0 +1,29 @@
+{
+  "id": "nexaas-core",
+  "name": "Nexaas Core",
+  "workspaceRoot": "/opt/nexaas",
+  "claudeMd": {
+    "full": "/opt/nexaas/CLAUDE.md",
+    "summary": "/opt/nexaas/CLAUDE.md",
+    "minimal": "/opt/nexaas/CLAUDE.md"
+  },
+  "skills": [],
+  "agents": ["ops-monitor"],
+  "mcp": {
+    "filesystem": "http://localhost:3100",
+    "github": "http://localhost:3103"
+  },
+  "capabilities": {
+    "playwright": false,
+    "docker": true,
+    "bash": true
+  },
+  "trigger": {
+    "projectId": "proj_nexaas_core",
+    "workerUrl": "http://localhost:3000"
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "nexaas",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Nexaas — AI business automation backbone for Nexmatic",
+  "type": "module",
+  "scripts": {
+    "dev": "npx trigger.dev@latest dev",
+    "deploy": "npx trigger.dev@latest deploy"
+  },
+  "dependencies": {
+    "@trigger.dev/sdk": "^4.4.2",
+    "better-sqlite3": "^11.0.0",
+    "js-yaml": "^4.1.1",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "trigger.dev": "^4.4.3",
+    "typescript": "^5.5.0"
+  }
+}

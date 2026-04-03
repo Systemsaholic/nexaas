@@ -1,0 +1,45 @@
+id: category/skill-name
+version: "1.0.0"
+name: "Human Readable Skill Name"
+description: "One sentence — what does this skill do for a business user?"
+status: stable         # stable | experimental | deprecated
+author: nexaas
+created: "YYYY-MM-DD"
+
+resources:
+  model: claude-haiku-4-5-20251001   # haiku for simple, sonnet for complex
+  claudeMd: minimal                   # minimal | summary | full
+  maxTurns: 10
+  maxTokensPerRun: 20000
+  mcp:
+    - filesystem                      # only list what this skill actually needs
+
+allowedTools:
+  - Read
+  - Write
+  # - Edit
+  # - Bash       (add only if needed)
+
+inputs:
+  - name: inputName
+    type: string
+    required: true
+    description: "What this input is"
+
+outputs:
+  - name: outputName
+    type: string
+    description: "What this output contains"
+
+tests:
+  - id: basic-test
+    description: "Basic happy path"
+    input:
+      inputName: "example value"
+    expected:
+      outputName: "expected result"
+
+changelog:
+  - version: "1.0.0"
+    date: "YYYY-MM-DD"
+    notes: "Initial version"

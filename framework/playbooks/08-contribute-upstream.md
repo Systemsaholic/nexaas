@@ -80,11 +80,12 @@ git diff
 ### 2. Categorize Changes
 
 **Framework changes** (contribute these):
-- `framework/mcp-servers/*.yaml` — MCP server configs
-- `framework/agents/*/prompt.md` — Default agent prompts
-- `framework/skills/*.md` — Skills
-- `framework/templates/*` — Templates
-- `engine/**/*.py` — Engine code fixes
+- `mcp/configs/*.yaml` — MCP server configs
+- `agents/*/prompt.md` — Default agent prompts
+- `skills/**` — Skills (registry, manifests, prompts)
+- `templates/*` — Templates
+- `trigger/**/*.ts` — Trigger.dev task and lib fixes
+- `orchestrator/**/*.ts` — Orchestrator fixes
 - `dashboard/**/*.tsx` — Dashboard fixes
 
 **Workspace overrides** (don't contribute):
@@ -100,8 +101,8 @@ git fetch origin main
 git checkout -b fix/social-inbox-parsing
 
 # Stage only framework-level changes
-git add framework/mcp-servers/late-dev.yaml
-git add framework/agents/social-inbox/prompt.md
+git add mcp/configs/late-dev.yaml
+git add agents/social-inbox/prompt.md
 # Do NOT add workspace/ files with customer data
 ```
 

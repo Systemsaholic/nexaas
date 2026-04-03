@@ -1,0 +1,32 @@
+[Unit]
+Description=Nexaas Trigger.dev Worker
+Documentation=https://trigger.dev/docs
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/nexaas
+ExecStart=/opt/nexaas/scripts/start-worker.sh
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexaas-worker
+
+# Environment
+EnvironmentFile=/opt/nexaas/.env
+Environment=NODE_ENV=production
+Environment=TRIGGER_DIR=/opt/nexaas
+
+# Resource limits — cap to prevent OOM cascade
+LimitNOFILE=65536
+MemoryMax=6G
+MemoryHigh=5G
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

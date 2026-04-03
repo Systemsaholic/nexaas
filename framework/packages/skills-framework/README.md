@@ -6,8 +6,8 @@ Markdown-based skill definitions that provide reusable capabilities to agents.
 
 Skills are `.md` files discovered from two locations:
 
-1. `framework/skills/` — default skills shipped with Nexaas
-2. `workspace/skills/` — workspace-specific skills
+1. `skills/` — skill registry (promoted from framework/skills/)
+2. `workspace/skills/` — workspace-specific skill overrides
 
 When both define a skill with the same filename, the workspace version wins.
 

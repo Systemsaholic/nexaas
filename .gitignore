@@ -40,3 +40,11 @@ workspace/
 
 # Business docs (private repo)
 BUSINESS_PLAN.md
+
+# Trigger.dev
+.trigger/
+
+# Platform data
+platform/postgres-data/
+platform/redis-data/
+platform/minio-data/

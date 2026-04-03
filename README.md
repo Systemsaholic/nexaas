@@ -1,233 +1,148 @@
 # Nexaas
 
-A platform for orchestrating and monitoring AI agent workspaces with built-in authentication, deployment tooling, and self-healing operations.
+The proprietary backbone of **Nexmatic** — an AI business automation platform for SMB clients. Nexaas orchestrates durable, context-aware AI workflows across multiple isolated client workspaces using Trigger.dev and Claude Code.
 
 ## Components
 
-- **Engine** — Python FastAPI backend: event engine, job queue, chat proxy, ops monitor, auth (bcrypt + JWT)
-- **Dashboard** — Next.js frontend: workspace visualization, agent management, real-time monitoring, login/register
+- **Trigger.dev** (self-hosted) — Task scheduling, queuing, retries, and observability
+- **Claude Code CLI** — Headless AI execution inside Trigger tasks (`trigger/lib/claude.ts`)
+- **Orchestrator** — Workspace session bootstrap, context continuity, skill feedback
+- **Dashboard** — Next.js frontend: workspace visualization, agent management, real-time monitoring
+- **Skills** — Reusable AI capabilities shared across workspaces (the "neuro-network")
 
-## Deployment Options
+## Architecture
 
-Nexaas supports two deployment models:
-
-| Model | Use Case | Clients | Infrastructure |
-|-------|----------|---------|----------------|
-| **VPS** | Dedicated single-tenant deployment | 1 | Dedicated server |
-| **Docker** | Multi-tenant shared infrastructure | Multiple | Shared VPS or cluster |
+```
+Nexmatic (product)
+└── Nexaas (this repo — the backbone)
+    ├── trigger/            Trigger.dev task definitions + battle-tested libs
+    │   ├── tasks/          run-agent, run-skill, cron-tasks
+    │   └── lib/            claude.ts, shell.ts, telegram.ts, yaml-checks.ts
+    ├── orchestrator/       Workspace session bootstrap + context
+    │   └── bootstrap/      createWorkspaceSession() — start here
+    ├── skills/             Reusable AI capabilities (skill registry)
+    │   └── _registry.yaml  Master skill index
+    ├── agents/             Agent definitions (config.yaml + prompt.md)
+    ├── mcp/                MCP server configs and registry
+    │   ├── _registry.yaml  All servers, ports, capabilities
+    │   └── configs/        16 MCP server YAML configs
+    ├── workspaces/         Client workspace manifests
+    ├── platform/           Docker Compose stack (Trigger.dev + Postgres + Redis + MinIO)
+    ├── database/           Unified Postgres schema + migrations
+    ├── templates/          Skill, agent, workspace templates
+    ├── dashboard/          Next.js UI (Nexmatic-branded)
+    ├── engine/             Legacy Python FastAPI (being retired)
+    └── scripts/            Deployment, provisioning, health checks
+```
 
 ---
 
-## VPS Deployment (Single-Tenant)
+## Quick Start
 
-Best for dedicated client deployments where each client gets their own server.
+### Prerequisites
 
-### Recommended Specs
+- Node.js 20+
+- Docker + Docker Compose (for platform stack)
+- Claude Code CLI installed
 
-| Tier | vCPU | RAM | Storage | Use Case |
-|------|------|-----|---------|----------|
-| **Dev** | 2 | 4 GB | 50 GB SSD | Dev/master server (git push, update-all) |
-| **Starter** | 2 | 4 GB | 50 GB SSD | Small teams, <5 agents |
-| **Standard** | 4 | 8 GB | 100 GB SSD | Medium teams, 5-15 agents |
-| **Performance** | 8 | 16 GB | 200 GB NVMe | Large teams, 15+ agents, heavy automation |
-
-### Dev Server Setup
-
-Your dev server is the central hub for git operations and deploying updates:
-
-```bash
-# Clone the repo with push access
-git clone git@github.com:Systemsaholic/nexaas.git /opt/nexaas
-cd /opt/nexaas
-
-# Install GitHub CLI for PR creation
-sudo apt install gh
-gh auth login
-
-# Configure customer deployments
-mkdir -p ~/.nexaas
-cat > ~/.nexaas/deployments.conf << 'EOF'
-root@customer-a.ovh.com:/opt/nexaas
-root@customer-b.ovh.com:/opt/nexaas
-EOF
-
-# Set up SSH keys for passwordless access to customer servers
-ssh-copy-id root@customer-a.ovh.com
-ssh-copy-id root@customer-b.ovh.com
-```
-
-### Installation
+### Development Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/Systemsaholic/nexaas.git
 cd nexaas
 
-# Run the VPS installer
-cd engine && bash install.sh
+# Install Trigger.dev + orchestrator dependencies
+npm install
+
+# Start the platform stack (Trigger.dev, Postgres, Redis, MinIO)
+cd platform && docker compose up -d
+
+# Start the Trigger.dev worker (development mode)
+npm run dev
 ```
 
-The installer will:
-1. Install Python 3.11+ and create a virtual environment
-2. Install Node.js 20+ and npm
-3. Install Claude Code CLI
-4. Initialize the SQLite database
-5. Build the Next.js dashboard
-6. Create systemd services for engine and dashboard
-7. Configure automatic restarts and logging
-
-### Post-Installation
+### Production Deployment (VPS)
 
 ```bash
-# Check service status
-sudo systemctl status nexaas-engine
-sudo systemctl status nexaas-dashboard
+# 1. Start the platform stack
+cd platform && docker compose up -d
 
-# View logs
-journalctl -u nexaas-engine -f
-journalctl -u nexaas-dashboard -f
-```
+# 2. Start the worker via systemd
+sudo cp scripts/trigger-dev-worker.service /etc/systemd/system/
+sudo systemctl enable nexaas-worker && sudo systemctl start nexaas-worker
 
-Access the dashboard at `http://your-server-ip:3000/register`.
-
-### HTTP-Only Deployments (Tailscale/VPN)
-
-For internal networks without HTTPS, add to your systemd environment:
-
-```bash
-Environment=COOKIE_SECURE=false
+# 3. Provision a client workspace
+./scripts/provision-workspace.sh [workspace-id] [vps-ip]
 ```
 
 ---
 
-## Docker Deployment (Multi-Tenant)
+## Workspace Manifests
 
-Best for hosting multiple clients on shared infrastructure. Each client runs as an isolated container stack.
+Each client workspace is declared in `workspaces/[id].workspace.json`:
 
-### Recommended Specs (Host Server)
-
-| Tier | vCPU | RAM | Storage | Clients | Use Case |
-|------|------|-----|---------|---------|----------|
-| **Micro** | 2 | 4 GB | 80 GB SSD | 2-3 | Freelancer, small agency |
-| **Mini** | 4 | 8 GB | 150 GB SSD | 5-8 | Growing agency |
-| **Standard** | 8 | 16 GB | 300 GB NVMe | 10-15 | Established agency |
-| **Scale** | 16 | 32 GB | 500 GB NVMe | 20-30 | Large MSP |
-
-**Per-client resource allocation:**
-- ~0.5 vCPU per client (burstable)
-- ~512 MB - 1 GB RAM per client
-- ~5-10 GB storage per client
-
-### Quick Start
-
-```bash
-# Fresh workspace (default) — blank slate, ready to customize
-./deploy.sh
-
-# Demo mode — pre-loaded BrightWave Digital agency data
-./deploy.sh demo
+```json
+{
+  "id": "client-id",
+  "name": "Client Name",
+  "workspaceRoot": "/opt/workspaces/client-id",
+  "skills": ["msp/email-triage", "finance/receipt-scanner"],
+  "agents": ["ops-monitor"],
+  "mcp": {
+    "filesystem": "http://localhost:3100",
+    "email": "http://localhost:3101"
+  },
+  "capabilities": { "playwright": true, "docker": true, "bash": true }
+}
 ```
 
-This will:
-1. Check prerequisites (Docker, Docker Compose)
-2. Generate a `.env` file with random API key and JWT secret
-3. Copy the selected template into `workspace/` (fresh or demo)
-4. Build and start both services
-5. Wait for the engine to become healthy
-6. Optionally authenticate Claude Code (and seed demo data in demo mode)
-7. Run health checks and print a summary
-
-Once running:
-
-- **Dashboard**: http://localhost:3000/register — create your first account
-- **Engine API**: http://localhost:8400
-
-The first user to register creates the company and becomes admin. Subsequent registrations join as members.
-
-### Multi-Client Setup
-
-For multiple clients on the same host, use separate compose projects with unique ports:
-
-```bash
-# Client A (ports 3001/8401)
-COMPOSE_PROJECT_NAME=client-a DASHBOARD_PORT=3001 ENGINE_PORT=8401 ./deploy.sh
-
-# Client B (ports 3002/8402)
-COMPOSE_PROJECT_NAME=client-b DASHBOARD_PORT=3002 ENGINE_PORT=8402 ./deploy.sh
-```
-
-Or use a reverse proxy (Traefik, Caddy, nginx) for subdomain routing.
-
-### Switching Modes
-
-To switch between fresh and demo modes, remove the workspace and redeploy:
-
-```bash
-docker compose down -v
-rm -rf workspace/
-./deploy.sh demo   # or ./deploy.sh for fresh
-```
-
-### Customizing Your Workspace
-
-Edit files in `workspace/` to configure your deployment:
-
-- `workspace/workspace.yaml` — perspectives, pages, and dashboard layout
-- `workspace/agents/` — agent definitions
-- `workspace/registries/` — data registries
-
-The `workspace/` directory is gitignored so your local configuration stays private.
+Every Trigger task starts with `createWorkspaceSession(workspaceId)` which loads the manifest, resolves MCP servers, and returns the full session context.
 
 ---
 
-## Framework
+## Skills
 
-The `framework/` directory contains workspace-agnostic defaults that ship with Nexaas:
+Skills are reusable AI capabilities that run across workspaces. Each skill lives in `skills/[category]/[skill-name]/`:
 
-- **`agents/`** — default agents (e.g., `ops-monitor`) visible in every workspace
-- **`skills/`** — default skills (e.g., `health-check`) available to all agents
-- **`playbooks/`** — step-by-step guides for common tasks (adding agents, skills, registries, etc.)
-- **`templates/`** — skeleton files to copy into your workspace (agent configs, skills, registries, memory)
-- **`packages/`** — documentation for each Nexaas subsystem
-- **`GLOSSARY.md`** — standardized terminology
+- `skill.yaml` — manifest (id, version, resources, inputs, outputs)
+- `prompt.md` — Claude instructions
+- `task.ts` — Trigger.dev task wrapper (optional)
+- `tests/` — test cases
 
-### Framework / Workspace Merge
+The master skill index is `skills/_registry.yaml`. See `templates/skill.yaml` and `templates/prompt.md` for authoring templates.
 
-The engine discovers agents and skills from both `framework/` and `workspace/`. When both define an item with the same name, **the workspace version wins**. This lets you override any framework default by creating a matching file in your workspace.
+---
 
-### Getting Started
+## MCP Servers
 
-See the playbooks in `framework/playbooks/`:
+All 16 MCP servers are documented in `mcp/_registry.yaml` with ports, capabilities, and required environment variables. Server configs live in `mcp/configs/`.
 
-1. [Initial Setup](framework/playbooks/01-initial-setup.md)
-2. [Add an Agent](framework/playbooks/02-add-agent.md)
-3. [Add a Skill](framework/playbooks/03-add-skill.md)
-4. [Add a Registry](framework/playbooks/04-add-registry.md)
-5. [Memory System](framework/playbooks/05-memory-system.md)
-6. [Custom Dashboard](framework/playbooks/06-custom-dashboard.md)
-7. [MCP Integration](framework/playbooks/07-mcp-integration.md)
-8. [Contributing Upstream](framework/playbooks/08-contribute-upstream.md)
+Available servers: filesystem, email, m365, github, postgres, playwright, brave-search, slack, sequential-thinking, memory, fetch, nextcloud, telegram, vaultwarden, docuseal, groundhogg.
 
-To customize, copy a template into your workspace:
+---
 
-```bash
-cp framework/templates/agent-config.yaml workspace/agents/my-agent/config.yaml
-```
+## Operational Stability
 
-## Development Setup
+The Trigger.dev worker includes battle-tested stability features from production deployments:
 
-For local development without Docker:
+| Feature | Implementation |
+|---------|---------------|
+| **OOM Prevention** | systemd `MemoryMax=6G` / `MemoryHigh=5G` |
+| **Concurrency Cap** | `--max-concurrent-runs 5` (~1.5GB per Claude CLI) |
+| **Process Cleanup** | `detached: true` + negative PID kill (entire tree) |
+| **MCP Context Overflow** | `--strict-mcp-config` per-task whitelisting |
+| **Self-Healing** | Global `onFailure` handler with Claude diagnosis |
+| **Queue Separation** | `claude-agents(3)`, `yaml-checks(2)`, `data-sync(2)`, `cron-tasks(2)` |
+| **Restart Safety** | `StartLimitBurst=5`, `RestartSec=30` |
 
-### Engine
+---
 
-```bash
-cd engine
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python server.py
-```
+## Dashboard
 
-### Dashboard
+The Next.js dashboard at `dashboard/` provides workspace visualization, agent management, and real-time monitoring.
+
+### Development
 
 ```bash
 cd dashboard
@@ -236,53 +151,50 @@ npm install
 npm run dev
 ```
 
-## Authentication
+### Environment Variables
 
-The engine provides JWT-based auth at `/api/auth`:
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_DEFAULT_GATEWAY_URL` | `http://localhost:8400` | Engine URL (client-side) |
+| `ENGINE_INTERNAL_URL` | _(unset)_ | Engine URL for server-side (Docker: `http://engine:8400`) |
+| `DEFAULT_GATEWAY_KEY` | _(unset)_ | API key for engine (server-side) |
+| `COOKIE_SECURE` | _(auto)_ | Set `false` for HTTP-only (e.g., Tailscale VPN) |
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/auth/register` | POST | Register a new user (first user becomes admin) |
-| `/api/auth/login` | POST | Log in, returns JWT |
-| `/api/auth/me` | GET | Current user info (requires Bearer token) |
+---
 
-The dashboard proxies auth through `/api/auth/*`, storing the JWT in an httpOnly cookie. A Next.js middleware redirects unauthenticated users to `/login`.
+## Legacy Engine
+
+The Python FastAPI engine at `engine/` is being replaced by Trigger.dev. It remains functional during the transition.
+
+### Running the Legacy Engine
+
+```bash
+cd engine
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python server.py
+```
+
+---
 
 ## Environment Variables
 
-### Engine
+Set in `.env` (never committed). See `.env.example` for all variables.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `API_KEY` | _(required)_ | Bearer token for API access |
-| `JWT_SECRET` | `change-me-in-production` | Secret for signing JWTs |
-| `DATABASE_PATH` | `data/nexaas.db` | SQLite database location |
-| `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8400` | Listen port |
-| `WORKSPACE_ROOT` | `.` | Root directory for workspaces |
+| Variable | Description |
+|----------|-------------|
+| `TRIGGER_SECRET_KEY` | Trigger.dev secret key |
+| `TRIGGER_API_URL` | Self-hosted Trigger.dev endpoint |
+| `TRIGGER_PROJECT_REF` | Trigger.dev project reference |
+| `DATABASE_URL` | Shared Postgres connection string |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
+| `NEXAAS_ROOT` | Path to nexaas repo on VPS (`/opt/nexaas`) |
+| `NEXAAS_WORKSPACE` | Workspace ID for this Trigger project |
+| `WORKSPACE_ROOT` | Absolute path to workspace on VPS |
+| `CLAUDE_CODE_PATH` | Path to Claude Code CLI binary |
+| `TELEGRAM_BRIDGE_URL` | Telegram notification bridge |
 
-### Dashboard
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NEXT_PUBLIC_DEFAULT_GATEWAY_URL` | `http://localhost:8400` | Engine URL (client-side). Alias: `NEXT_PUBLIC_GATEWAY_URL` |
-| `ENGINE_INTERNAL_URL` | _(unset)_ | Engine URL for server-side routes (used in Docker: `http://engine:8400`) |
-| `DEFAULT_GATEWAY_KEY` | _(unset)_ | API key for engine (server-side only). Alias: `GATEWAY_KEY` |
-| `COOKIE_SECURE` | _(auto)_ | Set to `false` for HTTP-only deployments (e.g., Tailscale VPN). Defaults to `true` in production |
-
-## Production Checklist
-
-Before going live:
-
-- [ ] Set strong `API_KEY` and `JWT_SECRET` values
-- [ ] Configure HTTPS via reverse proxy (Caddy, nginx, Traefik)
-- [ ] Set `COOKIE_SECURE=true` (default in production with HTTPS)
-- [ ] Enable firewall (allow only 80/443, SSH)
-- [ ] Set up automated backups for `data/nexaas.db`
-- [ ] Configure log rotation for systemd journals
-- [ ] Set up monitoring/alerting (optional)
-
-For VPS deployment details, see [VPS Deployment](#vps-deployment-single-tenant) above.
+---
 
 ## Auto-Update
 
@@ -290,212 +202,76 @@ Smart update script that detects change types and applies minimal required actio
 
 | Change Type | Action |
 |-------------|--------|
-| Prompts, skills, commands | Pull only (hot reload) |
-| Agents, MCP configs, YAML | Pull only (picked up on next request) |
-| Python code (engine) | Pull + restart engine |
+| Agents, skills, MCP configs, templates | Pull only (hot reload) |
+| Trigger tasks/libs, orchestrator code | Pull + restart worker |
 | Dashboard code (TypeScript) | Pull + rebuild + restart dashboard |
 | Dependencies | Pull + install deps + rebuild + restart |
 
 ```bash
-# Interactive update (auto-detects Docker vs VPS)
-bash scripts/update.sh
-
-# Force specific mode
-bash scripts/update.sh --docker
-bash scripts/update.sh --vps
-
-# Non-interactive (for cron/automation)
-bash scripts/update.sh --force
-
-# Force full rebuild regardless of changes
-bash scripts/update.sh --full
+bash scripts/update.sh            # Interactive (auto-detects mode)
+bash scripts/update.sh --force    # Non-interactive
+bash scripts/update.sh --full     # Force full rebuild
 ```
 
-The update script will:
-1. Fetch and analyze incoming changes
-2. Determine minimal required actions (content-only vs rebuild)
-3. Show update plan for confirmation
-4. Backup database if code changes detected
-5. Apply changes with minimal downtime
-6. Verify health check passes
-
-### Scheduled Updates (Cron)
-
-For automatic nightly updates:
-
-```bash
-# Edit crontab
-crontab -e
-
-# Add (runs at 3 AM daily)
-0 3 * * * cd /path/to/nexaas && bash scripts/update.sh --force >> /var/log/nexaas-update.log 2>&1
-```
+---
 
 ## Contributing Improvements
 
-When you fix bugs or improve prompts on a customer deployment, contribute them back to the framework so all customers benefit.
+When you fix bugs or improve skills on a client deployment, contribute them back:
 
-### Infrastructure Setup
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  YOUR OVH CLOUD                                                     │
-│                                                                     │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │ Customer A   │  │ Customer B   │  │ Customer C   │  ...         │
-│  │ VPS          │  │ VPS          │  │ VPS          │              │
-│  └──────┬───────┘  └──────────────┘  └──────────────┘              │
-│         │ fix here                        ▲                         │
-│         ▼ export patch                    │ auto-update             │
-│  ┌──────────────┐                         │                         │
-│  │ Dev VPS      │─── git push ──> GitHub ─┘                         │
-│  │ (master)     │                                                   │
-│  └──────────────┘                                                   │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-**Dev VPS specs:** Starter tier (2 vCPU, 4GB RAM) is sufficient — it only needs git and SSH access.
-
-### Workflow
-
-**1. On customer server (where you fixed a bug):**
 ```bash
+# 1. On client server: export sanitized patch
 bash scripts/contribute.sh --export
-```
-Creates sanitized patch in `exports/` (blocks secrets, customer names, etc.)
 
-**2. Copy patch to dev server:**
-```bash
-scp exports/nexaas-patch-*.patch user@dev-vps:/opt/nexaas/exports/
-```
+# 2. Copy to dev server
+scp exports/*.patch user@dev-vps:/opt/nexaas/exports/
 
-**3. On dev server (apply and push):**
-```bash
+# 3. On dev server: apply and push
 cd /opt/nexaas
 git checkout -b fix/description
 git apply exports/*.patch
 git add -A && git commit -m "Fix: description"
-git push origin fix/description
-gh pr create --fill
-```
+git push && gh pr create
 
-**4. After merge — update all deployments:**
-```bash
+# 4. After merge: update all deployments
 bash scripts/update-all.sh
 ```
 
-### Configure Deployments
-
-Create `~/.nexaas/deployments.conf` on your dev server:
-
-```bash
-mkdir -p ~/.nexaas
-cat > ~/.nexaas/deployments.conf << 'EOF'
-# Customer deployments (user@host:/path)
-root@customer-a.ovh.com:/opt/nexaas
-root@customer-b.ovh.com:/opt/nexaas
-root@customer-c.ovh.com:/opt/nexaas
-EOF
-```
-
-### Sanitization Guardrails
-
-The export script automatically blocks:
-- API keys, tokens, secrets
-- Customer company names and domains
-- Webhook URLs, phone numbers
-- Account/org IDs
-
-Allowed placeholders: `${API_KEY}`, `example.com`, `your-api-key-here`
-
 See [Contributing Upstream](framework/playbooks/08-contribute-upstream.md) for details.
+
+---
 
 ## Health Check
 
 ```bash
-# Local
-bash scripts/health-check.sh
-
-# Docker
-bash scripts/health-check.sh --docker
+bash scripts/health-check.sh              # Local
+bash scripts/health-check.sh --docker     # Docker
 ```
 
-Checks engine health, database access, container status (Docker mode), and dashboard reachability. Exit code equals the number of failed checks.
+---
 
-## Documentation
+## Playbooks
 
-| Guide | Description |
-|-------|-------------|
-| [Token Optimization](docs/token-optimization.md) | Reduce context usage with tiered prompt loading |
+Detailed guides in `framework/playbooks/`:
 
-## Examples
+| # | Playbook | Use When |
+|---|----------|----------|
+| 01 | Initial Setup | First deployment |
+| 02 | Add Agent | Creating agents |
+| 03 | Add Skill | Creating skills |
+| 04 | Add Registry | Creating data stores |
+| 05 | Memory System | Scheduling tasks |
+| 06 | Custom Dashboard | Dashboard layout |
+| 07 | MCP Integration | External tools |
+| 08 | Contributing Upstream | Exporting changes |
+| 09 | Flows | Multi-step automations |
 
-| Example | Description |
-|---------|-------------|
-| `examples/demo/` | BrightWave Digital agency demo |
-| `examples/optimized-agent/` | Token-efficient agent with reference files |
+---
 
-## Architecture
+## New Workspace Setup
 
-```
-docs/                   Documentation
-  token-optimization.md Guide to reducing context window usage
-
-framework/              Workspace-agnostic defaults (tracked in git)
-  agents/               Default agents (ops-monitor)
-  skills/               Default skills (health-check)
-  playbooks/            Step-by-step guides
-  templates/            Skeleton files to copy into workspace
-  packages/             Subsystem documentation
-  scripts/              Validation tooling
-
-examples/demo/          BrightWave Digital demo data
-  workspace.yaml        Demo workspace config
-  agents/               Demo agent definitions
-  registries/           Demo data registries
-  memory/               Empty followups and checks
-  seed-demo.py          Database seeder for demo mode
-
-examples/optimized-agent/ Token-efficient agent example
-  agents/content-publisher/
-    prompt.md           Core workflow (~100 lines)
-    reference/          Detailed procedures (on-demand)
-
-templates/fresh/        Blank workspace template
-  workspace.yaml        Minimal workspace config
-  agents/               Empty (add your agents here)
-  registries/           Empty (add your registries here)
-  memory/               Empty followups and checks
-  CLAUDE.md             Minimal workspace context
-
-workspace/              Active workspace (gitignored, created by deploy.sh)
-  agents/               Agent definitions
-  registries/           Data stores
-  skills/               Reusable task instructions
-  flows/                Multi-step automations
-  scripts/              Python scripts for flow automation
-  memory/               Scheduled tasks
-
-dashboard/              Next.js 16 frontend
-  app/                  App router pages
-    login/              Login page
-    register/           Registration page
-    workspace/[id]/     Workspace views
-    api/auth/           Auth proxy (sets httpOnly cookie)
-    api/engine/         Engine API proxy
-  lib/stores/           Zustand stores (workspace, auth, chat, ops)
-  components/           Shared UI components
-  middleware.ts         Auth gate (redirects to /login)
-
-engine/                 FastAPI backend
-  api/                  REST endpoints (workspace, agents, events, auth, ops, chat)
-  orchestrator/         Event engine, worker pool, session manager, ops monitor
-  db/                   SQLite schema, migrations, database helpers
-  config.py             Environment-driven configuration
-
-scripts/
-  health-check.sh       System health verification
-
-deploy.sh               One-command Docker deployment (accepts demo|fresh)
-docker-compose.yml      Engine + Dashboard services
-```
+1. Copy `templates/workspace.workspace.json` to `workspaces/[client-id].workspace.json`
+2. Fill in workspace root, skill subscriptions, MCP endpoints
+3. Create Trigger.dev project for the workspace
+4. Run `scripts/provision-workspace.sh [client-id] [vps-ip]`
+5. Verify worker registered in Trigger.dev dashboard

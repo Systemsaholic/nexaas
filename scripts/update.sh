@@ -100,11 +100,12 @@ analyze_changes() {
     # Categorize changes
     local content_patterns=(
         "\.md$"
-        "^framework/agents/"
-        "^framework/skills/"
+        "^agents/"
+        "^skills/"
+        "^mcp/configs/"
         "^framework/playbooks/"
         "^framework/templates/"
-        "^framework/mcp-servers/"
+        "^workspaces/"
         "^workspace/"
         "^examples/"
         "^templates/"
@@ -119,6 +120,10 @@ analyze_changes() {
         "^engine/api/"
         "^engine/orchestrator/"
         "^engine/db/"
+        "^trigger/.*\.ts$"
+        "^trigger/tasks/"
+        "^trigger/lib/"
+        "^orchestrator/.*\.ts$"
     )
 
     local dashboard_code_patterns=(

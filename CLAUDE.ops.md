@@ -291,6 +291,14 @@ COOKIE_SECURE=false    # true for HTTPS
 
 ---
 
+## Note on v2 Architecture
+
+This ops guide reflects the v1 (Python engine) deployment model which is still
+functional during the transition to v2 (Trigger.dev). For v2 architecture details,
+see `CLAUDE.md`. Both systems may coexist during the migration period.
+
+---
+
 ## Playbooks
 
 Detailed guides in `framework/playbooks/`:

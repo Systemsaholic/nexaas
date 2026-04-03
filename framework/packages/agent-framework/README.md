@@ -6,7 +6,7 @@ The agent system discovers, merges, and serves agent configurations as a hierarc
 
 Agents are defined as directories containing a `config.yaml` and optional `prompt.md`. The engine scans two locations:
 
-1. `framework/agents/` — default agents shipped with Nexaas
+1. `agents/` — default agents shipped with Nexaas (promoted from framework/)
 2. `workspace/agents/` — workspace-specific agents
 
 When both define an agent with the same name, the workspace version wins.
