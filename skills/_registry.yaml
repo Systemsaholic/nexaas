@@ -1,0 +1,37 @@
+# skills/_registry.yaml
+# Master skill index — source of truth for all skills in the network
+version: "2.0"
+
+skills:
+  - id: msp/email-triage
+    version: "1.0.0"
+    status: planned
+    description: "Triage and route inbound MSP client emails"
+    dependencies: []
+    mcp: [email, filesystem]
+    model: claude-haiku-4-5
+    claudeMd: minimal
+    maxTurns: 10
+    workspaces: []
+
+  - id: msp/health-check
+    version: "1.0.0"
+    status: planned
+    description: "Run infrastructure health checks across client environments"
+    dependencies: []
+    mcp: [filesystem, postgres]
+    model: claude-haiku-4-5
+    claudeMd: minimal
+    maxTurns: 15
+    workspaces: []
+
+  - id: finance/receipt-scanner
+    version: "1.0.0"
+    status: planned
+    description: "Extract and categorize expense data from receipt images"
+    dependencies: []
+    mcp: [filesystem]
+    model: claude-haiku-4-5
+    claudeMd: minimal
+    maxTurns: 5
+    workspaces: []
