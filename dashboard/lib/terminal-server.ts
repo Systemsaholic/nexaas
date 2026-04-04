@@ -63,6 +63,7 @@ wss.on("connection", (ws: WebSocket, req) => {
       "-p", String(manifest.ssh.port),
       "-t",
       `${manifest.ssh.user}@${manifest.ssh.host}`,
+      "--", "claude", "--dangerously-skip-permissions",
     ];
   }
 
