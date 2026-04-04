@@ -139,7 +139,7 @@ export default function InstanceDetailPage() {
           <TabsTrigger value="overview"><Activity className="h-4 w-4 mr-1" /> Overview</TabsTrigger>
           <TabsTrigger value="skills"><Sparkles className="h-4 w-4 mr-1" /> Skills</TabsTrigger>
           <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1" /> Integrations</TabsTrigger>
-          <TabsTrigger value="terminal"><TerminalSquare className="h-4 w-4 mr-1" /> Terminal</TabsTrigger>
+          <TabsTrigger value="terminal"><TerminalSquare className="h-4 w-4 mr-1" /> Claude Code</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 space-y-6">

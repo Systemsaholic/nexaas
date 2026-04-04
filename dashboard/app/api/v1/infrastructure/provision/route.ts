@@ -242,6 +242,24 @@ netplan apply'`);
       });
     });
 
+    // Setup Claude Code with CLAUDE.md
+    appendLog(runId, `\nSetting up Claude Code...\n`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile("bash", [`${nexaasRoot}/scripts/setup-instance-claude.sh`, workspaceId, privateIp], {
+          timeout: 120000,
+        }, (error, stdout, stderr) => {
+          appendLog(runId, stdout || "");
+          if (stderr) appendLog(runId, stderr);
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+      appendLog(runId, `Claude Code setup complete\n`);
+    } catch (e) {
+      appendLog(runId, `WARNING: Claude Code setup failed: ${(e as Error).message}\n`);
+    }
+
     // Mark all steps completed
     for (let i = 1; i <= 14; i++) {
       await updateStep(runId, i, "completed");
