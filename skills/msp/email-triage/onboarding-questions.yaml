@@ -1,0 +1,85 @@
+# Onboarding Questions — Email Triage
+# Each answer maps directly to a config field on the client instance.
+# One question → one field. No ambiguity.
+
+questions:
+  - id: mark_read_preference
+    required: true
+    question: >
+      When an email arrives, should I mark it as read automatically,
+      or leave it unread for you to review?
+    options:
+      - label: "Mark all as read — I trust you to flag what matters"
+        value: true
+      - label: "Never mark as read — I want to handle that myself"
+        value: false
+    maps_to: behaviour.mark_read_preference
+
+  - id: notify_mode
+    required: true
+    question: >
+      Do you want to know about every email I process, or only
+      the ones that need your attention?
+    options:
+      - label: "Only emails needing my attention"
+        value: digest_urgent_only
+      - label: "Everything — I want to see it all"
+        value: notify_all
+      - label: "Send me a daily digest"
+        value: daily_digest
+    maps_to: behaviour.notify_mode
+
+  - id: reply_gate
+    required: true
+    question: >
+      Should I ever draft and send replies on your behalf,
+      or just sort and flag?
+    options:
+      - label: "Draft replies, but always ask before sending"
+        value: draft_with_approval
+      - label: "Sort and flag only — I reply myself"
+        value: classify_only
+    maps_to: approval_gates.reply_external
+
+  - id: hard_limits
+    required: true
+    question: >
+      Are there things you'd never want me to say or commit to in an email?
+    type: freetext
+    examples:
+      - "Never mention specific prices"
+      - "Never promise a refund"
+      - "Never discuss patient health details"
+    maps_to: hard_limits
+
+  - id: escalation_financial
+    required: true
+    question: >
+      Who should billing or financial emails be escalated to?
+    type: email
+    maps_to: escalation_rules.financial
+
+  - id: folder_sort
+    required: false
+    default: false
+    question: >
+      Should emails be automatically sorted into folders by type?
+    options:
+      - label: "Yes — sort into folders"
+        value: true
+      - label: "No — leave them in inbox"
+        value: false
+    maps_to: behaviour.folder_sort
+
+  - id: auto_draft
+    required: false
+    default: false
+    question: >
+      Should I automatically draft replies for routine emails
+      (like appointment confirmations)?
+    options:
+      - label: "Yes — draft routine replies automatically"
+        value: true
+      - label: "No — I'll decide what to reply to"
+        value: false
+    maps_to: behaviour.auto_draft

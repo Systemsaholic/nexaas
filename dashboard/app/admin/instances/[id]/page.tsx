@@ -8,9 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HealthCards } from "@/components/health-cards";
 import { LogViewer } from "@/components/log-viewer";
-import { ArrowLeft, RefreshCw, Settings, RotateCcw } from "lucide-react";
+import { Terminal } from "@/components/terminal";
+import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Wrench } from "lucide-react";
 import type { HealthSnapshot, WorkspaceManifest } from "@/lib/types";
 
 interface InstanceDetail {
@@ -130,103 +132,111 @@ export default function InstanceDetailPage() {
       {/* Health Cards */}
       <HealthCards health={data.health} />
 
-      <Separator />
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview"><Activity className="h-4 w-4 mr-1" /> Overview</TabsTrigger>
+          <TabsTrigger value="terminal"><TerminalSquare className="h-4 w-4 mr-1" /> Terminal</TabsTrigger>
+        </TabsList>
 
-      {/* Info Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Skills & Agents */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Configuration</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div>
-              <p className="text-sm font-medium mb-1">Skills ({data.manifest.skills.length})</p>
-              {data.manifest.skills.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {data.manifest.skills.map((s) => (
-                    <Badge key={s} variant="secondary">{s}</Badge>
-                  ))}
+        <TabsContent value="overview" className="mt-4 space-y-6">
+          {/* Info Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Configuration</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium mb-1">Skills ({data.manifest.skills.length})</p>
+                  {data.manifest.skills.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {data.manifest.skills.map((s) => (
+                        <Badge key={s} variant="secondary">{s}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-zinc-400">No skills configured</p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-zinc-400">No skills configured</p>
-              )}
-            </div>
-            <div>
-              <p className="text-sm font-medium mb-1">Agents ({data.manifest.agents.length})</p>
-              {data.manifest.agents.length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {data.manifest.agents.map((a) => (
-                    <Badge key={a} variant="outline">{a}</Badge>
-                  ))}
+                <div>
+                  <p className="text-sm font-medium mb-1">Agents ({data.manifest.agents.length})</p>
+                  {data.manifest.agents.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {data.manifest.agents.map((a) => (
+                        <Badge key={a} variant="outline">{a}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-zinc-400">No agents configured</p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-zinc-400">No agents configured</p>
-              )}
-            </div>
-            <div>
-              <p className="text-sm font-medium mb-1">MCP Servers</p>
-              {Object.keys(data.manifest.mcp).length > 0 ? (
-                <div className="flex flex-wrap gap-1">
-                  {Object.keys(data.manifest.mcp).map((m) => (
-                    <Badge key={m} variant="outline">{m}</Badge>
-                  ))}
+                <div>
+                  <p className="text-sm font-medium mb-1">MCP Servers</p>
+                  {Object.keys(data.manifest.mcp).length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {Object.keys(data.manifest.mcp).map((m) => (
+                        <Badge key={m} variant="outline">{m}</Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-zinc-400">None</p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-zinc-400">None</p>
-              )}
-            </div>
-            <div>
-              <p className="text-sm font-medium mb-1">Capabilities</p>
-              <div className="flex flex-wrap gap-1">
-                {Object.entries(data.manifest.capabilities).map(([k, v]) => (
-                  <Badge key={k} variant={v ? "default" : "outline"}>
-                    {k}: {v ? "yes" : "no"}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+                <div>
+                  <p className="text-sm font-medium mb-1">Capabilities</p>
+                  <div className="flex flex-wrap gap-1">
+                    {Object.entries(data.manifest.capabilities).map(([k, v]) => (
+                      <Badge key={k} variant={v ? "default" : "outline"}>
+                        {k}: {v ? "yes" : "no"}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Trigger & Network */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Infrastructure</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Trigger Project</span>
-              <span className="font-mono">{data.manifest.trigger.projectId}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Private IP</span>
-              <span className="font-mono">{data.privateIp}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Public IP</span>
-              <span className="font-mono">{data.publicIp}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">SSH</span>
-              <span className="font-mono">{data.manifest.ssh.user}@{data.manifest.ssh.host}:{data.manifest.ssh.port}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-zinc-500">Workspace Root</span>
-              <span className="font-mono">{data.manifest.workspaceRoot}</span>
-            </div>
-            {data.health?.snapshot_at && (
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Last Health Check</span>
-                <span>{new Date(data.health.snapshot_at).toLocaleString()}</span>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Infrastructure</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Trigger Project</span>
+                  <span className="font-mono">{data.manifest.trigger.projectId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Private IP</span>
+                  <span className="font-mono">{data.privateIp}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Public IP</span>
+                  <span className="font-mono">{data.publicIp}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">SSH</span>
+                  <span className="font-mono">{data.manifest.ssh.user}@{data.manifest.ssh.host}:{data.manifest.ssh.port}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Workspace Root</span>
+                  <span className="font-mono">{data.manifest.workspaceRoot}</span>
+                </div>
+                {data.health?.snapshot_at && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Last Health Check</span>
+                    <span>{new Date(data.health.snapshot_at).toLocaleString()}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* Worker Logs */}
-      <LogViewer instanceId={id} />
+          <LogViewer instanceId={id} />
+        </TabsContent>
+
+        <TabsContent value="terminal" className="mt-4">
+          <Terminal target={id} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

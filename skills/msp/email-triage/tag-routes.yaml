@@ -1,0 +1,66 @@
+# TAG Routes — Email Triage
+# Defines how Claude's output gets routed to actions
+
+routes:
+  auto_execute:
+    description: Safe to act immediately per contract
+    conditions:
+      - classification: [spam, internal]
+      - disposition: [archive, file]
+      - requires_approval: false
+    actions:
+      - execute_disposition
+      - audit_log
+
+  notify_after:
+    description: Action taken, client informed in digest
+    conditions:
+      - mark_read: true
+      - disposition: file
+      - notify_mode: [notify_all, daily_digest]
+    actions:
+      - execute_disposition
+      - add_to_digest
+      - audit_log
+
+  approval_required:
+    description: Must get client approval before acting
+    conditions:
+      - disposition: reply
+      - approval_gates.reply_external: [required, draft_with_approval]
+    actions:
+      - send_approval_request
+      - audit_log
+    approval_format:
+      channel: "{{notification_prefs.channel}}"
+      include_draft: true
+      actions: [send, edit, ignore]
+
+  escalate:
+    description: Route to named person per escalation rules
+    conditions:
+      - classification: [financial_dispute, legal, complaint]
+      - escalation_rules: defined
+    actions:
+      - forward_to_escalation_target
+      - audit_log
+
+  flag:
+    description: Anomaly or uncertainty — human review
+    conditions:
+      - hard_limit_triggered: true
+      - requires_human_review: true
+      - classification: unknown
+    actions:
+      - create_review_task
+      - notify_primary_contact
+      - audit_log
+
+  defer:
+    description: Correct action, wrong time
+    conditions:
+      - outside_business_hours: true
+      - disposition: reply
+    actions:
+      - queue_for_business_hours
+      - audit_log

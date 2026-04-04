@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Server, Rocket, Sparkles, LogOut } from "lucide-react";
+import { Server, Rocket, Sparkles, Plug, TerminalSquare, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/admin/instances", label: "Instances", icon: Server },
   { href: "/admin/deploy", label: "Deploy", icon: Rocket },
   { href: "/admin/skills", label: "Skills", icon: Sparkles },
+  { href: "/admin/integrations", label: "Integrations", icon: Plug },
+  { href: "/admin/terminal", label: "Terminal", icon: TerminalSquare },
 ];
 
 export function Sidebar() {
