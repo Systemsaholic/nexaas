@@ -10,9 +10,9 @@ import { RefreshCw, Plug } from "lucide-react";
 interface McpServer {
   id: string;
   name: string;
-  port: number;
+  defaultPort: number;
   capabilities: string[];
-  env_required: string[];
+  requiredEnv: string[];
   description?: string;
 }
 
@@ -60,7 +60,7 @@ export default function IntegrationsPage() {
                     <Plug className="h-4 w-4 text-zinc-400" />
                     <CardTitle className="text-base">{server.name}</CardTitle>
                   </div>
-                  <Badge variant="outline">:{server.port}</Badge>
+                  <Badge variant="outline">:{server.defaultPort}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -72,11 +72,11 @@ export default function IntegrationsPage() {
                     ))}
                   </div>
                 </div>
-                {server.env_required.length > 0 && (
+                {server.requiredEnv.length > 0 && (
                   <div>
                     <p className="text-xs text-zinc-500 mb-1">Required Env Vars</p>
                     <div className="flex flex-wrap gap-1">
-                      {server.env_required.map((env) => (
+                      {server.requiredEnv.map((env) => (
                         <code key={env} className="text-xs bg-zinc-100 px-1 py-0.5 rounded dark:bg-zinc-800">{env}</code>
                       ))}
                     </div>
