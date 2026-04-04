@@ -73,8 +73,7 @@ if run "test -d ${NEXAAS_ROOT}/.git"; then
   run "cd ${NEXAAS_ROOT} && git pull"
 else
   run "sudo mkdir -p ${NEXAAS_ROOT} && sudo chown ${SSH_USER}:${SSH_USER} ${NEXAAS_ROOT}"
-  run "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null"
-  run "git clone git@github.com:Systemsaholic/nexaas.git ${NEXAAS_ROOT}"
+  run "git clone https://github.com/Systemsaholic/nexaas.git ${NEXAAS_ROOT}"
 fi
 
 info "Repo ready"
