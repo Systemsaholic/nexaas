@@ -61,7 +61,7 @@ info "Step 1/9: Installing prerequisites..."
 run "command -v node >/dev/null 2>&1 || (curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash - && sudo apt-get install -y nodejs)"
 run "command -v docker >/dev/null 2>&1 || (sudo apt-get install -y docker.io docker-compose-v2 && sudo usermod -aG docker ${SSH_USER})"
 run "command -v psql >/dev/null 2>&1 || sudo apt-get install -y postgresql-client-16"
-run "command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | sh"
+run "command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash"
 
 info "Prerequisites installed"
 

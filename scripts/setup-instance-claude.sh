@@ -22,7 +22,7 @@ PRIVATE_IP=$(python3 -c "import json; print(json.load(open('${MANIFEST}'))['netw
 echo "Setting up Claude Code for ${WORKSPACE_NAME} (${WORKSPACE_ID}) on ${VPS_IP}"
 
 # 1. Install Claude Code if not present
-ssh ${SSH_OPTS} ${SSH_TARGET} "command -v claude >/dev/null 2>&1 || (curl -fsSL https://claude.ai/install.sh | sh)"
+ssh ${SSH_OPTS} ${SSH_TARGET} "command -v claude >/dev/null 2>&1 || (curl -fsSL https://claude.ai/install.sh | bash)"
 
 # 2. Generate CLAUDE.md from template
 TEMPLATE="${NEXAAS_ROOT}/templates/instance-CLAUDE.md"
