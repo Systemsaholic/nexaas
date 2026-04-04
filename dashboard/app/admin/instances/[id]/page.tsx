@@ -13,7 +13,8 @@ import { HealthCards } from "@/components/health-cards";
 import { LogViewer } from "@/components/log-viewer";
 import { Terminal } from "@/components/terminal";
 import { InstanceSkills } from "@/components/instance-skills";
-import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles } from "lucide-react";
+import { InstanceIntegrations } from "@/components/instance-integrations";
+import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug } from "lucide-react";
 import type { HealthSnapshot, WorkspaceManifest } from "@/lib/types";
 
 interface InstanceDetail {
@@ -137,6 +138,7 @@ export default function InstanceDetailPage() {
         <TabsList>
           <TabsTrigger value="overview"><Activity className="h-4 w-4 mr-1" /> Overview</TabsTrigger>
           <TabsTrigger value="skills"><Sparkles className="h-4 w-4 mr-1" /> Skills</TabsTrigger>
+          <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1" /> Integrations</TabsTrigger>
           <TabsTrigger value="terminal"><TerminalSquare className="h-4 w-4 mr-1" /> Terminal</TabsTrigger>
         </TabsList>
 
@@ -237,6 +239,10 @@ export default function InstanceDetailPage() {
 
         <TabsContent value="skills" className="mt-4">
           <InstanceSkills instanceId={id} />
+        </TabsContent>
+
+        <TabsContent value="integrations" className="mt-4">
+          <InstanceIntegrations instanceId={id} />
         </TabsContent>
 
         <TabsContent value="terminal" className="mt-4">

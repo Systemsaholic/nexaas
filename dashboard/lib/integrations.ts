@@ -7,10 +7,11 @@ const NEXAAS_ROOT = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
 export interface McpServer {
   id: string;
   name: string;
-  port: number;
+  defaultPort: number;
   capabilities: string[];
-  env_required: string[];
+  requiredEnv: string[];
   description?: string;
+  [key: string]: unknown;
 }
 
 export interface McpRegistry {

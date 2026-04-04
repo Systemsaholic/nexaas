@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Download, CheckCircle2, XCircle, Play, Pause, Shield, RefreshCw } from "lucide-react";
+import { Download, CheckCircle2, XCircle, Play, Pause, Shield, ClipboardList } from "lucide-react";
 
 interface InstanceSkill {
   id: string;
@@ -164,6 +165,13 @@ export function InstanceSkills({ instanceId }: { instanceId: string }) {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
+                          {skill.status === "inactive" && (
+                            <Link href={`/admin/instances/${instanceId}/skills/${skill.id.replace("/", "--")}/onboard`}>
+                              <Button size="sm" variant="outline">
+                                <ClipboardList className="h-3 w-3 mr-1" /> Onboard
+                              </Button>
+                            </Link>
+                          )}
                           {skill.status === "active" ? (
                             <Button size="sm" variant="ghost" onClick={() => toggleActive(skill.id, false)} disabled={acting === skill.id}>
                               <Pause className="h-3 w-3 mr-1" /> Deactivate

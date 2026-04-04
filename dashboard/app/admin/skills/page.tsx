@@ -76,6 +76,12 @@ export default function SkillsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href="/admin/skills/new">
+            <Button size="sm">
+              <Plus className="h-4 w-4 mr-2" />
+              New Skill
+            </Button>
+          </Link>
           <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh

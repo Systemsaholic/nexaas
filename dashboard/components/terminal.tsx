@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 
 interface TerminalProps {
-  target: string; // "orchestrator" or workspace ID
+  target: string;
   className?: string;
 }
 
@@ -18,12 +17,9 @@ export function Terminal({ target, className }: TerminalProps) {
     let disposed = false;
 
     async function init() {
-      // Dynamic imports — xterm doesn't work with SSR
       const { Terminal: XTerm } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
-
-      // Import CSS
       await import("@xterm/xterm/css/xterm.css");
 
       if (disposed || !containerRef.current) return;
@@ -44,21 +40,27 @@ export function Terminal({ target, className }: TerminalProps) {
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
       term.loadAddon(new WebLinksAddon());
-
       term.open(containerRef.current);
       fitAddon.fit();
       termRef.current = term;
 
-      // Get admin secret from cookie
-      const token = document.cookie
-        .split("; ")
-        .find((c) => c.startsWith("nexaas_admin="))
-        ?.split("=")[1] ?? "";
+      // Get terminal token from authenticated API
+      let token = "";
+      try {
+        const tokenRes = await fetch("/api/v1/terminal/token");
+        const tokenJson = await tokenRes.json();
+        token = tokenJson.data?.token ?? "";
+      } catch {
+        term.write("\x1b[31mFailed to get terminal token\x1b[0m\r\n");
+        setStatus("disconnected");
+        return;
+      }
 
-      // Connect WebSocket
       const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsHost = window.location.hostname;
       const wsUrl = `${wsProtocol}//${wsHost}:3002?token=${encodeURIComponent(token)}&target=${encodeURIComponent(target)}`;
+
+      term.write(`Connecting to ${target}...\r\n`);
 
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -66,7 +68,6 @@ export function Terminal({ target, className }: TerminalProps) {
       ws.onopen = () => {
         if (!disposed) {
           setStatus("connected");
-          // Send initial size
           ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
         }
       };
@@ -84,7 +85,6 @@ export function Terminal({ target, className }: TerminalProps) {
             setStatus("disconnected");
           }
         } catch {
-          // Raw data fallback
           term.write(event.data);
         }
       };
@@ -99,17 +99,16 @@ export function Terminal({ target, className }: TerminalProps) {
       ws.onerror = () => {
         if (!disposed) {
           setStatus("disconnected");
+          term.write("\r\n\x1b[31m[WebSocket error — is the terminal server running on port 3002?]\x1b[0m\r\n");
         }
       };
 
-      // Terminal input → WebSocket
       term.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: "input", data }));
         }
       });
 
-      // Handle resize
       const resizeObserver = new ResizeObserver(() => {
         fitAddon.fit();
         if (ws.readyState === WebSocket.OPEN) {
@@ -118,9 +117,7 @@ export function Terminal({ target, className }: TerminalProps) {
       });
       resizeObserver.observe(containerRef.current);
 
-      return () => {
-        resizeObserver.disconnect();
-      };
+      return () => resizeObserver.disconnect();
     }
 
     init();
@@ -139,7 +136,11 @@ export function Terminal({ target, className }: TerminalProps) {
           <span className="text-sm font-medium">
             {target === "orchestrator" ? "Orchestrator Terminal" : `Terminal: ${target}`}
           </span>
-          <StatusBadge status={status} />
+          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+            status === "connected" ? "bg-green-100 text-green-700" :
+            status === "connecting" ? "bg-yellow-100 text-yellow-700" :
+            "bg-red-100 text-red-700"
+          }`}>{status}</span>
         </div>
       </div>
       <div
@@ -148,18 +149,5 @@ export function Terminal({ target, className }: TerminalProps) {
         style={{ height: "500px" }}
       />
     </div>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    connecting: "bg-yellow-100 text-yellow-700",
-    connected: "bg-green-100 text-green-700",
-    disconnected: "bg-red-100 text-red-700",
-  };
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${styles[status]}`}>
-      {status}
-    </span>
   );
 }
