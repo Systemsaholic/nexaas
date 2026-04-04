@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Save, FileText, History, Rocket } from "lucide-react";
+import { SkillCopilot } from "@/components/skill-copilot";
+import { ArrowLeft, Save, FileText, History, Sparkles } from "lucide-react";
 
 interface SkillDetail {
   id: string;
@@ -141,7 +142,7 @@ export default function SkillDetailPage() {
 
         {/* Editor Tab */}
         <TabsContent value="editor" className="mt-4">
-          <div className="grid grid-cols-[200px_1fr] gap-4">
+          <div className="grid grid-cols-[200px_1fr_350px] gap-4">
             {/* File list */}
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-sm">Files</CardTitle></CardHeader>
@@ -185,6 +186,16 @@ export default function SkillDetailPage() {
                 />
               </CardContent>
             </Card>
+
+            {/* AI Copilot */}
+            <div className="h-[600px]">
+              <SkillCopilot
+                skillId={data.id}
+                activeFile={activeFile ?? undefined}
+                fileContent={editContent}
+                onApplyCode={(code) => setEditContent(code)}
+              />
+            </div>
           </div>
         </TabsContent>
 

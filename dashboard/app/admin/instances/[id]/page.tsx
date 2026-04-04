@@ -14,7 +14,9 @@ import { LogViewer } from "@/components/log-viewer";
 import { Terminal } from "@/components/terminal";
 import { InstanceSkills } from "@/components/instance-skills";
 import { InstanceIntegrations } from "@/components/instance-integrations";
-import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug } from "lucide-react";
+import { InstanceKeys } from "@/components/instance-keys";
+import { InstanceUsage } from "@/components/instance-usage";
+import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug, Key, BarChart3 } from "lucide-react";
 import type { HealthSnapshot, WorkspaceManifest } from "@/lib/types";
 
 interface InstanceDetail {
@@ -139,6 +141,8 @@ export default function InstanceDetailPage() {
           <TabsTrigger value="overview"><Activity className="h-4 w-4 mr-1" /> Overview</TabsTrigger>
           <TabsTrigger value="skills"><Sparkles className="h-4 w-4 mr-1" /> Skills</TabsTrigger>
           <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1" /> Integrations</TabsTrigger>
+          <TabsTrigger value="keys"><Key className="h-4 w-4 mr-1" /> AI Keys</TabsTrigger>
+          <TabsTrigger value="usage"><BarChart3 className="h-4 w-4 mr-1" /> Usage</TabsTrigger>
           <TabsTrigger value="terminal"><TerminalSquare className="h-4 w-4 mr-1" /> Claude Code</TabsTrigger>
         </TabsList>
 
@@ -243,6 +247,14 @@ export default function InstanceDetailPage() {
 
         <TabsContent value="integrations" className="mt-4">
           <InstanceIntegrations instanceId={id} />
+        </TabsContent>
+
+        <TabsContent value="keys" className="mt-4">
+          <InstanceKeys instanceId={id} />
+        </TabsContent>
+
+        <TabsContent value="usage" className="mt-4">
+          <InstanceUsage instanceId={id} />
         </TabsContent>
 
         <TabsContent value="terminal" className="mt-4">
