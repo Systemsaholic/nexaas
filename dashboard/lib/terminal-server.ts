@@ -63,7 +63,7 @@ wss.on("connection", (ws: WebSocket, req) => {
       "-p", String(manifest.ssh.port),
       "-t",
       `${manifest.ssh.user}@${manifest.ssh.host}`,
-      "--", "bash", "-c", "cd /opt/nexaas && claude --dangerously-skip-permissions",
+      "cd /opt/nexaas && exec claude --dangerously-skip-permissions",
     ];
   }
 

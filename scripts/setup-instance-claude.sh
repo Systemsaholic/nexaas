@@ -39,7 +39,13 @@ CLAUDEEOF"
 
 echo "CLAUDE.md installed on ${WORKSPACE_ID}"
 
-# 4. Ensure .claude directory exists with settings
-ssh ${SSH_OPTS} ${SSH_TARGET} "mkdir -p ${NEXAAS_ROOT}/.claude"
+# 4. Ensure .claude directory exists and deploy slash commands
+ssh ${SSH_OPTS} ${SSH_TARGET} "mkdir -p ${NEXAAS_ROOT}/.claude/commands"
 
+# 5. Sync slash commands from orchestrator templates
+rsync -av --delete \
+  ${NEXAAS_ROOT}/templates/claude-commands/ \
+  ${SSH_TARGET}:${NEXAAS_ROOT}/.claude/commands/
+
+echo "Slash commands installed on ${WORKSPACE_ID}"
 echo "Claude Code setup complete for ${WORKSPACE_ID}"
