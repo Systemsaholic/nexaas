@@ -1,0 +1,21 @@
+[Unit]
+Description=Nexmatic Control Plane Dashboard
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/nexaas/dashboard
+ExecStart=/usr/bin/node node_modules/.bin/next start -p 3000
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexaas-dashboard
+EnvironmentFile=/opt/nexaas/dashboard/.env.local
+Environment=NODE_ENV=production
+Environment=PORT=3000
+
+[Install]
+WantedBy=multi-user.target

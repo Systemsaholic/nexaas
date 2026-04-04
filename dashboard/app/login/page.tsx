@@ -1,81 +1,58 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
-  const router = useRouter()
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [secret, setSecret] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError("")
-    setLoading(true)
+    e.preventDefault();
+    setLoading(true);
+    setError("");
 
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail || "Login failed")
-        return
-      }
-      router.push("/")
-    } catch {
-      setError("Connection failed")
-    } finally {
-      setLoading(false)
+    const res = await fetch("/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ secret }),
+    });
+
+    if (res.ok) {
+      router.push("/admin/instances");
+    } else {
+      setError("Invalid credentials");
+      setLoading(false);
     }
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>Log in to Nexaas</CardDescription>
+    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle className="text-center text-xl">Nexmatic Control Plane</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Username</label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Password</label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <Input
+              type="password"
+              placeholder="Admin secret"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              autoFocus
+            />
             {error && <p className="text-sm text-red-500">{error}</p>}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Logging in..." : "Log in"}
+            <Button type="submit" disabled={loading || !secret}>
+              {loading ? "Authenticating..." : "Sign in"}
             </Button>
-            <p className="text-sm text-center text-muted-foreground">
-              No account yet?{" "}
-              <Link href="/register" className="underline">Register</Link>
-            </p>
           </form>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

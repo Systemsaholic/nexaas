@@ -1,212 +1,100 @@
-// ---------------------------------------------------------------------------
-// Gateway API types for Nexaas
-// ---------------------------------------------------------------------------
-
-export interface Workspace {
-  name: string;
-  description: string;
-  registries: string[];
-  perspectives: Perspective[];
-  pages: PageConfig[];
-}
-
-export interface Perspective {
+export interface WorkspaceManifest {
   id: string;
   name: string;
-  icon: string;
-  pages: PageConfig[];
-  default_page: string;
+  workspaceRoot: string;
+  skills: string[];
+  agents: string[];
+  mcp: Record<string, string>;
+  capabilities: Record<string, boolean>;
+  trigger: { projectId: string; workerUrl: string };
+  network: { privateIp: string; publicIp: string };
+  ssh: { host: string; user: string; port: number };
+  context: { threadTtlDays: number; maxTurnsBeforeSummary: number };
 }
 
-export interface PageConfig {
-  id: string;
-  name: string;
-  icon: string;
-  layout: string;
-  components: ComponentConfig[];
-}
-
-export interface ComponentConfig {
-  type: string;
-  title: string;
-  config: Record<string, unknown>;
-  span?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Agents
-// ---------------------------------------------------------------------------
-
-export interface Agent {
-  name: string;
-  role: string;
-  description: string;
-  parent: string | null;
-  children: string[];
-  capabilities: string[];
-}
-
-// ---------------------------------------------------------------------------
-// Skills
-// ---------------------------------------------------------------------------
-
-export interface Skill {
-  name: string;
-  source: "framework" | "client";
-  description: string;
-  filename: string;
-}
-
-// ---------------------------------------------------------------------------
-// Events
-// ---------------------------------------------------------------------------
-
-export interface Event {
+export interface HealthSnapshot {
   id: number;
-  run_id: string | null;
-  session_id: string | null;
-  agent: string;
-  type: string;
-  subtype: string | null;
-  content: string;
-  metadata: Record<string, unknown> | null;
-  parent_event_id: number | null;
-  source: string | null;
-  target: string | null;
-  status: string | null;
-  priority: number;
-  tags: string[] | null;
-  timestamp: string;
-  created_at: string;
+  workspace_id: string;
+  ram_used_mb: number;
+  ram_total_mb: number;
+  disk_used_gb: number;
+  disk_total_gb: number;
+  container_count: number;
+  containers_healthy: number;
+  worker_active: boolean;
+  vps_ip: string;
+  snapshot_at: string;
 }
 
-export interface EventRun {
-  run_id: string;
-  agent: string;
+export interface Instance {
+  id: string;
+  name: string;
+  privateIp: string;
+  publicIp: string;
+  health: HealthSnapshot | null;
+  manifest: WorkspaceManifest;
+}
+
+export interface ContainerStatus {
+  name: string;
   status: string;
-  started_at: string;
-  ended_at: string | null;
-  event_count: number;
+  health: string;
 }
 
-// ---------------------------------------------------------------------------
-// Jobs / Queue
-// ---------------------------------------------------------------------------
-
-export interface Job {
+export interface DeployRun {
   id: number;
-  job_type: string;
-  payload: Record<string, unknown>;
-  status: "queued" | "running" | "completed" | "failed";
-  priority: number;
-  agent: string | null;
-  result: Record<string, unknown> | null;
+  workspace_id: string;
+  vps_ip: string;
+  admin_email: string;
+  trigger_run_id: string | null;
+  status: "pending" | "running" | "completed" | "failed";
+  current_step: number;
+  steps: DeployStep[];
+  log_output: string;
   error: string | null;
-  created_at: string;
-  started_at: string | null;
+  started_at: string;
   completed_at: string | null;
-  retries: number;
-  max_retries: number;
+  ovh_instance_id: string | null;
+  public_ip: string | null;
+  private_ip: string | null;
+  vps_flavor: string | null;
+  deploy_mode: "new_vps" | "existing";
 }
 
-export interface QueueStatus {
-  queued: number;
-  running: number;
-  completed: number;
-  failed: number;
-  recent_jobs: Job[];
+export interface DeployStep {
+  step: number;
+  label: string;
+  status: "pending" | "running" | "completed" | "failed";
+  started_at?: string;
+  completed_at?: string;
 }
 
-// ---------------------------------------------------------------------------
-// Chat
-// ---------------------------------------------------------------------------
-
-export interface ChatSession {
-  id: string;
-  agent: string;
-  status: "connecting" | "connected" | "disconnected" | "error";
-  messages: ChatMessage[];
-}
-
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: string;
-}
-
-// ---------------------------------------------------------------------------
-// Bus
-// ---------------------------------------------------------------------------
-
-export interface BusEvent {
-  channel: string;
-  event_type: string;
-  payload: Record<string, unknown>;
-  timestamp: string;
-}
-
-// ---------------------------------------------------------------------------
-// Gateway health
-// ---------------------------------------------------------------------------
-
-export interface GatewayHealth {
-  status: string;
-  engine_running: boolean;
-  uptime: number;
-  version: string;
-}
-
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-export interface RegistryEntry {
-  key: string;
-  value: unknown;
-  metadata: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
-
-// ---------------------------------------------------------------------------
-// Ops monitoring
-// ---------------------------------------------------------------------------
-
-export interface OpsAlert {
+export interface SkillProposal {
   id: number;
-  severity: "info" | "warning" | "critical";
-  category: string;
-  message: string;
-  auto_healed: boolean;
-  acknowledged: boolean;
-  details: Record<string, unknown> | null;
+  skill_id: string;
+  workspace_id: string;
+  from_version: string;
+  proposed_version: string;
+  proposed_improvement: string;
+  status: "pending" | "reviewed" | "deployed" | "rejected" | "expired";
+  pass1_clean: boolean | null;
+  pass2_clean: boolean | null;
+  violations: unknown[] | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface FeedbackSignal {
+  id: number;
+  skill_id: string;
+  workspace_id: string;
+  signal: string;
+  claude_reflection: string | null;
   created_at: string;
 }
 
-export interface OpsHealthSnapshot {
-  engine_running: boolean;
-  worker_count: number;
-  workers_alive: number;
-  pending_jobs: number;
-  failed_jobs_last_hour: number;
-  stale_locks: number;
-  db_ok: boolean;
-  snapshot_at: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Event filter params
-// ---------------------------------------------------------------------------
-
-export interface EventFilters {
-  agent?: string;
-  type?: string;
-  subtype?: string;
-  run_id?: string;
-  session_id?: string;
-  status?: string;
-  since?: string;
-  limit?: number;
-  offset?: number;
+export interface ApiResponse<T = unknown> {
+  ok: boolean;
+  data?: T;
+  error?: string;
 }

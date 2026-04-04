@@ -1,0 +1,37 @@
+{
+  "id": "broken-stick-brewery",
+  "name": "Broken Stick Brewery",
+  "workspaceRoot": "/opt/workspaces/broken-stick-brewery",
+  "claudeMd": {
+    "full": "/opt/workspaces/broken-stick-brewery/CLAUDE.md",
+    "summary": "/opt/workspaces/broken-stick-brewery/CLAUDE.summary.md",
+    "minimal": "/opt/workspaces/broken-stick-brewery/CLAUDE.minimal.md"
+  },
+  "skills": [],
+  "agents": [],
+  "mcp": {
+    "filesystem": "http://localhost:3100"
+  },
+  "capabilities": {
+    "playwright": false,
+    "docker": true,
+    "bash": true
+  },
+  "trigger": {
+    "projectId": "proj_b6897be5e9e324b33d0e1a60",
+    "workerUrl": "http://localhost:3000"
+  },
+  "network": {
+    "privateIp": "10.10.0.13",
+    "publicIp": "51.79.89.88"
+  },
+  "ssh": {
+    "host": "10.10.0.13",
+    "user": "ubuntu",
+    "port": 22
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}
