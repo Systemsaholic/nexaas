@@ -3,11 +3,13 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Send, Copy, Check } from "lucide-react";
+import { Sparkles, Send, Check, X, Pencil } from "lucide-react";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  proposedCode?: string;
+  status?: "pending" | "applied" | "discarded";
 }
 
 interface CopilotProps {
@@ -17,22 +19,31 @@ interface CopilotProps {
   onApplyCode?: (code: string) => void;
 }
 
+function extractFileContent(text: string): string | null {
+  const match = text.match(/```(?:yaml|hbs|handlebars|typescript|ts|markdown|md)?\n([\s\S]*?)```/);
+  return match ? match[1].trim() : null;
+}
+
+function extractExplanation(text: string): string {
+  const beforeCode = text.split(/```/)[0].trim();
+  return beforeCode || "Proposed changes:";
+}
+
 export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: CopilotProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  async function sendMessage() {
-    if (!input.trim() || loading) return;
+  async function sendMessage(overrideMsg?: string) {
+    const userMsg = (overrideMsg || input).trim();
+    if (!userMsg || loading) return;
 
-    const userMsg = input.trim();
-    setInput("");
+    if (!overrideMsg) setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setLoading(true);
 
@@ -50,7 +61,16 @@ export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: 
       const json = await res.json();
 
       if (json.ok) {
-        setMessages((prev) => [...prev, { role: "assistant", content: json.data.response }]);
+        const text = json.data.response;
+        const proposedCode = extractFileContent(text);
+        const explanation = extractExplanation(text);
+
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: explanation,
+          proposedCode: proposedCode ?? undefined,
+          status: proposedCode ? "pending" : undefined,
+        }]);
       } else {
         setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${json.error}` }]);
       }
@@ -61,20 +81,24 @@ export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: 
     }
   }
 
-  function extractCodeBlocks(text: string): string[] {
-    const blocks: string[] = [];
-    const regex = /```(?:yaml|hbs|handlebars|typescript|ts)?\n([\s\S]*?)```/g;
-    let match;
-    while ((match = regex.exec(text)) !== null) {
-      blocks.push(match[1].trim());
-    }
-    return blocks;
+  function handleApply(msgIndex: number) {
+    const msg = messages[msgIndex];
+    if (!msg.proposedCode || !onApplyCode) return;
+
+    onApplyCode(msg.proposedCode);
+    setMessages((prev) => prev.map((m, i) =>
+      i === msgIndex ? { ...m, status: "applied" as const } : m
+    ));
   }
 
-  function copyToClipboard(text: string, idx: number) {
-    navigator.clipboard.writeText(text);
-    setCopied(idx);
-    setTimeout(() => setCopied(null), 2000);
+  function handleDiscard(msgIndex: number) {
+    setMessages((prev) => prev.map((m, i) =>
+      i === msgIndex ? { ...m, status: "discarded" as const } : m
+    ));
+  }
+
+  function handleKeepEditing() {
+    setInput("Also: ");
   }
 
   return (
@@ -83,65 +107,77 @@ export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: 
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <Sparkles className="h-4 w-4 text-purple-500" />
         <span className="text-sm font-medium">Skill Copilot</span>
+        {activeFile && <span className="text-xs text-zinc-400 ml-auto">{activeFile}</span>}
       </div>
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-3" ref={scrollRef}>
         {messages.length === 0 && (
           <div className="text-center text-zinc-400 text-xs py-8 space-y-2">
-            <p>Ask me to generate or improve skill files.</p>
-            <p className="text-zinc-500">Examples:</p>
-            <p>"Create a contract for an invoice reminder skill"</p>
-            <p>"Add a folder_sort option to the onboarding questions"</p>
-            <p>"Write TAG routes for an appointment booking skill"</p>
+            <p>I edit your skill files directly.</p>
+            <p className="text-zinc-500">Try:</p>
+            <p>"Add an approval gate for payments over $500"</p>
+            <p>"Add a notify_mode question to onboarding"</p>
+            <p>"Make the prompt handle multi-language emails"</p>
           </div>
         )}
 
         <div className="space-y-3">
           {messages.map((msg, i) => (
-            <div key={i} className={`text-sm ${msg.role === "user" ? "text-right" : ""}`}>
+            <div key={i}>
               {msg.role === "user" ? (
-                <div className="inline-block rounded-lg bg-zinc-900 text-white px-3 py-2 max-w-[90%] text-left dark:bg-zinc-100 dark:text-zinc-900">
-                  {msg.content}
+                <div className="text-right">
+                  <div className="inline-block rounded-lg bg-zinc-900 text-white px-3 py-2 max-w-[90%] text-left text-sm dark:bg-zinc-100 dark:text-zinc-900">
+                    {msg.content}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {/* Render text with code blocks */}
-                  {msg.content.split(/(```[\s\S]*?```)/g).map((part, j) => {
-                    if (part.startsWith("```")) {
-                      const code = part.replace(/```(?:yaml|hbs|handlebars|typescript|ts)?\n/, "").replace(/```$/, "").trim();
-                      return (
-                        <div key={j} className="relative group">
-                          <pre className="rounded-md bg-zinc-950 p-3 text-xs text-zinc-300 font-mono overflow-x-auto dark:bg-zinc-900">
-                            {code}
-                          </pre>
-                          <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 px-2 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
-                              onClick={() => copyToClipboard(code, i * 100 + j)}
-                            >
-                              {copied === i * 100 + j ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400">{msg.content}</p>
+
+                  {msg.proposedCode && (
+                    <div className={`rounded-md border overflow-hidden ${
+                      msg.status === "applied" ? "border-green-300 dark:border-green-800" :
+                      msg.status === "discarded" ? "border-zinc-200 opacity-40 dark:border-zinc-800" :
+                      "border-purple-300 dark:border-purple-800"
+                    }`}>
+                      {/* Action bar */}
+                      <div className={`flex items-center justify-between px-3 py-1.5 ${
+                        msg.status === "applied" ? "bg-green-50 dark:bg-green-950" :
+                        msg.status === "discarded" ? "bg-zinc-50 dark:bg-zinc-900" :
+                        "bg-purple-50 dark:bg-purple-950"
+                      }`}>
+                        <span className="text-xs font-medium">
+                          {msg.status === "applied" ? "Applied" :
+                           msg.status === "discarded" ? "Discarded" :
+                           `Proposed edit → ${activeFile}`}
+                        </span>
+
+                        {msg.status === "pending" && (
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-green-700 hover:bg-green-100 dark:text-green-400" onClick={() => handleApply(i)}>
+                              <Check className="h-3 w-3 mr-1" /> Apply
                             </Button>
-                            {onApplyCode && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs bg-purple-800 text-purple-200 hover:bg-purple-700"
-                                onClick={() => onApplyCode(code)}
-                              >
-                                Apply
-                              </Button>
-                            )}
+                            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-zinc-500 hover:bg-zinc-100" onClick={handleKeepEditing}>
+                              <Pencil className="h-3 w-3 mr-1" /> Edit more
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-red-500 hover:bg-red-50" onClick={() => handleDiscard(i)}>
+                              <X className="h-3 w-3" />
+                            </Button>
                           </div>
-                        </div>
-                      );
-                    }
-                    return part.trim() ? (
-                      <p key={j} className="text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">{part.trim()}</p>
-                    ) : null;
-                  })}
+                        )}
+                      </div>
+
+                      {/* Code preview (collapsed if discarded) */}
+                      {msg.status !== "discarded" && (
+                        <pre className="p-3 text-xs text-zinc-700 dark:text-zinc-300 font-mono overflow-x-auto max-h-52 overflow-y-auto bg-zinc-950 dark:bg-zinc-900">
+                          {msg.proposedCode.length > 2000
+                            ? msg.proposedCode.slice(0, 2000) + `\n\n... (${msg.proposedCode.length} total chars)`
+                            : msg.proposedCode}
+                        </pre>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -150,7 +186,7 @@ export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: 
           {loading && (
             <div className="flex items-center gap-2 text-sm text-zinc-400">
               <div className="h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
-              Thinking...
+              Generating edit...
             </div>
           )}
         </div>
@@ -158,15 +194,12 @@ export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: 
 
       {/* Input */}
       <div className="border-t p-2">
-        <form
-          onSubmit={(e) => { e.preventDefault(); sendMessage(); }}
-          className="flex gap-2"
-        >
+        <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex gap-2">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask the copilot..."
+            placeholder="Describe the change..."
             className="flex-1 rounded-md border bg-transparent px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
             disabled={loading}
           />

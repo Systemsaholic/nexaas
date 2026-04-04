@@ -26,7 +26,20 @@ Key principles:
 - Approval gates have a platform floor — clients can tighten but never loosen.
 - TAG never makes business decisions — it only enforces contract rules.
 
-When generating or modifying files, output the COMPLETE file content ready to save. Use proper YAML/Handlebars syntax.`;
+CRITICAL RESPONSE FORMAT:
+When the operator asks you to edit or generate file content, you MUST respond with EXACTLY this structure:
+
+1. A brief explanation of the changes (1-3 sentences max)
+2. The complete updated file wrapped in a fenced code block with the appropriate language tag
+
+Example:
+Adding a folder_sort option to the onboarding questions.
+
+\`\`\`yaml
+(complete file content here — NOT a diff, the FULL file ready to replace the current content)
+\`\`\`
+
+ALWAYS output the COMPLETE file — never partial snippets, never diffs, never "add this below line X". The operator's editor will show the proposed file and let them accept or reject it.`;
 
 export async function POST(request: Request) {
   const { message, skillId, activeFile, fileContent } = await request.json();
