@@ -47,17 +47,15 @@ export const collectHealth = task({
         const target = `${user}@${host}`;
         const sshOpts = `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p ${port}`;
 
-        // Collect all metrics in one SSH call
-        const cmd = [
-          "free -m | awk '/^Mem:/ {print $2,$3}'",
-          "df -BG / | awk 'NR==2 {gsub(/G/,\"\"); print $2,$3}'",
-          "docker ps --format '{{.Names}} {{.Status}}' 2>/dev/null | wc -l",
-          "docker ps --format '{{.Status}}' 2>/dev/null | grep -c healthy || echo 0",
-          "systemctl is-active nexaas-worker 2>/dev/null || echo inactive",
-        ].join(" && echo '---' && ");
+        // Sync health script to instance then run it (avoids shell escaping issues)
+        await runShell({
+          command: `scp -o StrictHostKeyChecking=accept-new -P ${port} ${NEXAAS_ROOT}/scripts/health-collect.sh ${target}:/opt/nexaas/scripts/health-collect.sh`,
+          timeoutMs: 10000,
+          label: `health-scp-${wsId}`,
+        });
 
         const result = await runShell({
-          command: `ssh ${sshOpts} ${target} "${cmd}"`,
+          command: `ssh ${sshOpts} ${target} "bash /opt/nexaas/scripts/health-collect.sh"`,
           timeoutMs: 15000,
           label: `health-${wsId}`,
         });
