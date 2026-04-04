@@ -115,14 +115,22 @@ export async function gitCommitSkill(skillId: string, fileName: string, message?
   const commitMsg = message ?? `skill: update ${skillId} ${fileName}`;
 
   await exec("git", ["add", filePath], { cwd: NEXAAS_ROOT });
-  const { stdout } = await exec(
-    "git",
-    ["-c", "user.name=Nexmatic", "-c", "user.email=ops@nexmatic.com", "commit", "-m", commitMsg],
-    { cwd: NEXAAS_ROOT }
-  );
-  await exec("git", ["push"], { cwd: NEXAAS_ROOT });
 
-  return stdout;
+  try {
+    const { stdout } = await exec(
+      "git",
+      ["-c", "user.name=Nexmatic", "-c", "user.email=ops@nexmatic.com", "commit", "-m", commitMsg],
+      { cwd: NEXAAS_ROOT }
+    );
+    await exec("git", ["push"], { cwd: NEXAAS_ROOT });
+    return stdout;
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg.includes("nothing to commit") || msg.includes("no changes added")) {
+      return "No changes to commit";
+    }
+    throw e;
+  }
 }
 
 async function listFilesRecursive(dir: string, prefix = ""): Promise<string[]> {
