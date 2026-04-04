@@ -12,5 +12,9 @@ export { dispatchFrequent, scheduledCheck } from "../tasks/run-skill.js";
 export { scanWorkspacesSchedule } from "../tasks/scan-workspaces.js";
 export { checkApprovalsSchedule } from "../tasks/check-approvals.js";
 
+// Instance health & maintenance schedules
+export { collectHealthSchedule } from "../tasks/collect-health.js";
+export { maintainInstancesSchedule } from "../tasks/maintain-instances.js";
+
 // Cron task schedules (add workspace-specific exports here)
 // export { myTaskSchedule } from "../tasks/cron-tasks.js";

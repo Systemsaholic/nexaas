@@ -5,10 +5,12 @@
  * pulls uncollected feedback signals, and feeds them into the pipeline.
  */
 
-import { task, schedules, logger, tasks } from "@trigger.dev/sdk/v3";
+import { task, schedules, logger } from "@trigger.dev/sdk/v3";
 import { runShell } from "../lib/shell.js";
 import { query } from "../../orchestrator/db.js";
 import { loadManifest } from "../../orchestrator/bootstrap/manifest-loader.js";
+import { createProposal } from "../../orchestrator/promotion/proposal-generator.js";
+import { sanitize } from "../../orchestrator/feedback/sanitizer.js";
 import { readdirSync } from "fs";
 import { join } from "path";
 
@@ -102,16 +104,52 @@ export const scanWorkspaces = task({
 
         totalPulled += rows.length;
 
-        // Check for skill improvement signals and trigger proposals
-        const improvements = rows.filter((r: any) => r.signal === "skill_improvement");
-        if (improvements.length > 0) {
-          for (const imp of improvements) {
-            await tasks.trigger("check-approvals", {
-              type: "improvement",
-              skillId: imp.skill_id,
-              workspaceId: imp.workspace_id,
-              reflection: imp.claude_reflection,
-            });
+        // Process skill improvement signals through sanitizer → proposal generator
+        const improvements = rows.filter((r: any) => r.signal === "skill_improvement" && r.claude_reflection);
+        for (const imp of improvements) {
+          try {
+            // Sanitize the improvement description (strip client-specific data)
+            const sanitized = await sanitize(imp.claude_reflection, imp.workspace_id);
+
+            if (sanitized.status === "clean" || sanitized.cleanedText) {
+              const cleanText = sanitized.cleanedText || imp.claude_reflection;
+              const proposalId = await createProposal({
+                skillId: imp.skill_id,
+                workspaceId: imp.workspace_id,
+                improvement: cleanText,
+                type: "improvement",
+                violations: sanitized.violations,
+                pass1Clean: sanitized.pass1Result === "clean",
+                pass2Clean: sanitized.pass2Result === "clean",
+              });
+              logger.info(`Created proposal #${proposalId} for ${imp.skill_id} from ${imp.workspace_id}`);
+            } else {
+              logger.warn(`Improvement from ${imp.workspace_id} for ${imp.skill_id} flagged by sanitizer — skipped`);
+            }
+          } catch (err) {
+            logger.error(`Failed to create proposal for ${imp.skill_id}: ${err}`);
+          }
+        }
+
+        // Process failure signals — check for cross-workspace correlation
+        const failures = rows.filter((r: any) => r.signal === "execution_failure");
+        if (failures.length > 0) {
+          for (const fail of failures) {
+            // Check if same skill failed on 2+ workspaces in last 24h
+            const correlated = await query(
+              `SELECT COUNT(DISTINCT workspace_id) as ws_count
+               FROM skill_feedback
+               WHERE skill_id = $1 AND signal = 'execution_failure'
+               AND created_at > NOW() - INTERVAL '24 hours'`,
+              [fail.skill_id]
+            );
+            const wsCount = (correlated.rows[0] as any)?.ws_count || 0;
+            if (wsCount >= 2) {
+              logger.warn(`Correlated failure: ${fail.skill_id} failing on ${wsCount} workspaces — triggering diagnosis`);
+              // Import dynamically to avoid circular deps
+              const { diagnoseFailure } = await import("./diagnose-failure.js");
+              await diagnoseFailure.trigger({ skillId: fail.skill_id });
+            }
           }
         }
       } catch (err) {

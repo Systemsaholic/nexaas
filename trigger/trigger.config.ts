@@ -10,6 +10,8 @@ const SKIP_SELF_HEAL = [
   "receive-escalation",
   "diagnose-failure",
   "check-approvals",
+  "collect-health",
+  "maintain-instances",
 ];
 
 export default defineConfig({
