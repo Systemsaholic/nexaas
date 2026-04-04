@@ -1,7 +1,11 @@
 /**
- * WebSocket terminal server.
- * Runs as a separate process alongside the Next.js dashboard.
- * Spawns SSH sessions (or local bash) and streams I/O via WebSocket.
+ * WebSocket terminal server with persistent sessions.
+ *
+ * Orchestrator sessions persist when the browser navigates away.
+ * Instance sessions (Claude Code) are ephemeral — killed on disconnect.
+ *
+ * Persistent sessions keep a scrollback buffer so reconnecting clients
+ * see what happened while they were away.
  */
 
 import { WebSocketServer, WebSocket } from "ws";
@@ -12,10 +16,22 @@ import { join } from "path";
 const PORT = parseInt(process.env.TERMINAL_PORT ?? "3002", 10);
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
+const SCROLLBACK_LIMIT = 100000; // characters to keep in buffer
 
 interface WorkspaceManifest {
   ssh: { host: string; user: string; port: number };
 }
+
+interface PersistentSession {
+  term: pty.IPty;
+  target: string;
+  scrollback: string;
+  clients: Set<WebSocket>;
+  alive: boolean;
+}
+
+// Persistent sessions keyed by target name
+const sessions = new Map<string, PersistentSession>();
 
 function loadManifest(workspaceId: string): WorkspaceManifest | null {
   try {
@@ -26,8 +42,69 @@ function loadManifest(workspaceId: string): WorkspaceManifest | null {
   }
 }
 
-const wss = new WebSocketServer({ port: PORT });
+function getOrCreateSession(target: string): PersistentSession | null {
+  // Only orchestrator sessions are persistent
+  if (target !== "orchestrator") return null;
 
+  const existing = sessions.get(target);
+  if (existing?.alive) return existing;
+
+  // Clean up dead session
+  if (existing) sessions.delete(target);
+
+  const term = pty.spawn("/bin/bash", ["--login"], {
+    name: "xterm-256color",
+    cols: 120,
+    rows: 30,
+    cwd: NEXAAS_ROOT,
+    env: { ...process.env, TERM: "xterm-256color" },
+  });
+
+  const session: PersistentSession = {
+    term,
+    target,
+    scrollback: "",
+    clients: new Set(),
+    alive: true,
+  };
+
+  // Capture all output to scrollback + broadcast to connected clients
+  term.onData((data: string) => {
+    // Append to scrollback
+    session.scrollback += data;
+    if (session.scrollback.length > SCROLLBACK_LIMIT) {
+      session.scrollback = session.scrollback.slice(-SCROLLBACK_LIMIT);
+    }
+
+    // Broadcast to all connected clients
+    const msg = JSON.stringify({ type: "output", data });
+    for (const client of session.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
+    }
+  });
+
+  term.onExit(({ exitCode }) => {
+    console.log(`Persistent session ended: target=${target}, exitCode=${exitCode}`);
+    session.alive = false;
+
+    const msg = JSON.stringify({ type: "exit", data: exitCode });
+    for (const client of session.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+        client.close();
+      }
+    }
+    sessions.delete(target);
+  });
+
+  sessions.set(target, session);
+  console.log(`Persistent session created: target=${target}, pid=${term.pid}`);
+  return session;
+}
+
+const wss = new WebSocketServer({ port: PORT });
 console.log(`Terminal WebSocket server listening on port ${PORT}`);
 
 wss.on("connection", (ws: WebSocket, req) => {
@@ -42,43 +119,70 @@ wss.on("connection", (ws: WebSocket, req) => {
     return;
   }
 
-  // Determine shell command
-  let shell: string;
-  let args: string[];
+  // Try persistent session (orchestrator only)
+  const persistent = getOrCreateSession(target);
 
-  if (target === "orchestrator") {
-    shell = "/bin/bash";
-    args = ["--login"];
-  } else {
-    const manifest = loadManifest(target);
-    if (!manifest?.ssh) {
-      ws.send(JSON.stringify({ type: "error", data: `Unknown target: ${target}` }));
-      ws.close(1008, "Unknown target");
-      return;
+  if (persistent) {
+    // Attach to persistent session
+    persistent.clients.add(ws);
+    console.log(`Client attached to persistent session: target=${target}, clients=${persistent.clients.size}`);
+
+    // Send scrollback so client sees history
+    if (persistent.scrollback.length > 0) {
+      ws.send(JSON.stringify({ type: "output", data: persistent.scrollback }));
     }
-    shell = "ssh";
-    args = [
-      "-o", "StrictHostKeyChecking=accept-new",
-      "-o", "ServerAliveInterval=30",
-      "-p", String(manifest.ssh.port),
-      "-t",
-      `${manifest.ssh.user}@${manifest.ssh.host}`,
-      "cd /opt/nexaas && exec claude --dangerously-skip-permissions",
-    ];
+
+    // Client input → PTY
+    ws.on("message", (raw: Buffer) => {
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === "input") {
+          persistent.term.write(msg.data);
+        } else if (msg.type === "resize") {
+          persistent.term.resize(msg.cols, msg.rows);
+        }
+      } catch {
+        persistent.term.write(raw.toString());
+      }
+    });
+
+    // Client disconnect — detach but keep session alive
+    ws.on("close", () => {
+      persistent.clients.delete(ws);
+      console.log(`Client detached from persistent session: target=${target}, clients=${persistent.clients.size}`);
+    });
+
+    ws.on("error", () => {
+      persistent.clients.delete(ws);
+    });
+
+    return;
   }
 
-  // Spawn PTY
-  const term = pty.spawn(shell, args, {
+  // Ephemeral session (instance Claude Code)
+  const manifest = loadManifest(target);
+  if (!manifest?.ssh) {
+    ws.send(JSON.stringify({ type: "error", data: `Unknown target: ${target}` }));
+    ws.close(1008, "Unknown target");
+    return;
+  }
+
+  const term = pty.spawn("ssh", [
+    "-o", "StrictHostKeyChecking=accept-new",
+    "-o", "ServerAliveInterval=30",
+    "-p", String(manifest.ssh.port),
+    "-t",
+    `${manifest.ssh.user}@${manifest.ssh.host}`,
+    "cd /opt/nexaas && exec claude --dangerously-skip-permissions",
+  ], {
     name: "xterm-256color",
     cols: 120,
     rows: 30,
-    cwd: target === "orchestrator" ? NEXAAS_ROOT : undefined,
     env: { ...process.env, TERM: "xterm-256color" },
   });
 
-  console.log(`Terminal opened: target=${target}, pid=${term.pid}`);
+  console.log(`Ephemeral session opened: target=${target}, pid=${term.pid}`);
 
-  // PTY → WebSocket
   term.onData((data: string) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "output", data }));
@@ -86,14 +190,13 @@ wss.on("connection", (ws: WebSocket, req) => {
   });
 
   term.onExit(({ exitCode }) => {
-    console.log(`Terminal closed: target=${target}, exitCode=${exitCode}`);
+    console.log(`Ephemeral session closed: target=${target}, exitCode=${exitCode}`);
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "exit", data: exitCode }));
       ws.close();
     }
   });
 
-  // WebSocket → PTY
   ws.on("message", (raw: Buffer) => {
     try {
       const msg = JSON.parse(raw.toString());
@@ -103,18 +206,17 @@ wss.on("connection", (ws: WebSocket, req) => {
         term.resize(msg.cols, msg.rows);
       }
     } catch {
-      // Raw text fallback
       term.write(raw.toString());
     }
   });
 
   ws.on("close", () => {
-    console.log(`WebSocket closed: target=${target}`);
+    console.log(`Ephemeral WebSocket closed: target=${target}`);
     term.kill();
   });
 
   ws.on("error", (err) => {
-    console.error(`WebSocket error: ${err.message}`);
+    console.error(`Ephemeral WebSocket error: ${err.message}`);
     term.kill();
   });
 });
