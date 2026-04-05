@@ -58,12 +58,13 @@ Return JSON only: {"summary": "one sentence", "temperature": number, "condition"
     const rawOutput = response.content[0].type === "text" ? response.content[0].text : "";
     logger.info(`Claude response: ${rawOutput}`);
 
-    // 3. Parse result
+    // 3. Parse result (strip markdown code fences if present)
     let result: { summary: string; temperature: number; condition: string; forecast: string };
     try {
-      result = JSON.parse(rawOutput);
+      const cleaned = rawOutput.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      result = JSON.parse(cleaned);
     } catch {
-      result = { summary: rawOutput, temperature: 0, condition: "unknown", forecast: rawOutput };
+      result = { summary: rawOutput.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim(), temperature: 0, condition: "unknown", forecast: "" };
     }
 
     // 4. Log to activity_log
