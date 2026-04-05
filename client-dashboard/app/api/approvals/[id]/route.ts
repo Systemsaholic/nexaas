@@ -1,5 +1,9 @@
 import { query, queryOne } from "@/lib/db";
 import { NextResponse } from "next/server";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const exec = promisify(execFile);
 
 export async function POST(
   request: Request,
@@ -13,7 +17,6 @@ export async function POST(
   }
 
   try {
-    // Get the approval record to find the wait token
     const approval = await queryOne<{ details: Record<string, unknown> }>(
       `SELECT details FROM pending_approvals WHERE id = $1`,
       [parseInt(id, 10)]
@@ -23,43 +26,42 @@ export async function POST(
       return NextResponse.json({ error: "Approval not found" }, { status: 404 });
     }
 
-    // Update the approval status
+    // Update the approval status in DB
     await query(
       `UPDATE pending_approvals SET status = $1, responded_at = NOW() WHERE id = $2`,
       [action === "approve" ? "approved" : "rejected", parseInt(id, 10)]
     );
 
-    // Complete the Trigger.dev wait token to resume the paused task
+    // Complete the Trigger.dev wait token via the SDK
     const waitTokenId = (approval.details as any)?.waitTokenId;
     if (waitTokenId) {
+      const triggerKey = process.env.TRIGGER_SECRET_KEY ?? "";
+      const triggerUrl = process.env.TRIGGER_API_URL ?? "http://localhost:3040";
+      const completionData = JSON.stringify({
+        approved: action === "approve",
+        comment: comment ?? null,
+      });
+
       try {
-        // Call the Trigger.dev API to complete the token
-        const triggerApiUrl = process.env.TRIGGER_API_URL ?? "http://localhost:3040";
-        const triggerKey = process.env.TRIGGER_SECRET_KEY ?? "";
-
-        const res = await fetch(`${triggerApiUrl}/api/v1/waitpoints/tokens/${waitTokenId}/complete`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${triggerKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            approved: action === "approve",
-            comment: comment ?? null,
-          }),
+        // Use the SDK via a one-shot node script to avoid import issues
+        await exec("node", ["-e", `
+          const { configure } = require("@trigger.dev/sdk/v3");
+          const { wait } = require("@trigger.dev/sdk/v3");
+          configure({ secretKey: "${triggerKey}", baseURL: "${triggerUrl}" });
+          wait.completeToken("${waitTokenId}", ${completionData})
+            .then(() => process.exit(0))
+            .catch((e) => { console.error(e.message); process.exit(1); });
+        `], {
+          timeout: 15000,
+          cwd: process.env.NEXAAS_ROOT ?? "/opt/nexaas",
+          env: { ...process.env, TRIGGER_SECRET_KEY: triggerKey, TRIGGER_API_URL: triggerUrl },
         });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error(`Failed to complete wait token ${waitTokenId}: ${errText}`);
-        }
       } catch (e) {
-        console.error(`Error completing wait token: ${(e as Error).message}`);
-        // Don't fail the approval — the token may have already expired
+        console.error(`Failed to complete wait token ${waitTokenId}: ${(e as Error).message}`);
       }
     }
 
-    return NextResponse.json({ ok: true, message: `${action === "approve" ? "Approved" : "Rejected"}` });
+    return NextResponse.json({ ok: true, message: action === "approve" ? "Approved!" : "Rejected" });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
