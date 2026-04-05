@@ -24,6 +24,12 @@ services:
     volumes:
       - trigger-registry:/registry
       - trigger-objects:/objects
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/healthcheck').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   trigger-supervisor:
     image: ghcr.io/triggerdotdev/supervisor:latest
@@ -37,7 +43,14 @@ services:
       - /opt/nexaas:/opt/nexaas:ro
       - /opt/workspaces:/opt/workspaces:rw
     depends_on:
-      - trigger-webapp
+      trigger-webapp:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f supervisor || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   postgres:
     image: postgres:16-alpine
