@@ -141,3 +141,11 @@ servers:
     capabilities: [accounts, transactions, balances, identity, institutions, link]
     requiredEnv: [PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV]
     config: configs/plaid.yaml
+
+  - id: open-meteo
+    name: "Open-Meteo"
+    description: "Weather data — forecast, historical, air quality, marine, geocoding"
+    defaultPort: 3117
+    capabilities: [forecast, historical, air-quality, marine, geocoding]
+    requiredEnv: []
+    config: configs/open-meteo.yaml
