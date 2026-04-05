@@ -8,6 +8,7 @@
 
 import { readFileSync } from "fs";
 import { join } from "path";
+import { query } from "../db.js";
 
 export interface WorkspaceManifest {
   id: string;
@@ -51,6 +52,22 @@ function getManifestDir(): string {
   return join(process.cwd(), "workspaces");
 }
 
+async function ensureWorkspace(manifest: WorkspaceManifest): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO workspaces (id, name, workspace_root, manifest)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         manifest = EXCLUDED.manifest,
+         last_seen_at = NOW()`,
+      [manifest.id, manifest.name, manifest.workspaceRoot, JSON.stringify(manifest)]
+    );
+  } catch {
+    // Non-fatal — DB may be unreachable during bootstrap or dev
+  }
+}
+
 export async function loadManifest(workspaceId: string): Promise<WorkspaceManifest> {
   const cached = manifestCache.get(workspaceId);
   if (cached) return cached;
@@ -63,6 +80,7 @@ export async function loadManifest(workspaceId: string): Promise<WorkspaceManife
     throw new Error(`Manifest ID mismatch: expected "${workspaceId}", got "${manifest.id}"`);
   }
 
+  await ensureWorkspace(manifest);
   manifestCache.set(workspaceId, manifest);
   return manifest;
 }
