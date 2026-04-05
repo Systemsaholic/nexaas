@@ -7,7 +7,7 @@
  */
 
 import { task } from "@trigger.dev/sdk/v3";
-import { executeSkill } from "../../trigger/lib/skill-executor.js";
+import { executeSkill } from "../../../trigger/lib/skill-executor.js";
 
 export const weatherForecast = task({
   id: "weather-forecast",
