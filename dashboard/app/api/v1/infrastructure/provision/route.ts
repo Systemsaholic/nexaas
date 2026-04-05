@@ -10,7 +10,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export async function POST(request: Request) {
-  const { workspaceId, adminEmail, flavor, appOrigin } = await request.json();
+  const { workspaceId, adminEmail, flavor, appOrigin, subdomain } = await request.json();
 
   if (!workspaceId || !adminEmail || !flavor) {
     return err("workspaceId, adminEmail, and flavor are required");
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
   if (!run) return err("Failed to create deploy run", 500);
 
   // Run provisioning in background
-  runProvisionAndDeploy(run.id, workspaceId, adminEmail, flavor, region, privateIp, appOrigin || "http://localhost:3040").catch((e) => {
+  runProvisionAndDeploy(run.id, workspaceId, adminEmail, flavor, region, privateIp, appOrigin || "http://localhost:3040", subdomain).catch((e) => {
     console.error(`Provision ${run.id} crashed:`, e);
   });
 
@@ -74,6 +74,7 @@ async function runProvisionAndDeploy(
   region: string,
   privateIp: string,
   appOrigin: string,
+  subdomain?: string,
 ) {
   try {
     // Step 1: Create instance on OVH
@@ -284,6 +285,7 @@ netplan apply'`);
       network: { privateIp, publicIp: publicIp! },
       ssh: { host: privateIp, user: "ubuntu", port: 22 },
       context: { threadTtlDays: 90, maxTurnsBeforeSummary: 10 },
+      ...(subdomain ? { domain: { subdomain, fullDomain: `${subdomain}.${process.env.OVH_DNS_DOMAIN ?? "nexmatic.ca"}`, configuredAt: new Date().toISOString() } } : {}),
     };
     writeFileSync(
       join(nexaasRoot2, "workspaces", `${workspaceId}.workspace.json`),
@@ -312,6 +314,27 @@ netplan apply'`);
       appendLog(runId, `Initial health snapshot collected\n`);
     } catch {
       appendLog(runId, `WARNING: Could not collect initial health snapshot\n`);
+    }
+
+    // Configure subdomain + SSL if requested
+    if (subdomain && publicIp) {
+      appendLog(runId, `\nConfiguring domain: ${subdomain}.${process.env.OVH_DNS_DOMAIN ?? "nexmatic.ca"}...\n`);
+      try {
+        const { ensureDnsRecord } = await import("@/lib/ovh-dns");
+        const dnsResult = await ensureDnsRecord(subdomain, publicIp);
+        appendLog(runId, `DNS record ${dnsResult.action}: ${subdomain} → ${publicIp}\n`);
+
+        // Install Caddy and configure reverse proxy on the instance
+        const fullDomain = `${subdomain}.${process.env.OVH_DNS_DOMAIN ?? "nexmatic.ca"}`;
+        await sshCmd(`ubuntu@${privateIp}`, "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=30", [
+          "command -v caddy >/dev/null 2>&1 || (sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl 2>/dev/null && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list 2>/dev/null && sudo apt-get update 2>/dev/null && sudo apt-get install -y caddy 2>/dev/null)",
+          `sudo tee /etc/caddy/Caddyfile > /dev/null << CADDYEOF\n${fullDomain} {\n    reverse_proxy localhost:3001\n}\nCADDYEOF`,
+          "sudo systemctl enable caddy 2>/dev/null && sudo systemctl restart caddy",
+        ].join(" && "), 120000);
+        appendLog(runId, `Caddy configured: ${fullDomain} → localhost:3001 (auto-SSL)\n`);
+      } catch (e) {
+        appendLog(runId, `WARNING: Domain setup failed: ${(e as Error).message}\n`);
+      }
     }
 
     await updateRun(runId, {

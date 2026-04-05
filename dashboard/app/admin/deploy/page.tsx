@@ -34,6 +34,7 @@ function DeployForm() {
   const [adminEmail, setAdminEmail] = useState("al@systemsaholic.com");
   const [appOrigin, setAppOrigin] = useState("http://localhost:3040");
   const [flavor, setFlavor] = useState("d2-8");
+  const [subdomain, setSubdomain] = useState("");
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,7 +46,7 @@ function DeployForm() {
     try {
       const endpoint = mode === "new_vps" ? "/api/v1/infrastructure/provision" : "/api/v1/deploys";
       const body = mode === "new_vps"
-        ? { workspaceId, adminEmail, flavor, appOrigin }
+        ? { workspaceId, adminEmail, flavor, appOrigin, subdomain: subdomain || undefined }
         : { workspaceId, vpsIp, adminEmail, appOrigin };
 
       const res = await fetch(endpoint, {
@@ -145,8 +146,20 @@ function DeployForm() {
                     ))}
                   </div>
                 </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Subdomain (optional)</label>
+                  <div className="flex items-center gap-1">
+                    <Input
+                      placeholder="e.g. bsbc"
+                      value={subdomain}
+                      onChange={(e) => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                    />
+                    <span className="text-sm text-zinc-400 whitespace-nowrap">.nexmatic.ca</span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-1">Client dashboard URL. Leave blank to configure later.</p>
+                </div>
                 <p className="text-xs text-zinc-400">
-                  Region: BHS (Canada). VPS will be created on OVH, attached to nexaas-lan VLAN, and auto-assigned a private IP.
+                  Region: BHS (Canada). DNS + SSL configured automatically via Caddy.
                 </p>
               </TabsContent>
 

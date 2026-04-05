@@ -170,7 +170,7 @@ export function SkillCopilot({ skillId, activeFile, fileContent, onApplyCode }: 
 
                       {/* Code preview (collapsed if discarded) */}
                       {msg.status !== "discarded" && (
-                        <pre className="p-3 text-xs text-zinc-700 dark:text-zinc-300 font-mono overflow-x-auto max-h-52 overflow-y-auto bg-zinc-950 dark:bg-zinc-900">
+                        <pre className="p-3 text-xs text-zinc-200 font-mono overflow-x-auto max-h-52 overflow-y-auto bg-zinc-900">
                           {msg.proposedCode.length > 2000
                             ? msg.proposedCode.slice(0, 2000) + `\n\n... (${msg.proposedCode.length} total chars)`
                             : msg.proposedCode}

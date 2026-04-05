@@ -16,7 +16,7 @@ import { InstanceSkills } from "@/components/instance-skills";
 import { InstanceIntegrations } from "@/components/instance-integrations";
 import { InstanceKeys } from "@/components/instance-keys";
 import { InstanceUsage } from "@/components/instance-usage";
-import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug, Key, BarChart3 } from "lucide-react";
+import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug, Key, BarChart3, ExternalLink } from "lucide-react";
 import type { HealthSnapshot, WorkspaceManifest } from "@/lib/types";
 
 interface InstanceDetail {
@@ -124,6 +124,12 @@ export default function InstanceDetailPage() {
               Manage
             </Button>
           </Link>
+          <a href={`http://${data.publicIp}:3001`} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm">
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Client Portal
+            </Button>
+          </a>
         </div>
       </div>
 
