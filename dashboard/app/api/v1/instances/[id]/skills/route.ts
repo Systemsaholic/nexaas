@@ -95,8 +95,16 @@ export async function POST(
       `${manifest.ssh.user}@${manifest.ssh.host}:/opt/nexaas/${skillPath}`,
     ], { timeout: 30000 });
 
-    // Record in workspace_skills table (local DB)
+    // Ensure workspace row exists (upsert from manifest)
     const { query } = await import("@/lib/db");
+    await query(
+      `INSERT INTO workspaces (id, name, workspace_root, manifest)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET manifest = EXCLUDED.manifest`,
+      [id, manifest.name ?? id, manifest.workspace_root ?? "/opt/nexaas", JSON.stringify(manifest)]
+    );
+
+    // Record in workspace_skills table
     await query(
       `INSERT INTO workspace_skills (workspace_id, skill_id, active)
        VALUES ($1, $2, false)
