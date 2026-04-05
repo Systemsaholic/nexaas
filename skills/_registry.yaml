@@ -9,15 +9,6 @@ skills:
       - email
       - filesystem
     workspaces: []
-  - id: msp/health-check
-    version: 1.0.0
-    type: simple
-    status: planned
-    description: Run infrastructure health checks across client environments
-    mcp:
-      - filesystem
-      - postgres
-    workspaces: []
   - id: finance/daily-bookkeeping
     version: 1.0.0
     type: agentic
@@ -44,4 +35,12 @@ skills:
     description: Fetches bank transaction data from connected accounts using Plaid API
     mcp:
       - plaid
+    workspaces: []
+  - id: operations/weather-forecast
+    version: 1.0.0
+    type: simple
+    status: active
+    description: Retrieves current weather conditions and forecasts for specified locations
+    mcp:
+      - open-meteo-api
     workspaces: []

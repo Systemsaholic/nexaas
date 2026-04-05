@@ -1,0 +1,8 @@
+namespaces:
+  primary: '[tenant]_knowledge'
+  skill_docs: skill/weather-forecast
+  fallback: global/operations_policies
+retrieval:
+  strategy: cascade
+  limit: 3
+  min_relevance: 0.7
