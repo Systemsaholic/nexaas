@@ -78,7 +78,6 @@ export async function POST(
     if (envVar) {
       let keyValue: string;
       if (isDefault) {
-        // Use Nexmatic's key from orchestrator .env
         const nexmaticKey = process.env[envVar] ?? "";
         keyValue = nexmaticKey;
       } else {
@@ -86,9 +85,34 @@ export async function POST(
       }
 
       if (keyValue) {
-        // Update or append to .env on instance
+        // Validate key format — must be alphanumeric + common API key chars only
+        if (!/^[a-zA-Z0-9_\-.:=+/]+$/.test(keyValue)) {
+          return err("API key contains invalid characters");
+        }
+
+        // Use a Python one-liner to safely update .env without shell injection
+        // Python handles the string escaping properly
         await sshExec(manifest,
-          `grep -q "^${envVar}=" /opt/nexaas/.env && sed -i "s|^${envVar}=.*|${envVar}=${keyValue}|" /opt/nexaas/.env || echo "${envVar}=${keyValue}" >> /opt/nexaas/.env`,
+          `python3 -c "
+import re, sys
+path = '/opt/nexaas/.env'
+key = '${envVar}'
+val = sys.argv[1]
+try:
+    with open(path) as f: lines = f.readlines()
+    found = False
+    out = []
+    for line in lines:
+        if line.startswith(key + '='):
+            out.append(key + '=' + val + '\\n')
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        out.append(key + '=' + val + '\\n')
+    with open(path, 'w') as f: f.writelines(out)
+except: pass
+" '${keyValue}'`,
           15000
         );
       }

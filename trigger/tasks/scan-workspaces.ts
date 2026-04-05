@@ -95,12 +95,14 @@ export const scanWorkspaces = task({
           );
         }
 
-        // Mark as collected on client
-        const ids = rows.map((r: any) => r.id);
-        await runShell({
-          command: `ssh -p ${sshPort} -o ConnectTimeout=10 ${sshTarget} "psql \\$DATABASE_URL -c \\"UPDATE skill_feedback SET collected = true WHERE id IN (${ids.join(",")})\\""`,
-          timeoutMs: 15_000,
-        });
+        // Mark as collected on client — validate IDs are numeric to prevent injection
+        const ids = rows.map((r: any) => parseInt(r.id, 10)).filter((id: number) => !isNaN(id) && id > 0);
+        if (ids.length > 0) {
+          await runShell({
+            command: `ssh -p ${sshPort} -o ConnectTimeout=10 ${sshTarget} "psql \\$DATABASE_URL -c \\"UPDATE skill_feedback SET collected = true WHERE id IN (${ids.join(",")})\\""`,
+            timeoutMs: 15_000,
+          });
+        }
 
         totalPulled += rows.length;
 

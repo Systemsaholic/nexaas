@@ -168,12 +168,14 @@ export const maintainInstances = task({
                    ON CONFLICT (workspace_id, skill_id) DO NOTHING`,
                   [wsId, skillId]
                 );
-                // Register on instance DB
-                await runShell({
-                  command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -c \\"INSERT INTO workspace_skills (workspace_id, skill_id, active) VALUES ('${wsId}', '${skillId}', true) ON CONFLICT (workspace_id, skill_id) DO NOTHING\\""`,
-                  timeoutMs: 10000,
-                  label: `skill-register-${wsId}-${skillId}`,
-                });
+                // Register on instance DB — validate IDs are safe for SQL
+                if (/^[a-z0-9-]+$/.test(wsId) && /^[a-z0-9-/]+$/.test(skillId)) {
+                  await runShell({
+                    command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -c \\"INSERT INTO workspace_skills (workspace_id, skill_id, active) VALUES ('${wsId}', '${skillId}', true) ON CONFLICT (workspace_id, skill_id) DO NOTHING\\""`,
+                    timeoutMs: 10000,
+                    label: `skill-register-${wsId}-${skillId}`,
+                  });
+                }
                 checks[`skill:${skillId}`] += " + registered";
               }
             } catch (e) {

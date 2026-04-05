@@ -46,7 +46,7 @@ export function middleware(request: NextRequest) {
 
 function corsHeaders(): Record<string, string> {
   return {
-    "Access-Control-Allow-Origin": CORS_ORIGIN || "*",
+    "Access-Control-Allow-Origin": CORS_ORIGIN || "null",  // Deny cross-origin by default — set CORS_ORIGIN for external access
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",

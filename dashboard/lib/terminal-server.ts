@@ -12,6 +12,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as pty from "node-pty";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { createHmac } from "crypto";
 
 const PORT = parseInt(process.env.TERMINAL_PORT ?? "3002", 10);
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
@@ -113,7 +114,22 @@ wss.on("connection", (ws: WebSocket, req) => {
   const target = url.searchParams.get("target") ?? "orchestrator";
 
   // Auth check
-  if (token !== ADMIN_SECRET) {
+  // Validate HMAC token (format: timestamp:hmac)
+  const isValidToken = (() => {
+    if (!token || !ADMIN_SECRET) return false;
+    // Also accept raw secret for backward compatibility
+    if (token === ADMIN_SECRET) return true;
+    const parts = token.split(":");
+    if (parts.length !== 2) return false;
+    const [ts, hmac] = parts;
+    const timestamp = parseInt(ts, 10);
+    // Token valid for 5 minutes
+    if (Date.now() - timestamp > 5 * 60 * 1000) return false;
+    const expected = createHmac("sha256", ADMIN_SECRET).update(`terminal:${ts}`).digest("hex");
+    return hmac === expected;
+  })();
+
+  if (!isValidToken) {
     ws.send(JSON.stringify({ type: "error", data: "Unauthorized" }));
     ws.close(1008, "Unauthorized");
     return;

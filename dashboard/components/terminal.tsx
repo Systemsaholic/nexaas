@@ -91,6 +91,7 @@ export function Terminal({ target, className }: TerminalProps) {
         cursorBlink: true,
         fontSize: 13,
         fontFamily: "'Geist Mono', 'Fira Code', monospace",
+        scrollback: 10000,
         theme: {
           background: "#09090b",
           foreground: "#fafafa",
