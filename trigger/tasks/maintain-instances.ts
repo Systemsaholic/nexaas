@@ -16,9 +16,11 @@ import { task, schedules, logger } from "@trigger.dev/sdk/v3";
 import { runShell } from "../lib/shell.js";
 import { loadManifest } from "../../orchestrator/bootstrap/manifest-loader.js";
 import { query } from "../../orchestrator/db.js";
-import { readdirSync, readFileSync } from "fs";
+import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
+import { createHash } from "crypto";
+import yaml from "js-yaml";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT || process.cwd();
 
@@ -154,7 +156,77 @@ export const maintainInstances = task({
           }
         }
 
-        // 4. Check worker status
+        // 4. Check MCP configs are in sync
+        const allRequiredMcp = new Set<string>();
+        for (const row of subscribedSkills.rows) {
+          const sid = (row as { skill_id: string }).skill_id;
+          const [cat, nm] = sid.split("/");
+          try {
+            const contractRaw = readFileSync(
+              join(NEXAAS_ROOT, "skills", cat, nm, "contract.yaml"), "utf-8"
+            );
+            const contract = yaml.load(contractRaw) as { mcp_servers?: string[] };
+            for (const mcpId of contract.mcp_servers ?? []) {
+              allRequiredMcp.add(mcpId);
+            }
+          } catch { /* skill may not have contract */ }
+        }
+
+        for (const mcpId of allRequiredMcp) {
+          const localConfig = join(NEXAAS_ROOT, "mcp", "configs", `${mcpId}.yaml`);
+          if (!existsSync(localConfig)) continue;
+
+          try {
+            const localHash = execSync(`md5sum ${localConfig}`, { timeout: 5000 })
+              .toString().trim().split(" ")[0];
+
+            const remoteCheck = await runShell({
+              command: `ssh ${sshOpts} ${target} "md5sum /opt/nexaas/mcp/configs/${mcpId}.yaml 2>/dev/null || echo 'missing'"`,
+              timeoutMs: 10000,
+              label: `mcp-check-${wsId}-${mcpId}`,
+            });
+
+            const remoteHash = remoteCheck.stdout.trim().split(" ")[0];
+            if (remoteHash === "missing" || remoteHash !== localHash) {
+              execSync(
+                `rsync -av -e "ssh ${sshOpts.replace(/-o /g, '-o ')}" ${localConfig} ${target}:/opt/nexaas/mcp/configs/${mcpId}.yaml`,
+                { timeout: 15000 }
+              );
+              checks[`mcp:${mcpId}`] = remoteHash === "missing" ? "synced (was missing)" : "synced (was outdated)";
+            } else {
+              checks[`mcp:${mcpId}`] = "current";
+            }
+          } catch (e) {
+            checks[`mcp:${mcpId}`] = `error: ${(e as Error).message}`;
+          }
+        }
+
+        // 5. Verify workspace manifest on VPS matches orchestrator
+        try {
+          const localManifestJson = JSON.stringify(manifest);
+          const localManifestHash = createHash("md5").update(localManifestJson).digest("hex");
+
+          const remoteManifestCheck = await runShell({
+            command: `ssh ${sshOpts} ${target} "md5sum /opt/nexaas/workspaces/${wsId}.workspace.json 2>/dev/null || echo 'missing'"`,
+            timeoutMs: 10000,
+            label: `manifest-check-${wsId}`,
+          });
+
+          const remoteManifestHash = remoteManifestCheck.stdout.trim().split(" ")[0];
+          if (remoteManifestHash === "missing" || remoteManifestHash !== localManifestHash) {
+            execSync(
+              `rsync -av ${NEXAAS_ROOT}/workspaces/${wsId}.workspace.json ${target}:/opt/nexaas/workspaces/${wsId}.workspace.json`,
+              { timeout: 15000 }
+            );
+            checks.manifest = "synced";
+          } else {
+            checks.manifest = "current";
+          }
+        } catch (e) {
+          checks.manifest = `error: ${(e as Error).message}`;
+        }
+
+        // 6. Check worker status
         const workerCheck = await runShell({
           command: `ssh ${sshOpts} ${target} "systemctl is-active nexaas-worker 2>/dev/null || echo 'inactive'"`,
           timeoutMs: 10000,
@@ -174,7 +246,7 @@ export const maintainInstances = task({
           checks.worker = "restarted";
         }
 
-        // 5. Check containers
+        // 7. Check containers
         const containerCheck = await runShell({
           command: `ssh ${sshOpts} ${target} "docker ps --format '{{.Status}}' 2>/dev/null | wc -l"`,
           timeoutMs: 10000,

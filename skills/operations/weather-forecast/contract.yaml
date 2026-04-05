@@ -10,7 +10,7 @@ execution:
   timeout_seconds: 30
 adapters: []
 mcp_servers:
-  - open-meteo-api
+  - open-meteo
 requires: {}
 client_must_configure:
   required: []

@@ -42,5 +42,5 @@ skills:
     status: active
     description: Retrieves current weather conditions and forecasts for specified locations
     mcp:
-      - open-meteo-api
+      - open-meteo
     workspaces: []

@@ -1,7 +1,8 @@
-import { loadManifest } from "@/lib/manifests";
+import { loadManifest, saveManifest, rsyncManifestToVps } from "@/lib/manifests";
 import { listSkillPackages } from "@/lib/skill-packages";
 import { queryAll } from "@/lib/db";
 import { sshExec } from "@/lib/ssh";
+import { deployMcpServersForSkill, getMcpDefaultPort } from "@/lib/mcp-deploy";
 import { ok, err, notFound } from "@/lib/api-response";
 
 export async function GET(
@@ -95,6 +96,22 @@ export async function POST(
       `${manifest.ssh.user}@${manifest.ssh.host}:/opt/nexaas/${skillPath}`,
     ], { timeout: 30000 });
 
+    // Deploy MCP server dependencies
+    const mcpResult = await deployMcpServersForSkill(manifest, skillId);
+
+    // Update manifest: add skill + MCP servers
+    if (!manifest.skills.includes(skillId)) {
+      manifest.skills.push(skillId);
+    }
+    for (const mcpId of mcpResult.deployed) {
+      const port = await getMcpDefaultPort(mcpId);
+      manifest.mcp[mcpId] = port ? `http://localhost:${port}` : "stdio";
+    }
+
+    // Persist manifest locally + sync to VPS
+    await saveManifest(manifest);
+    await rsyncManifestToVps(manifest);
+
     // Record in workspace_skills table (workspace row ensured by loadManifest)
     const { query } = await import("@/lib/db");
     await query(
@@ -104,7 +121,11 @@ export async function POST(
       [id, skillId]
     );
 
-    return ok({ message: `Deployed ${skillId} to ${id}`, status: "inactive" });
+    return ok({
+      message: `Deployed ${skillId} to ${id}`,
+      status: "inactive",
+      mcp: mcpResult,
+    });
   } catch (e) {
     return err(`Failed to deploy skill: ${(e as Error).message}`, 500);
   }
