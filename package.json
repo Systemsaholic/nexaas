@@ -11,6 +11,7 @@
   "dependencies": {
     "@trigger.dev/sdk": "^4.4.2",
     "better-sqlite3": "^11.0.0",
+    "handlebars": "^4.7.9",
     "js-yaml": "^4.1.1",
     "pg": "^8.20.0",
     "trigger.dev": "^4.4.3",
