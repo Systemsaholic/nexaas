@@ -111,49 +111,77 @@ export const maintainInstances = task({
           checks.claudeMd = `error: ${(e as Error).message}`;
         }
 
-        // 3. Check deployed skills are in sync
+        // 3. Check deployed skills are in sync + auto-register
         const subscribedSkills = await query(
           `SELECT skill_id FROM workspace_skills WHERE workspace_id = $1`,
           [wsId]
         );
+        const registeredSkillIds = new Set(subscribedSkills.rows.map((r: any) => r.skill_id));
 
-        for (const row of subscribedSkills.rows) {
-          const skillId = (row as { skill_id: string }).skill_id;
-          const [category, name] = skillId.split("/");
-          const localPath = join(NEXAAS_ROOT, "skills", category, name, "contract.yaml");
+        // Find all skills on the orchestrator from the registry
+        try {
+          const registryRaw = readFileSync(join(NEXAAS_ROOT, "skills", "_registry.yaml"), "utf-8");
+          const registry = yaml.load(registryRaw) as { skills: Array<{ id: string; status: string }> };
+          const activeSkills = (registry.skills ?? []).filter((s) => s.status === "active");
 
-          try {
-            const localHash = execSync(`md5sum ${localPath} 2>/dev/null`, { timeout: 5000 })
-              .toString().trim().split(" ")[0];
+          for (const skill of activeSkills) {
+            const skillId = skill.id;
+            const [category, name] = skillId.split("/");
+            const localPath = join(NEXAAS_ROOT, "skills", category, name, "contract.yaml");
 
-            const remoteCheck = await runShell({
-              command: `ssh ${sshOpts} ${target} "md5sum /opt/nexaas/skills/${category}/${name}/contract.yaml 2>/dev/null || echo 'missing'"`,
-              timeoutMs: 10000,
-              label: `skill-check-${wsId}-${skillId}`,
-            });
+            if (!existsSync(localPath)) continue;
 
-            const remoteHash = remoteCheck.stdout.trim().split(" ")[0];
+            try {
+              const localHash = execSync(`md5sum ${localPath} 2>/dev/null`, { timeout: 5000 })
+                .toString().trim().split(" ")[0];
 
-            if (remoteHash === "missing") {
-              // Skill not deployed — sync it
-              execSync(
-                `rsync -av ${NEXAAS_ROOT}/skills/${category}/${name}/ ${target}:/opt/nexaas/skills/${category}/${name}/`,
-                { timeout: 30000 }
-              );
-              checks[`skill:${skillId}`] = "synced (was missing)";
-            } else if (remoteHash !== localHash) {
-              // Skill out of date — sync it
-              execSync(
-                `rsync -av ${NEXAAS_ROOT}/skills/${category}/${name}/ ${target}:/opt/nexaas/skills/${category}/${name}/`,
-                { timeout: 30000 }
-              );
-              checks[`skill:${skillId}`] = "synced (was outdated)";
-            } else {
-              checks[`skill:${skillId}`] = "current";
+              const remoteCheck = await runShell({
+                command: `ssh ${sshOpts} ${target} "md5sum /opt/nexaas/skills/${category}/${name}/contract.yaml 2>/dev/null || echo 'missing'"`,
+                timeoutMs: 10000,
+                label: `skill-check-${wsId}-${skillId}`,
+              });
+
+              const remoteHash = remoteCheck.stdout.trim().split(" ")[0];
+
+              if (remoteHash === "missing") {
+                execSync(
+                  `rsync -av ${NEXAAS_ROOT}/skills/${category}/${name}/ ${target}:/opt/nexaas/skills/${category}/${name}/`,
+                  { timeout: 30000 }
+                );
+                checks[`skill:${skillId}`] = "synced (was missing)";
+              } else if (remoteHash !== localHash) {
+                execSync(
+                  `rsync -av ${NEXAAS_ROOT}/skills/${category}/${name}/ ${target}:/opt/nexaas/skills/${category}/${name}/`,
+                  { timeout: 30000 }
+                );
+                checks[`skill:${skillId}`] = "synced (was outdated)";
+              } else {
+                checks[`skill:${skillId}`] = "current";
+              }
+
+              // Auto-register in workspace_skills if not already registered
+              if (!registeredSkillIds.has(skillId)) {
+                // Register on orchestrator DB
+                await query(
+                  `INSERT INTO workspace_skills (workspace_id, skill_id, active)
+                   VALUES ($1, $2, true)
+                   ON CONFLICT (workspace_id, skill_id) DO NOTHING`,
+                  [wsId, skillId]
+                );
+                // Register on instance DB
+                await runShell({
+                  command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -c \\"INSERT INTO workspace_skills (workspace_id, skill_id, active) VALUES ('${wsId}', '${skillId}', true) ON CONFLICT (workspace_id, skill_id) DO NOTHING\\""`,
+                  timeoutMs: 10000,
+                  label: `skill-register-${wsId}-${skillId}`,
+                });
+                checks[`skill:${skillId}`] += " + registered";
+              }
+            } catch (e) {
+              checks[`skill:${skillId}`] = `error: ${(e as Error).message}`;
             }
-          } catch (e) {
-            checks[`skill:${skillId}`] = `error: ${(e as Error).message}`;
           }
+        } catch (e) {
+          checks.skillRegistry = `error reading registry: ${(e as Error).message}`;
         }
 
         // 4. Check MCP configs are in sync

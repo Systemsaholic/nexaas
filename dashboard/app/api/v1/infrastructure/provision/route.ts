@@ -293,6 +293,36 @@ netplan apply'`);
     );
     appendLog(runId, `\nWorkspace manifest created: workspaces/${workspaceId}.workspace.json\n`);
 
+    // Auto-register all active skills from registry
+    try {
+      const YAML = await import("js-yaml");
+      const registryRaw = readFileSync(join(nexaasRoot2, "skills", "_registry.yaml"), "utf-8");
+      const registry = YAML.load(registryRaw) as { skills: Array<{ id: string; status: string }> };
+      const activeSkills = (registry.skills ?? []).filter((s) => s.status === "active");
+
+      for (const skill of activeSkills) {
+        // Sync skill to instance
+        const [cat, nm] = skill.id.split("/");
+        try {
+          execFile("rsync", ["-av", `${nexaasRoot2}/skills/${cat}/${nm}/`, `ubuntu@${privateIp}:/opt/nexaas/skills/${cat}/${nm}/`], { timeout: 30000 }, () => {});
+        } catch { /* best effort */ }
+
+        // Register in orchestrator DB
+        await query(
+          `INSERT INTO workspace_skills (workspace_id, skill_id, active) VALUES ($1, $2, true) ON CONFLICT DO NOTHING`,
+          [workspaceId, skill.id]
+        );
+
+        // Register on instance DB
+        await sshCmd(`ubuntu@${privateIp}`, "-o ConnectTimeout=10",
+          `psql nexaas -c "INSERT INTO workspace_skills (workspace_id, skill_id, active) VALUES ('${workspaceId}', '${skill.id}', true) ON CONFLICT DO NOTHING" 2>/dev/null || true`
+        );
+      }
+      appendLog(runId, `Registered ${activeSkills.length} skills: ${activeSkills.map((s) => s.id).join(", ")}\n`);
+    } catch (e) {
+      appendLog(runId, `WARNING: Skill auto-registration failed: ${(e as Error).message}\n`);
+    }
+
     // Collect initial health snapshot
     try {
       const healthOut = await sshCmd(`ubuntu@${privateIp}`, "-o ConnectTimeout=10",
