@@ -37,6 +37,13 @@ const accessRules = [
   // vRack
   { method: "GET", path: `/vrack/*` },
   { method: "POST", path: `/vrack/*` },
+  // DNS zone management
+  { method: "GET", path: `/domain/zone/*` },
+  { method: "POST", path: `/domain/zone/*` },
+  { method: "PUT", path: `/domain/zone/*` },
+  { method: "DELETE", path: `/domain/zone/*` },
+  // Domain info
+  { method: "GET", path: `/domain/*` },
 ];
 
 async function main() {

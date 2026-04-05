@@ -1,89 +1,86 @@
-import OVH from "ovh";
+/**
+ * Cloudflare DNS management for nexmatic.ca subdomains.
+ *
+ * Uses Cloudflare API v4 to create, update, and delete A records.
+ * Proxied through Cloudflare for DDoS protection + SSL.
+ */
 
-function getClient() {
-  return new OVH({
-    appKey: process.env.OVH_APP_KEY!,
-    appSecret: process.env.OVH_APP_SECRET!,
-    consumerKey: process.env.OVH_CONSUMER_KEY!,
-    endpoint: "ovh-ca",
-  });
-}
-
-function api<T>(method: string, path: string, body?: Record<string, unknown>): Promise<T> {
-  const client = getClient();
-  return new Promise((resolve, reject) => {
-    const cb = (err: Error | null, result: T) => {
-      if (err) reject(err);
-      else resolve(result);
-    };
-    if (body) {
-      (client as any).request(method, path, body, cb);
-    } else {
-      (client as any).request(method, path, cb);
-    }
-  });
-}
-
+const CF_API = "https://api.cloudflare.com/client/v4";
+const CF_TOKEN = () => process.env.CLOUDFLARE_API_TOKEN ?? "";
+const CF_ZONE_ID = () => process.env.CLOUDFLARE_ZONE_ID ?? "";
 const DOMAIN = process.env.OVH_DNS_DOMAIN ?? "nexmatic.ca";
 
-export interface DnsRecord {
-  id: number;
-  fieldType: string;
-  subDomain: string;
-  target: string;
-  ttl: number;
-}
-
-// List all DNS records for the domain
-export async function listDnsRecords(subDomain?: string): Promise<DnsRecord[]> {
-  const params = subDomain ? `?subDomain=${subDomain}` : "";
-  const ids = await api<number[]>("GET", `/domain/zone/${DOMAIN}/record${params}`);
-
-  const records: DnsRecord[] = [];
-  for (const id of ids.slice(0, 50)) {
-    try {
-      const record = await api<DnsRecord>("GET", `/domain/zone/${DOMAIN}/record/${id}`);
-      records.push(record);
-    } catch { /* skip */ }
+async function cfFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${CF_API}${path}`, {
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${CF_TOKEN()}`,
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+  });
+  const json = await res.json() as { success: boolean; result: T; errors: Array<{ message: string }> };
+  if (!json.success) {
+    throw new Error(json.errors?.[0]?.message ?? "Cloudflare API error");
   }
-  return records;
+  return json.result;
 }
 
-// Create an A record pointing subdomain to an IP
-export async function createDnsRecord(subDomain: string, ip: string): Promise<DnsRecord> {
-  const record = await api<DnsRecord>("POST", `/domain/zone/${DOMAIN}/record`, {
-    fieldType: "A",
-    subDomain,
-    target: ip,
-    ttl: 300,
-  });
-
-  // Refresh the zone to apply changes
-  await api("POST", `/domain/zone/${DOMAIN}/refresh`);
-
-  return record;
+export interface DnsRecord {
+  id: string;
+  type: string;
+  name: string;
+  content: string;
+  ttl: number;
+  proxied: boolean;
 }
 
-// Update an existing DNS record
-export async function updateDnsRecord(recordId: number, ip: string): Promise<void> {
-  await api("PUT", `/domain/zone/${DOMAIN}/record/${recordId}`, {
-    target: ip,
-    ttl: 300,
-  });
-
-  await api("POST", `/domain/zone/${DOMAIN}/refresh`);
-}
-
-// Delete a DNS record
-export async function deleteDnsRecord(recordId: number): Promise<void> {
-  await api("DELETE", `/domain/zone/${DOMAIN}/record/${recordId}`);
-  await api("POST", `/domain/zone/${DOMAIN}/refresh`);
+// List DNS records, optionally filtered by name
+export async function listDnsRecords(subDomain?: string): Promise<DnsRecord[]> {
+  const nameFilter = subDomain ? `&name=${subDomain}.${DOMAIN}` : "";
+  return cfFetch<DnsRecord[]>(`/zones/${CF_ZONE_ID()}/dns_records?type=A${nameFilter}`);
 }
 
 // Find existing A record for a subdomain
 export async function findDnsRecord(subDomain: string): Promise<DnsRecord | null> {
   const records = await listDnsRecords(subDomain);
-  return records.find((r) => r.fieldType === "A" && r.subDomain === subDomain) ?? null;
+  return records.find((r) => r.name === `${subDomain}.${DOMAIN}`) ?? null;
+}
+
+// Create an A record
+export async function createDnsRecord(subDomain: string, ip: string): Promise<DnsRecord> {
+  return cfFetch<DnsRecord>(`/zones/${CF_ZONE_ID()}/dns_records`, {
+    method: "POST",
+    body: JSON.stringify({
+      type: "A",
+      name: `${subDomain}.${DOMAIN}`,
+      content: ip,
+      ttl: 1, // 1 = automatic
+      proxied: true, // Cloudflare proxy for SSL + protection
+    }),
+  });
+}
+
+// Update an existing DNS record
+export async function updateDnsRecord(recordId: string, ip: string): Promise<DnsRecord> {
+  const record = await cfFetch<DnsRecord>(`/zones/${CF_ZONE_ID()}/dns_records/${recordId}`);
+  return cfFetch<DnsRecord>(`/zones/${CF_ZONE_ID()}/dns_records/${recordId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      type: "A",
+      name: record.name,
+      content: ip,
+      ttl: 1,
+      proxied: true,
+    }),
+  });
+}
+
+// Delete a DNS record
+export async function deleteDnsRecord(recordId: string): Promise<void> {
+  await cfFetch(`/zones/${CF_ZONE_ID()}/dns_records/${recordId}`, {
+    method: "DELETE",
+  });
 }
 
 // Create or update — upsert pattern
@@ -91,13 +88,19 @@ export async function ensureDnsRecord(subDomain: string, ip: string): Promise<{ 
   const existing = await findDnsRecord(subDomain);
 
   if (existing) {
-    if (existing.target === ip) {
+    if (existing.content === ip) {
       return { action: "unchanged", record: existing };
     }
-    await updateDnsRecord(existing.id, ip);
-    return { action: "updated", record: { ...existing, target: ip } };
+    const updated = await updateDnsRecord(existing.id, ip);
+    return { action: "updated", record: updated };
   }
 
   const record = await createDnsRecord(subDomain, ip);
   return { action: "created", record };
+}
+
+// Check if a subdomain is available (no existing record)
+export async function isDnsAvailable(subDomain: string): Promise<boolean> {
+  const record = await findDnsRecord(subDomain);
+  return record === null;
 }

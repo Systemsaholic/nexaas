@@ -10,10 +10,10 @@ export async function GET(request: Request) {
   if (!subdomain) return err("subdomain parameter required");
 
   try {
-    // Check 1: DNS record exists on OVH
+    // Check 1: DNS record exists on Cloudflare
     const dnsRecord = await findDnsRecord(subdomain);
     if (dnsRecord) {
-      return ok({ available: false, reason: "DNS record already exists", target: dnsRecord.target });
+      return ok({ available: false, reason: "DNS record already exists", target: dnsRecord.content });
     }
 
     // Check 2: Any workspace manifest already claims this subdomain
