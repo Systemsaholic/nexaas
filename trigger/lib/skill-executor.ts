@@ -108,6 +108,7 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
       model,
       timeoutMs,
       cwd: NEXAAS_ROOT,
+      workspaceRoot: NEXAAS_ROOT,  // .mcp.json lives here
     });
   } catch (e) {
     const error = `runClaude failed: ${(e as Error).message}`;
