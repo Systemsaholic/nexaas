@@ -11,7 +11,7 @@ execution:
   type: simple
   model: claude-sonnet-4-20250514
   max_tokens: 1000
-  timeout_seconds: 30
+  timeout_seconds: 120
 
 mcp_servers:
   - open-meteo
