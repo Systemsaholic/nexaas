@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Plug, CheckSquare, Activity, Settings, CreditCard, Sliders, LogOut } from "lucide-react";
+import { LayoutDashboard, Plug, CheckSquare, Activity, Settings, CreditCard, Sliders, Sparkles, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/skills", label: "AI Skills", icon: Sparkles },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
   { href: "/activity", label: "Activity", icon: Activity },
