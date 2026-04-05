@@ -133,3 +133,11 @@ servers:
     capabilities: [contacts, campaigns, tags, emails]
     requiredEnv: [GROUNDHOGG_URL, GROUNDHOGG_API_KEY]
     config: configs/groundhogg.yaml
+
+  - id: plaid
+    name: "Plaid"
+    description: "Banking data — accounts, transactions, balances, identity"
+    defaultPort: 3116
+    capabilities: [accounts, transactions, balances, identity, institutions, link]
+    requiredEnv: [PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV]
+    config: configs/plaid.yaml

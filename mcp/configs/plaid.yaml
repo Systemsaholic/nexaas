@@ -1,0 +1,49 @@
+name: plaid
+description: Banking data via Plaid API — accounts, transactions, balances, identity.
+category: finance
+
+requires_env:
+  - PLAID_CLIENT_ID
+  - PLAID_SECRET
+  - PLAID_ENV
+
+# Deployment
+# 1. Sign up at https://dashboard.plaid.com and create an application.
+#
+# 2. Get your credentials from the Plaid Dashboard → Keys:
+#      - Client ID
+#      - Secret (sandbox / development / production)
+#
+# 3. Add to .env:
+#      PLAID_CLIENT_ID=your-client-id
+#      PLAID_SECRET=your-secret-key
+#      PLAID_ENV=sandbox          # sandbox | development | production
+#      PLAID_APP_NAME=YourApp     # optional, shown in Plaid Link UI
+#
+#    Start with sandbox for testing. Move to development for real bank
+#    connections (100 live items free). Production requires Plaid approval.
+#
+# 4. Install the MCP server:
+#      cd /opt/nexaas/mcp/servers/plaid
+#      npm install && npm run build
+#
+# 5. Enable in workspace manifest:
+#      mcp_servers:
+#        - plaid
+#
+# 6. Pass env vars through docker-compose.yml:
+#      environment:
+#        - PLAID_CLIENT_ID=${PLAID_CLIENT_ID}
+#        - PLAID_SECRET=${PLAID_SECRET}
+#        - PLAID_ENV=${PLAID_ENV}
+#        - PLAID_APP_NAME=${PLAID_APP_NAME}
+
+config:
+  command: node
+  args:
+    - "/opt/nexaas/mcp/servers/plaid/dist/index.js"
+  env:
+    PLAID_CLIENT_ID: "${PLAID_CLIENT_ID}"
+    PLAID_SECRET: "${PLAID_SECRET}"
+    PLAID_ENV: "${PLAID_ENV}"
+    PLAID_APP_NAME: "${PLAID_APP_NAME}"
