@@ -5,6 +5,7 @@ import { queryOne } from "./db";
 import { verifyTotp } from "./totp";
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: [
     Credentials({
       id: "credentials",

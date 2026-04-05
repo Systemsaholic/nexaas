@@ -33,5 +33,10 @@
   "context": {
     "threadTtlDays": 90,
     "maxTurnsBeforeSummary": 10
+  },
+  "domain": {
+    "subdomain": "bsbc",
+    "fullDomain": "bsbc.nexmatic.ca",
+    "configuredAt": "2026-04-05T12:27:46.597Z"
   }
 }
