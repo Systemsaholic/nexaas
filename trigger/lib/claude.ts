@@ -13,7 +13,7 @@
  */
 
 import { spawn } from "child_process";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from "fs";
 import { resolve, join } from "path";
 import { parse as parseYaml } from "./yaml-lite.js";
 import { logger } from "@trigger.dev/sdk/v3";
@@ -246,18 +246,27 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
   // Restrict MCP servers to only those needed for this task.
   // Without this, all 38 project MCP servers (730+ tools) are loaded,
   // which exceeds Haiku/Sonnet's 200K context window.
+  //
+  // Claude Code CLI v2+ requires --mcp-config to be a FILE PATH, not inline JSON.
+  // We write the filtered config to a temp file and pass the path.
   const mcpConfigPath = join(workspaceRoot, ".mcp.json");
   if (options.mcpServers && options.mcpServers.length > 0) {
     const mcpConfig = buildMcpConfig(options.mcpServers, mcpConfigPath);
     if (mcpConfig) {
-      args.push("--strict-mcp-config", "--mcp-config", mcpConfig);
-      logger.info(`Restricted MCP to: ${options.mcpServers.join(", ")}`);
+      const tmpConfigPath = join(workspaceRoot, `.mcp-task-${Date.now()}.json`);
+      writeFileSync(tmpConfigPath, mcpConfig, "utf-8");
+      args.push("--mcp-config", tmpConfigPath);
+      logger.info(`Restricted MCP to: ${options.mcpServers.join(", ")} (config: ${tmpConfigPath})`);
+      // Clean up temp file after a delay (Claude Code reads it on startup)
+      setTimeout(() => { try { unlinkSync(tmpConfigPath); } catch {} }, 30000);
     }
   } else {
     // No MCP servers specified — load none to avoid context overflow.
-    // Tasks that need MCP tools MUST specify mcpServers.
-    args.push("--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}');
+    const tmpEmptyPath = join(workspaceRoot, `.mcp-empty-${Date.now()}.json`);
+    writeFileSync(tmpEmptyPath, '{"mcpServers":{}}', "utf-8");
+    args.push("--mcp-config", tmpEmptyPath);
     logger.info("No mcpServers specified — running with no MCP tools");
+    setTimeout(() => { try { unlinkSync(tmpEmptyPath); } catch {} }, 30000);
   }
 
   // Load agent system prompt if specified
