@@ -5,7 +5,7 @@ type: simple
 
 description: >
   Retrieves current weather conditions and forecast for configured locations.
-  Uses the Open-Meteo API (free, no API key required) via the fetch MCP server.
+  Uses the Open-Meteo MCP server for weather data (free, no API key required).
 
 execution:
   type: simple
@@ -14,7 +14,7 @@ execution:
   timeout_seconds: 30
 
 mcp_servers:
-  - fetch
+  - open-meteo
 
 requires: {}
 

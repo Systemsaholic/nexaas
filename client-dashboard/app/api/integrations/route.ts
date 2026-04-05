@@ -23,6 +23,8 @@ const MCP_META: Record<string, { name: string; description: string; icon: string
   stripe: { name: "Payments", description: "Payment processing", icon: "💳", category: "financial" },
   wave: { name: "Wave", description: "Invoicing", icon: "📊", category: "financial" },
   docuseal: { name: "Document Signing", description: "Digital signatures", icon: "📝", category: "documents" },
+  "open-meteo": { name: "Weather Data", description: "Forecasts, conditions, and alerts", icon: "🌤️", category: "information" },
+  fetch: { name: "HTTP Requests", description: "Fetch data from APIs", icon: "🔗", category: "system" },
 };
 
 export async function GET() {
