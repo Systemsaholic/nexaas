@@ -1,42 +1,51 @@
 skill: weather-forecast
-version: 1.0.0
+version: "1.0.0"
 category: operations
 type: simple
-description: Retrieves current weather conditions and forecasts for specified locations
+
+description: >
+  Retrieves current weather conditions and forecast for configured locations.
+  Uses the Open-Meteo API (free, no API key required) via the fetch MCP server.
+
 execution:
   type: simple
   model: claude-sonnet-4-20250514
   max_tokens: 1000
   timeout_seconds: 30
-adapters: []
+
 mcp_servers:
-  - open-meteo
+  - fetch
+
 requires: {}
+
 client_must_configure:
   required: []
-  optional: []
+  optional:
+    - location
+
 platform_locked:
   always_audit_log: true
   always_produce_reasoning: true
+
 reads_from_context:
   - client_profile
-  - approval_gates
-  - hard_limits
-  - workflow_state
+
 rag:
-  primary: '[tenant]_knowledge'
-  skill_docs: skill/weather-forecast-docs
-  fallback: global/operations_policies
+  primary: "[tenant]_knowledge"
+  skill_docs: "skill/weather-forecast-docs"
+  fallback: "global/operations_policies"
   limit: 3
-produces: []
+
+produces:
+  - temperature
+  - condition
+  - forecast_summary
+
 tag_defaults:
-  auto_execute: []
-  approval_required: []
-  escalate: []
-  flag:
-    - hard_limit_triggered
-    - uncertain
+  auto_execute: [weather_check]
+  flag: [hard_limit_triggered]
+
 changelog:
-  - version: 1.0.0
-    date: '2026-04-05'
-    changes: Initial skill package
+  - version: "1.0.0"
+    date: "2026-04-05"
+    changes: "Initial skill package — Open-Meteo API, no key required"
