@@ -42,8 +42,12 @@ produces:
   - forecast_summary
 
 tag_defaults:
-  auto_execute: [weather_check]
+  approval_required: [weather_share]
+  auto_execute: []
   flag: [hard_limit_triggered]
+
+# For testing: all weather forecasts require client approval before sharing
+approval_gate: always
 
 changelog:
   - version: "1.0.0"

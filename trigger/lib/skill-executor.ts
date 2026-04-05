@@ -11,7 +11,7 @@
  * They ALWAYS come from the skill contract.
  */
 
-import { logger } from "@trigger.dev/sdk/v3";
+import { logger, wait } from "@trigger.dev/sdk/v3";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import yaml from "js-yaml";
@@ -40,6 +40,17 @@ export interface SkillResult {
   model: string;
   durationMs: number;
   error?: string;
+  approval?: {
+    required: boolean;
+    approved: boolean;
+    clientResponse?: Record<string, unknown>;
+  };
+}
+
+export interface ApprovalResponse {
+  approved: boolean;
+  comment?: string;
+  modifiedInput?: Record<string, unknown>;
 }
 
 interface SkillContract {
@@ -129,34 +140,110 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
   const summary = parsed?.summary ?? result.output.slice(0, 200);
   const tagRoute = determineTagRoute(parsed, contract);
 
-  // 8. Log to activity_log
+  // 8. Log token usage (always, regardless of approval)
+  await logSkillTokenUsage(workspaceId, skillId, result.model, result.tokens.input, result.tokens.output);
+
+  // 9. APPROVAL GATE — if TAG says approval_required, pause and wait for client
+  if (tagRoute === "approval_required") {
+    logger.info(`Skill ${skillId} requires approval — creating waitpoint`);
+
+    // Create a Trigger.dev wait token
+    const token = await wait.createToken({
+      idempotencyKey: `skill-approval-${workspaceId}-${skillId}-${Date.now()}`,
+      timeout: "7d",
+      tags: [`workspace:${workspaceId}`, `skill:${skillId}`],
+    });
+
+    // Write to pending_approvals so client sees it in their dashboard
+    const pg = await import("pg");
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      await pool.query(
+        `INSERT INTO pending_approvals
+         (workspace_id, skill_id, action_type, summary, details, status, expires_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, 'pending', NOW() + INTERVAL '7 days', NOW())`,
+        [
+          workspaceId,
+          skillId,
+          contract.skill,
+          typeof summary === "string" ? summary : String(summary),
+          JSON.stringify({
+            ...parsed,
+            waitTokenId: token.id,
+            tokens_used: result.tokens.input + result.tokens.output,
+          }),
+        ]
+      );
+    } finally {
+      await pool.end();
+    }
+
+    await logSkillActivity(
+      workspaceId, skillId, contract.skill,
+      `Awaiting approval: ${typeof summary === "string" ? summary : String(summary)}`,
+      "approval_required",
+      { ...parsed, waitTokenId: token.id },
+    );
+
+    logger.info(`Approval request created — waiting for client response (token: ${token.id})`);
+
+    // PAUSE — task waits here until client responds or timeout
+    const approval = await wait.forToken<ApprovalResponse>(token);
+
+    if (!approval.ok) {
+      // Timed out
+      await logSkillActivity(workspaceId, skillId, contract.skill, "Approval expired — no response", "flag");
+      return {
+        success: false, output: result.output, parsed, tokens: result.tokens,
+        model: result.model, durationMs: result.durationMs,
+        error: "Approval timed out",
+        approval: { required: true, approved: false },
+      };
+    }
+
+    if (!approval.output.approved) {
+      // Client rejected
+      await logSkillActivity(
+        workspaceId, skillId, contract.skill,
+        `Rejected by client${approval.output.comment ? `: ${approval.output.comment}` : ""}`,
+        "flag",
+      );
+      return {
+        success: true, output: result.output, parsed, tokens: result.tokens,
+        model: result.model, durationMs: result.durationMs,
+        approval: { required: true, approved: false, clientResponse: approval.output as unknown as Record<string, unknown> },
+      };
+    }
+
+    // Client approved — log and continue
+    logger.info(`Skill ${skillId} approved by client`);
+    await logSkillActivity(
+      workspaceId, skillId, contract.skill,
+      typeof summary === "string" ? summary : String(summary),
+      "auto_execute",
+      { ...parsed, approved: true, clientComment: approval.output.comment, tokens_used: result.tokens.input + result.tokens.output },
+    );
+
+    return {
+      success: true, output: result.output, parsed, tokens: result.tokens,
+      model: result.model, durationMs: result.durationMs,
+      approval: { required: true, approved: true, clientResponse: approval.output as unknown as Record<string, unknown> },
+    };
+  }
+
+  // 10. Auto-execute — log to activity
   await logSkillActivity(
-    workspaceId,
-    skillId,
-    contract.skill,
+    workspaceId, skillId, contract.skill,
     typeof summary === "string" ? summary : String(summary),
     tagRoute,
     { ...parsed, tokens_used: result.tokens.input + result.tokens.output },
   );
 
-  // 9. Log token usage
-  await logSkillTokenUsage(
-    workspaceId,
-    skillId,
-    result.model,
-    result.tokens.input,
-    result.tokens.output,
-  );
-
   logger.info(`Skill ${skillId} complete: ${typeof summary === "string" ? summary.slice(0, 80) : "done"} (${result.durationMs}ms)`);
 
   return {
-    success: true,
-    output: result.output,
-    parsed,
-    tokens: result.tokens,
-    model: result.model,
-    durationMs: result.durationMs,
+    success: true, output: result.output, parsed, tokens: result.tokens,
+    model: result.model, durationMs: result.durationMs,
   };
 }
 
@@ -258,8 +345,22 @@ function determineTagRoute(
   // Check for hard limit triggers
   if (parsed.hardLimitTriggered) return "flag";
   if (parsed.requiresHumanReview) return "flag";
+
+  // Check contract-level approval gate
+  if ((contract as any).approval_gate === "always") return "approval_required";
+
+  // Check Claude's decision
   if (parsed.requiresApproval) return "approval_required";
 
-  // Default to auto_execute for successful runs
+  // Check if TAG defaults say this action needs approval
+  const tagDefaults = contract.tag_defaults ?? {};
+  if (tagDefaults.approval_required && Array.isArray(tagDefaults.approval_required)) {
+    // If all actions go through approval, or specific action matches
+    if (tagDefaults.approval_required.length > 0 && tagDefaults.auto_execute &&
+        (tagDefaults.auto_execute as string[]).length === 0) {
+      return "approval_required";
+    }
+  }
+
   return "auto_execute";
 }
