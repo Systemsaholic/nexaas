@@ -60,7 +60,7 @@ info "Step 1/9: Installing prerequisites..."
 
 run "command -v node >/dev/null 2>&1 || (curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash - && sudo apt-get install -y nodejs)"
 run "command -v docker >/dev/null 2>&1 || (sudo apt-get install -y docker.io docker-compose-v2 && sudo usermod -aG docker ${SSH_USER})"
-run "command -v psql >/dev/null 2>&1 || sudo apt-get install -y postgresql-client-16"
+run "dpkg -l postgresql 2>/dev/null | grep -q '^ii' || sudo apt-get install -y postgresql"
 run "command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash"
 
 info "Prerequisites installed"
@@ -239,22 +239,53 @@ info "Dev key: ${DEV_KEY:-pending}"
 
 # ── Step 7: Apply Nexaas DB schema + install deps ───────────────────────────
 
-info "Step 7/9: Setting up Nexaas database and dependencies..."
+info "Step 7/9: Setting up Nexaas database, client dashboard, and dependencies..."
 
-# Create nexaas DB on native Postgres (if installed) or skip
-if run "command -v psql >/dev/null 2>&1 && sudo -u postgres psql -c 'SELECT 1' 2>/dev/null"; then
-  run "sudo -u postgres createdb nexaas 2>/dev/null || true"
-  run "sudo -u postgres createuser -s ${SSH_USER} 2>/dev/null || true"
-  run "psql nexaas < ${NEXAAS_ROOT}/database/schema.sql 2>/dev/null || true"
-  info "Nexaas DB schema applied"
-else
-  info "No native Postgres — skipping Nexaas DB (will use Trigger.dev's Postgres)"
-fi
+# Set up native Postgres with nexaas DB + password
+PG_PASS="nexaas2026"
+run "sudo -u postgres createdb nexaas 2>/dev/null || true"
+run "sudo -u postgres createuser -s ${SSH_USER} 2>/dev/null || true"
+run "sudo -u postgres psql -c \"ALTER USER ${SSH_USER} PASSWORD '${PG_PASS}'\" 2>/dev/null || true"
 
-# Install npm deps
+# Apply base schema + all migrations
+run "psql postgresql://${SSH_USER}:${PG_PASS}@localhost/nexaas < ${NEXAAS_ROOT}/database/schema.sql 2>/dev/null || true"
+run "for f in ${NEXAAS_ROOT}/database/migrations/*.sql; do psql postgresql://${SSH_USER}:${PG_PASS}@localhost/nexaas < \"\$f\" 2>/dev/null; done"
+info "Nexaas DB schema + all migrations applied"
+
+# Install npm deps for main project
 run "cd ${NEXAAS_ROOT} && npm install 2>&1 | tail -3"
 
-info "Dependencies installed"
+# Build + install client dashboard
+run "cd ${NEXAAS_ROOT}/client-dashboard && npm install 2>&1 | tail -3 && npm run build 2>&1 | tail -3"
+
+# Create client dashboard .env
+NEXTAUTH_SECRET=$(openssl rand -hex 16)
+TOKEN_KEY=$(openssl rand -hex 16)
+run "cat > ${NEXAAS_ROOT}/client-dashboard/.env.local << CDEOF
+NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+NEXTAUTH_URL=http://localhost:3001
+AUTH_TRUST_HOST=true
+TOKEN_ENCRYPTION_KEY=${TOKEN_KEY}
+DATABASE_URL=postgresql://${SSH_USER}:${PG_PASS}@localhost/nexaas
+NEXAAS_WORKSPACE=${WORKSPACE_ID}
+ADMIN_SECRET=${MAGIC_LINK}
+TRIGGER_API_URL=http://localhost:3040
+TRIGGER_SECRET_KEY=${DEV_KEY}
+CDEOF"
+
+# Install + start client dashboard systemd service
+run "sudo cp ${NEXAAS_ROOT}/scripts/nexaas-client-dashboard.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable nexaas-client-dashboard && sudo systemctl start nexaas-client-dashboard"
+
+# Create v4 directories (identity, runbooks, knowledge)
+run "mkdir -p ${NEXAAS_ROOT}/identity/${WORKSPACE_ID} ${NEXAAS_ROOT}/runbooks ${NEXAAS_ROOT}/knowledge"
+
+# Set up Claude Code + CLAUDE.md + slash commands
+run "bash ${NEXAAS_ROOT}/scripts/setup-instance-claude.sh ${WORKSPACE_ID} ${VPS_IP} 2>/dev/null || true"
+
+# Register default dashboard channel
+run "psql postgresql://${SSH_USER}:${PG_PASS}@localhost/nexaas -c \"INSERT INTO channel_registry (workspace_id, channel_id, display_name, direction, criticality, latency, implementation, capabilities, active) VALUES ('${WORKSPACE_ID}', 'dashboard', 'Nexmatic Dashboard', 'two-way', 'standard', 'near-realtime', '{\\\"type\\\": \\\"internal\\\", \\\"server\\\": \\\"nexmatic-portal\\\"}', ARRAY['markdown', 'interactive-buttons'], true) ON CONFLICT DO NOTHING\" 2>/dev/null || true"
+
+info "Dependencies, client dashboard, and v4 directories ready"
 
 # ── Step 8: Configure and start worker ───────────────────────────────────────
 
@@ -265,10 +296,11 @@ run "cat > ${NEXAAS_ROOT}/.env << 'WORKEREOF'
 TRIGGER_SECRET_KEY=${DEV_KEY}
 TRIGGER_API_URL=http://localhost:3040
 TRIGGER_PROJECT_REF=${PROJECT_REF}
-DATABASE_URL=postgresql://${SSH_USER}@localhost/nexaas
+DATABASE_URL=postgresql://${SSH_USER}:${PG_PASS}@localhost/nexaas
 NEXAAS_ROOT=${NEXAAS_ROOT}
 NEXAAS_WORKSPACE=${WORKSPACE_ID}
-WORKSPACE_ROOT=/opt/workspaces/${WORKSPACE_ID}
+WORKSPACE_ROOT=${NEXAAS_ROOT}
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 CLAUDE_CODE_PATH=claude
 NEXAAS_CORE_WEBHOOK_URL=http://10.10.0.10:8450/api/escalate
 TELEGRAM_BRIDGE_URL=http://127.0.0.1:8420

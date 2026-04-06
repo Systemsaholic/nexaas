@@ -254,44 +254,99 @@ function buildCagContext(
   skillId: string,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Layer 1: Behavioral contract from workspace config
+  const [category, name] = skillId.split("/");
+
+  // ── Level 2: Workspace — Agent Identity Documents ─────────────────
+  // These define WHO the agent is for this client
+
+  let brandVoice = "";
+  try {
+    brandVoice = readFileSync(join(NEXAAS_ROOT, "identity", workspaceId, "brand-voice.md"), "utf-8");
+  } catch { /* no brand voice yet */ }
+
+  // Determine department from skill category
+  const deptMap: Record<string, string> = {
+    msp: "it", finance: "accounting", marketing: "marketing",
+    hr: "hr", operations: "operations", sales: "sales", custom: "operations",
+  };
+  const dept = deptMap[category] ?? "operations";
+
+  let deptOperations = "";
+  try {
+    deptOperations = readFileSync(join(NEXAAS_ROOT, "identity", workspaceId, `${dept}-operations.md`), "utf-8");
+  } catch {
+    // Try generic operations.md
+    try {
+      deptOperations = readFileSync(join(NEXAAS_ROOT, "identity", workspaceId, "operations.md"), "utf-8");
+    } catch { /* no operations doc */ }
+  }
+
+  let agentHandbook = "";
+  try {
+    agentHandbook = readFileSync(join(NEXAAS_ROOT, "identity", workspaceId, "agent-handbook.md"), "utf-8");
+  } catch { /* no handbook yet */ }
+
+  // ── Level 2: Workspace — Behavioral Contract ──────────────────────
+
   const configPath = join(NEXAAS_ROOT, "config", "client-profile.yaml");
   let profile: Record<string, unknown> = {};
   try {
     profile = yaml.load(readFileSync(configPath, "utf-8")) as Record<string, unknown>;
   } catch { /* no profile yet */ }
 
-  // Layer 1b: Skill-specific config
-  const [category, name] = skillId.split("/");
+  // ── Level 3: Skill — SOP + Runbook ────────────────────────────────
+
+  let skillSop = "";
+  try {
+    skillSop = readFileSync(join(NEXAAS_ROOT, "skills", category, name, `${name}.sop.md`), "utf-8");
+  } catch { /* no SOP yet */ }
+
+  let clientRunbook = "";
+  try {
+    clientRunbook = readFileSync(join(NEXAAS_ROOT, "runbooks", `${name}.runbook.md`), "utf-8");
+  } catch { /* no runbook yet */ }
+
+  // ── Level 3: Skill — Config + Rules ───────────────────────────────
+
   const skillConfigPath = join(NEXAAS_ROOT, "config", category, `${name}.yaml`);
   let skillConfig: Record<string, unknown> = {};
   try {
     skillConfig = yaml.load(readFileSync(skillConfigPath, "utf-8")) as Record<string, unknown>;
   } catch { /* no skill config */ }
 
-  // Layer 1c: Custom rules
-  const rulesPath = join(NEXAAS_ROOT, "config", category, name, "rules.yaml");
   let customRules = "";
   try {
-    customRules = readFileSync(rulesPath, "utf-8");
+    customRules = readFileSync(join(NEXAAS_ROOT, "config", category, name, "rules.yaml"), "utf-8");
   } catch { /* no rules */ }
 
+  // ── Assembled ClientContext ────────────────────────────────────────
+
   return {
-    // From profile
+    // Level 2 — Agent Identity (prose, injected into system prompt)
+    brandVoice,
+    deptOperations,
+    agentHandbook,
+
+    // Level 2 — Behavioral contract (structured)
     tenantName: profile.workspace ?? workspaceId,
+    clientName: profile.workspace ?? workspaceId,
     tone: profile.tone ?? "professional",
     domain: profile.domain ?? "",
     approvalGates: profile.approval_gates ?? {},
     hardLimits: profile.hard_limits ?? [],
     escalationRules: profile.escalation_rules ?? {},
 
-    // From skill config
+    // Level 3 — Skill procedures
+    skillSop,
+    clientRunbook: clientRunbook || undefined,
+
+    // Level 3 — Skill config
     ...skillConfig,
 
-    // Custom rules
+    // Level 3 — Custom rules
     customRules: customRules || undefined,
 
-    // Input data
+    // Level 3 — Input data
     ...input,
 
     // RAG chunks (empty for now — future Qdrant integration)
