@@ -21,6 +21,7 @@ import { logSkillActivity, logSkillTokenUsage } from "./skill-logger.js";
 import { resolveChannel, type ChannelRequirement } from "../../orchestrator/channels/resolver.js";
 import { deliver } from "../../orchestrator/channels/deliver.js";
 import { storeFeedbackEvent } from "../../orchestrator/feedback/events.js";
+import { retrieveRelevantDocs } from "../../orchestrator/rag/client.js";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT || process.cwd();
 
@@ -96,12 +97,34 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
 
   logger.info(`Contract: type=${contract.type}, mcp=${mcpServers.join(",") || "none"}, model=${model}`);
 
-  // 2. Render system prompt from template
+  // 2. Build CAG context + RAG retrieval
+  const cagContext = buildCagContext(workspaceId, skillId, input);
+
+  // RAG: retrieve relevant docs from Qdrant (cascade search)
+  const ragConfig = (contract as any).rag ?? {};
+  try {
+    const ragQuery = Object.values(input).filter((v) => typeof v === "string").join(" ").slice(0, 500);
+    if (ragQuery) {
+      const ragChunks = await retrieveRelevantDocs(ragQuery, {
+        clientNamespace: (ragConfig.primary ?? `${workspaceId}_knowledge`).replace("[tenant]", workspaceId),
+        skillDocsNamespace: ragConfig.skill_docs?.replace("[tenant]", workspaceId),
+        fallbackNamespace: ragConfig.fallback,
+        limit: ragConfig.limit ?? 3,
+        minRelevance: ragConfig.min_relevance ?? 0.5,
+      });
+      cagContext.ragChunks = ragChunks;
+      if (ragChunks.length > 0) {
+        logger.info(`RAG: retrieved ${ragChunks.length} chunks for ${skillId}`);
+      }
+    }
+  } catch (e) {
+    logger.warn(`RAG retrieval failed: ${(e as Error).message} — continuing without RAG`);
+  }
+
+  // Render system prompt from template with full context
   let systemPrompt = "";
   const templatePath = join(skillDir, "system-prompt.hbs");
   if (existsSync(templatePath)) {
-    // Build CAG context from workspace data
-    const cagContext = buildCagContext(workspaceId, skillId, input);
     systemPrompt = renderTemplate(templatePath, cagContext);
   }
 
