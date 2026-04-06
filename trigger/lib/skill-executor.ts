@@ -18,6 +18,8 @@ import yaml from "js-yaml";
 import { runClaude, type ClaudeResult } from "./claude.js";
 import { renderTemplate } from "./template-renderer.js";
 import { logSkillActivity, logSkillTokenUsage } from "./skill-logger.js";
+import { resolveChannel, type ChannelRequirement } from "../../orchestrator/channels/resolver.js";
+import { deliver } from "../../orchestrator/channels/deliver.js";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT || process.cwd();
 
@@ -231,15 +233,70 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
     };
   }
 
-  // 10. Auto-execute — log to activity
-  await logSkillActivity(
-    workspaceId, skillId, contract.skill,
-    typeof summary === "string" ? summary : String(summary),
-    tagRoute,
-    { ...parsed, tokens_used: result.tokens.input + result.tokens.output },
-  );
+  // 10. Route via TAG — each route has different delivery behavior
+  const summaryStr = typeof summary === "string" ? summary : String(summary);
+  const detailsObj = { ...parsed, tokens_used: result.tokens.input + result.tokens.output };
 
-  logger.info(`Skill ${skillId} complete: ${typeof summary === "string" ? summary.slice(0, 80) : "done"} (${result.durationMs}ms)`);
+  if (tagRoute === "notify_after") {
+    // Execute + notify client via their preferred channel
+    await logSkillActivity(workspaceId, skillId, contract.skill, summaryStr, tagRoute, detailsObj);
+
+    const notifyChannel = await resolveChannel(workspaceId,
+      { direction: "one-way", criticality: "standard" },
+      { preferenceType: "briefing" }
+    );
+    if (notifyChannel) {
+      await deliver({
+        workspaceId, skillId, channel: notifyChannel.channel,
+        type: "notification", summary: summaryStr,
+        body: result.output.slice(0, 500),
+        details: detailsObj,
+      });
+    }
+  } else if (tagRoute === "escalate") {
+    // Forward to escalation target via their preferred channel
+    const escalationTarget = (contract as any).escalation_rules?.financial
+      ?? (parsed?.escalation_target as string | undefined);
+
+    await logSkillActivity(workspaceId, skillId, contract.skill,
+      `Escalated: ${summaryStr}`, tagRoute, { ...detailsObj, escalation_target: escalationTarget });
+
+    const escalateChannel = await resolveChannel(workspaceId,
+      { direction: "two-way", criticality: "mission-critical" },
+      { targetEmail: escalationTarget, preferenceType: "urgent" }
+    );
+    if (escalateChannel) {
+      await deliver({
+        workspaceId, skillId, channel: escalateChannel.channel,
+        type: "escalation", summary: `Escalation: ${summaryStr}`,
+        body: result.output.slice(0, 1000),
+        details: detailsObj,
+        targetEmail: escalationTarget,
+      });
+    }
+  } else if (tagRoute === "flag") {
+    // Suspend + notify primary contact + operator alert
+    await logSkillActivity(workspaceId, skillId, contract.skill,
+      `Flagged for review: ${summaryStr}`, tagRoute, detailsObj);
+
+    const flagChannel = await resolveChannel(workspaceId,
+      { direction: "two-way", criticality: "mission-critical", capabilities: ["interactive-buttons"] },
+      { preferenceType: "urgent" }
+    );
+    if (flagChannel) {
+      await deliver({
+        workspaceId, skillId, channel: flagChannel.channel,
+        type: "alert", summary: `Review required: ${summaryStr}`,
+        body: result.output.slice(0, 1000),
+        details: detailsObj,
+      });
+    }
+  } else {
+    // auto_execute — just log
+    await logSkillActivity(workspaceId, skillId, contract.skill, summaryStr, tagRoute, detailsObj);
+  }
+
+  logger.info(`Skill ${skillId} complete [${tagRoute}]: ${summaryStr.slice(0, 80)} (${result.durationMs}ms)`);
 
   return {
     success: true, output: result.output, parsed, tokens: result.tokens,
