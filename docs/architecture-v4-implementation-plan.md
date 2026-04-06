@@ -137,40 +137,54 @@ CREATE INDEX idx_heartbeat_ws ON heartbeat_schedules(workspace_id, active);
 
 ## Implementation Sprints
 
-### Sprint 1: Data Foundation + Agent Identity (1 week)
+### Sprint 1: Data Foundation + Agent Identity + Deploy Upgrade (1 week)
 
 **Database:**
 1. Create migration with all new tables (agent_memory, feedback_events, channel_registry, user_channel_preferences, heartbeat_schedules)
-2. Apply to orchestrator + all instances
+2. Apply to orchestrator + all existing instances
 
 **Agent Identity Framework:**
 3. Create identity doc templates in `templates/identity/`:
    - `brand-voice.template.md`
    - `operations.template.md`
    - `agent-handbook.template.md`
-4. Hand-author identity docs for Broken Stick Brewery as first example
-5. Update `buildCagContext()` in skill-executor to load identity docs into ClientContext
+4. Create directory structure on instances: `/opt/nexaas/identity/`, `/opt/nexaas/runbooks/`
+5. Hand-author identity docs for Broken Stick Brewery as first example
+6. Update `buildCagContext()` in skill-executor to load identity docs into ClientContext
 
 **Skill SOPs:**
-6. Create `email-triage.sop.md` — first universal procedure
-7. Create `weather-forecast.sop.md` — test skill procedure
-8. Update skill package structure to include `.sop.md`
-9. Update `executeSkill()` to load SOP + Runbook into prompt
+7. Create `email-triage.sop.md` — first universal procedure
+8. Create `weather-forecast.sop.md` — test skill procedure
+9. Update skill package structure to include `.sop.md`
+10. Update `executeSkill()` to load SOP + Runbook into prompt
 
 **ClientContext Interface:**
-10. Define `ClientContext` TypeScript interface per spec §8.2
-11. Refactor `buildCagContext()` to return typed ClientContext
+11. Define `ClientContext` TypeScript interface per spec §8.2
+12. Refactor `buildCagContext()` to return typed ClientContext
+
+**Deploy Script Update:**
+13. Update `deploy-instance.sh` to include:
+    - Install native Postgres + apply full schema (all migrations)
+    - Build + install client dashboard as systemd service
+    - Create identity doc directories
+    - Create default channel registry entry (dashboard channel)
+    - Set up Caddy + DNS (if subdomain provided)
+    - Install Claude Code + CLAUDE.md + slash commands
+    - Register all active skills in workspace_skills
+14. Update OVH provisioning route to match deploy-instance.sh
+15. Update `maintain-instances.ts` to sync new directories + apply missing migrations
 
 ### Sprint 2: Channel Registry + TAG Wiring (1 week)
 
 **Channel Registry:**
-12. Create `orchestrator/channels/registry.ts` — channel CRUD + resolver
-13. Create `orchestrator/channels/resolver.ts` — requirement-based channel resolution
-14. Create channel adapters: `adapters/email.ts`, `adapters/dashboard.ts`, `adapters/chat.ts`
-15. Add channel resolution to `executeSkill()` — resolve channels at task start
+16. Create `orchestrator/channels/registry.ts` — channel CRUD + resolver
+17. Create `orchestrator/channels/resolver.ts` — requirement-based channel resolution
+18. Create channel adapters: `adapters/email.ts`, `adapters/dashboard.ts`, `adapters/chat.ts`
+19. Add channel resolution to `executeSkill()` — resolve channels at task start
+20. Dashboard channel adapter writes to `pending_approvals` / `activity_log` (existing, enhance)
 
 **TAG Route Wiring:**
-16. Update `determineTagRoute()` to use channel delivery:
+21. Update `determineTagRoute()` to use channel delivery:
     - `auto_execute` → execute + audit log (current behavior, keep)
     - `notify_after` → execute + deliver notification via resolved channel
     - `approval_required` → suspend + deliver via two-way channel (current waitpoint, enhance)
@@ -178,27 +192,51 @@ CREATE INDEX idx_heartbeat_ws ON heartbeat_schedules(workspace_id, active);
     - `flag` → suspend + notify primary contact + operator alert
 
 **Dashboard Integration:**
+22. Add Channel Registry management to ops dashboard (instance manage page)
+23. Add channel preferences to client dashboard Settings page
+24. Update deploy form — add default channel config step
+
+**Dashboard Integration:**
 17. Add Channel Registry management to ops dashboard
 18. Add channel preferences to client dashboard Settings page
 
-### Sprint 3: Feedback System + Foundation Skill (1-2 weeks)
+### Sprint 3: Feedback System + Foundation Skill + Onboarding Flow (1-2 weeks)
 
 **Feedback Events:**
-19. Create `feedback_events` table writer — called after every approval/rejection
-20. Implement delta capture — diff between `original_output` and `edited_output`
-21. Wire `executeSkill()` approval flow to write feedback_events
-22. Add feedback event display to client dashboard Activity page
+25. Create `feedback_events` table writer — called after every approval/rejection
+26. Implement delta capture — diff between `original_output` and `edited_output`
+27. Wire `executeSkill()` approval flow to write feedback_events
+28. Add feedback event display to client dashboard Activity page
 
 **Agent Self-Feedback:**
-23. Define self-feedback gate in SOP format
-24. Implement verify step in skill-executor — agent checks own output
-25. Wire retry loop with Trigger.dev retry policies
+29. Define self-feedback gate in SOP format
+30. Implement verify step in skill-executor — agent checks own output
+31. Wire retry loop with Trigger.dev retry policies
 
 **Foundation Skill:**
-26. Create Foundation Skill package (`skills/foundation/client-onboarding/`)
-27. Implement guided interview flow (Claude-driven conversation)
-28. Output: brand-voice.md, operations.md, agent-handbook.md, contracts, channel registry
-29. Three interfaces: Claude Code command, dashboard wizard, AI chat portal
+32. Create Foundation Skill package (`skills/foundation/client-onboarding/`)
+33. Implement guided interview flow (Claude-driven conversation)
+34. Output: brand-voice.md, operations.md, agent-handbook.md, contracts, channel registry
+35. Three interfaces:
+    - Claude Code `/foundation` command (ops terminal)
+    - Dashboard wizard (ops dashboard, step-by-step)
+    - AI chat portal (client dashboard, self-serve)
+
+**Onboarding Flow Redesign:**
+36. New end-to-end onboarding sequence:
+    ```
+    Deploy (Sprint 1 script)
+      → Foundation Skill runs (generates identity + contracts + channels)
+      → Skills matching integrations auto-activate
+      → HEARTBEAT schedules provisioned for active departments
+      → Client invite sent (magic link)
+      → Client logs in to working system with activity already showing
+    ```
+37. Add "Run Foundation Skill" button to ops dashboard instance detail
+38. Add Foundation Skill AI chat to client dashboard (post-login onboarding wizard)
+39. Foundation Skill populates channel_registry with at least email + dashboard
+40. Foundation Skill calls `provisionClientHeartbeats()` for selected departments
+41. Foundation Skill sets skill statuses: ACTIVE for ready skills, INACTIVE with reasons for others
 
 ### Sprint 4: HEARTBEAT + Memory (1 week)
 
@@ -288,28 +326,37 @@ Per-client instance:
 ## Success Criteria
 
 Sprint 1 complete when:
-- [ ] All new tables created and migrated
+- [ ] All new tables created and migrated (orchestrator + instances)
 - [ ] Identity docs exist for Broken Stick Brewery
 - [ ] `executeSkill()` loads identity docs + SOP into prompt
 - [ ] ClientContext TypeScript interface defined and used
+- [ ] `deploy-instance.sh` deploys complete stack (Postgres, client dashboard, Caddy, Claude Code, schema)
+- [ ] New instance deployed via dashboard has all directories + schema ready
+- [ ] `maintain-instances.ts` syncs new directories + applies missing migrations
 
 Sprint 2 complete when:
 - [ ] Channel Registry has at least email + dashboard for Broken Stick Brewery
-- [ ] `notify_after` sends notification via channel (not just logs)
+- [ ] `notify_after` sends notification via resolved channel (not just logs)
 - [ ] `escalate` delivers to named person's preferred channel
 - [ ] User channel preferences editable in client dashboard
+- [ ] Deploy form includes default channel setup
 
 Sprint 3 complete when:
 - [ ] feedback_events written on every approval/rejection with delta
-- [ ] Foundation Skill generates identity docs from conversation
+- [ ] Foundation Skill generates identity docs + contracts from conversation
 - [ ] At least one agent self-feedback gate working (verify step)
+- [ ] "Run Foundation Skill" button in ops dashboard instance detail
+- [ ] Full onboarding: deploy → Foundation Skill → skills activate → HEARTBEAT → invite sent
+- [ ] Client logs into a system with activity already showing
 
 Sprint 4 complete when:
 - [ ] Sales daily standup HEARTBEAT running on test instance
 - [ ] Agent memory persists between HEARTBEAT runs
 - [ ] Silence condition works (skip if nothing to report)
+- [ ] `provisionClientHeartbeats()` creates schedules from Foundation Skill output
 
 Sprint 5 complete when:
 - [ ] Qdrant running on instance, client docs vectorized
 - [ ] RAG chunks appear in Claude's context
-- [ ] Full E2E: email → classify → approve → send → feedback captured
+- [ ] Full E2E: email → classify → approve → send → feedback captured → memory updated
+- [ ] Deploy a brand new instance from scratch → Foundation Skill → working system in under 30 minutes
