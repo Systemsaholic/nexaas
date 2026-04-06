@@ -20,6 +20,7 @@ import { renderTemplate } from "./template-renderer.js";
 import { logSkillActivity, logSkillTokenUsage } from "./skill-logger.js";
 import { resolveChannel, type ChannelRequirement } from "../../orchestrator/channels/resolver.js";
 import { deliver } from "../../orchestrator/channels/deliver.js";
+import { storeFeedbackEvent } from "../../orchestrator/feedback/events.js";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT || process.cwd();
 
@@ -194,6 +195,10 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
 
     if (!approval.ok) {
       // Timed out
+      await storeFeedbackEvent({
+        workspaceId, skillId, source: "user", feedbackType: "timeout",
+        originalOutput: result.output, downstreamAction: "expired",
+      });
       await logSkillActivity(workspaceId, skillId, contract.skill, "Approval expired — no response", "flag");
       return {
         success: false, output: result.output, parsed, tokens: result.tokens,
@@ -204,7 +209,13 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
     }
 
     if (!approval.output.approved) {
-      // Client rejected
+      // Client rejected — store feedback event with reason
+      await storeFeedbackEvent({
+        workspaceId, skillId, source: "user", feedbackType: "reject",
+        originalOutput: result.output,
+        feedbackValue: approval.output.comment ?? "Rejected without comment",
+        downstreamAction: "discarded",
+      });
       await logSkillActivity(
         workspaceId, skillId, contract.skill,
         `Rejected by client${approval.output.comment ? `: ${approval.output.comment}` : ""}`,
@@ -217,7 +228,17 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
       };
     }
 
-    // Client approved — log and continue
+    // Client approved — store feedback event with delta if edited
+    const editedOutput = (approval.output as any).editedOutput as string | undefined;
+    await storeFeedbackEvent({
+      workspaceId, skillId, source: "user",
+      feedbackType: editedOutput ? "edit" : "approve",
+      originalOutput: result.output,
+      editedOutput: editedOutput ?? undefined,
+      feedbackValue: approval.output.comment ?? undefined,
+      downstreamAction: "executed",
+    });
+
     logger.info(`Skill ${skillId} approved by client`);
     await logSkillActivity(
       workspaceId, skillId, contract.skill,

@@ -1,0 +1,43 @@
+skill: client-onboarding
+version: "1.0.0"
+category: foundation
+type: agentic
+
+description: >
+  The Foundation Skill — first skill for every new client. Runs a guided
+  interview that generates all identity documents, contracts, channel
+  registry entries, and determines which departments to activate.
+
+execution:
+  type: agentic
+  model: claude-sonnet-4-20250514
+  max_tokens: 8000
+  timeout_seconds: 600
+
+mcp_servers: []
+
+requires: {}
+
+client_must_configure:
+  required: []
+  optional: []
+
+platform_locked:
+  always_audit_log: true
+
+produces:
+  - brand_voice_md
+  - operations_md
+  - agent_handbook_md
+  - behavioral_contract
+  - data_contract
+  - channel_registry_entries
+  - active_departments
+
+tag_defaults:
+  auto_execute: [generate_docs]
+
+changelog:
+  - version: "1.0.0"
+    date: "2026-04-06"
+    changes: "Initial Foundation Skill"
