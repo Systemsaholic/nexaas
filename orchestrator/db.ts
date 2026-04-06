@@ -40,6 +40,14 @@ export async function queryOne<T extends Record<string, unknown> = Record<string
   return result.rows[0] ?? null;
 }
 
+export async function queryAll<T extends Record<string, unknown> = Record<string, unknown>>(
+  text: string,
+  params?: unknown[]
+): Promise<T[]> {
+  const result = await query<T>(text, params);
+  return result.rows;
+}
+
 export async function closePool(): Promise<void> {
   if (_pool) {
     await _pool.end();
