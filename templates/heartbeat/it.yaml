@@ -1,0 +1,11 @@
+department: it
+schedules:
+  - key: daily-health
+    cron: "0 7 * * 1-5"
+    description: "System health: uptime, errors, disk/memory, cert expiry"
+    silence_if: "all healthy"
+
+  - key: weekly-security
+    cron: "0 8 * * 1"
+    description: "Security review: failed logins, patch status, backup verification"
+    silence_if: never

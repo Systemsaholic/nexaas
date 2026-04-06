@@ -1,0 +1,6 @@
+department: hr
+schedules:
+  - key: weekly-status
+    cron: "0 9 * * 1"
+    description: "HR weekly: open positions, onboarding status, compliance deadlines"
+    silence_if: "nothing pending"

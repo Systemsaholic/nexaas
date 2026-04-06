@@ -9,6 +9,7 @@
     "deploy": "npx trigger.dev@latest deploy"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
     "@trigger.dev/sdk": "^4.4.2",
     "better-sqlite3": "^11.0.0",
     "handlebars": "^4.7.9",
