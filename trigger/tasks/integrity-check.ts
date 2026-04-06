@@ -68,6 +68,7 @@ export const integrityCheck = task({
         const { host, user, port } = manifest.ssh;
         const target = `${user}@${host}`;
         const sshOpts = `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -p ${port}`;
+        // DB checks use scripts/integrity-db-check.sh (avoids SSH quoting issues)
 
         // 1. Identity docs
         const identityCheck = await runShell({
@@ -81,28 +82,28 @@ export const integrityCheck = task({
           detail: `${identityCount} identity documents found${identityCount < 3 ? " (need brand-voice.md, operations.md, agent-handbook.md)" : ""}`,
         });
 
-        // 2. Skills registered
-        const skillsCheck = await runShell({
-          command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -t -A -c 'SELECT COUNT(*) FROM workspace_skills WHERE workspace_id = \\x27${wsId}\\x27 AND active = true' 2>/dev/null || echo 0"`,
+        // 2-3-6-8. DB checks via script (avoids shell quoting hell)
+        await runShell({
+          command: `scp -o StrictHostKeyChecking=accept-new -P ${port} ${NEXAAS_ROOT}/scripts/integrity-db-check.sh ${target}:/opt/nexaas/scripts/integrity-db-check.sh`,
           timeoutMs: 10000,
         });
-        const activeSkills = parseInt(skillsCheck.stdout.trim(), 10);
+        const dbCheck = await runShell({
+          command: `ssh ${sshOpts} ${target} "bash /opt/nexaas/scripts/integrity-db-check.sh ${wsId}"`,
+          timeoutMs: 15000,
+        });
+        const dbParts = (dbCheck.stdout.trim() || "0|0|0|0").split("|").map((s) => parseInt(s, 10));
+        const [activeSkills, channelCount, tableCount, hasConfig] = dbParts;
+
         checks.push({
           name: "skills-registered",
           status: activeSkills > 0 ? "pass" : "warn",
           detail: `${activeSkills} active skills registered`,
         });
 
-        // 3. Channel registry
-        const channelCheck = await runShell({
-          command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -t -A -c 'SELECT COUNT(*) FROM channel_registry WHERE workspace_id = \\x27${wsId}\\x27 AND active = true' 2>/dev/null || echo 0"`,
-          timeoutMs: 10000,
-        });
-        const channels = parseInt(channelCheck.stdout.trim(), 10);
         checks.push({
           name: "channel-registry",
-          status: channels > 0 ? "pass" : "fail",
-          detail: `${channels} channels registered${channels === 0 ? " (need at least dashboard)" : ""}`,
+          status: channelCount > 0 ? "pass" : "fail",
+          detail: `${channelCount} channels registered${channelCount === 0 ? " (need at least dashboard)" : ""}`,
         });
 
         // 4. Client dashboard
@@ -129,12 +130,7 @@ export const integrityCheck = task({
           detail: workerActive ? "Worker running" : "Worker not running",
         });
 
-        // 6. Database tables
-        const dbCheck = await runShell({
-          command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -t -A -c 'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = \\x27public\\x27' 2>/dev/null || echo 0"`,
-          timeoutMs: 10000,
-        });
-        const tableCount = parseInt(dbCheck.stdout.trim(), 10);
+        // 6. Database tables (from DB script above)
         checks.push({
           name: "database",
           status: tableCount >= 15 ? "pass" : tableCount > 5 ? "warn" : "fail",
@@ -152,15 +148,11 @@ export const integrityCheck = task({
           detail: claudeCheck.stdout.trim() === "exists" ? "CLAUDE.md present" : "CLAUDE.md missing",
         });
 
-        // 8. Config file
-        const configCheck = await runShell({
-          command: `ssh ${sshOpts} ${target} "test -f /opt/nexaas/config/client-profile.yaml && echo exists || echo missing"`,
-          timeoutMs: 10000,
-        });
+        // 8. Config file (from DB script above)
         checks.push({
           name: "client-config",
-          status: configCheck.stdout.trim() === "exists" ? "pass" : "warn",
-          detail: configCheck.stdout.trim() === "exists" ? "Client profile configured" : "No client profile — run Foundation Skill",
+          status: hasConfig ? "pass" : "warn",
+          detail: hasConfig ? "Client profile configured" : "No client profile — run Foundation Skill",
         });
 
         // 9. Docker containers
