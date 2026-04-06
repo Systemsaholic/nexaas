@@ -16,5 +16,8 @@ export { checkApprovalsSchedule } from "../tasks/check-approvals.js";
 export { collectHealthSchedule } from "../tasks/collect-health.js";
 export { maintainInstancesSchedule } from "../tasks/maintain-instances.js";
 
+// Architectural integrity check (daily 6am)
+export { integrityCheckSchedule } from "../tasks/integrity-check.js";
+
 // Cron task schedules (add workspace-specific exports here)
 // export { myTaskSchedule } from "../tasks/cron-tasks.js";
