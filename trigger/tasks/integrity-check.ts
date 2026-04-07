@@ -178,6 +178,20 @@ export const integrityCheck = task({
           detail: mcpCheck.stdout.trim() === "exists" ? ".mcp.json present" : ".mcp.json missing — MCP skills won't load tools",
         });
 
+        // 11. Migration status
+        const migCheck = await runShell({
+          command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -t -A -c \\"SELECT COUNT(*) FROM schema_migrations\\" 2>/dev/null || echo 0"`,
+          timeoutMs: 10000,
+        });
+        const migCount = parseInt(migCheck.stdout.trim(), 10) || 0;
+        const expectedMigrations = readdirSync(join(NEXAAS_ROOT, "database", "migrations"))
+          .filter((f) => f.endsWith(".sql")).length;
+        checks.push({
+          name: "migrations",
+          status: migCount >= expectedMigrations ? "pass" : "warn",
+          detail: `${migCount}/${expectedMigrations} migrations applied`,
+        });
+
         // Calculate score
         const passCount = checks.filter((c) => c.status === "pass").length;
         const warnCount = checks.filter((c) => c.status === "warn").length;

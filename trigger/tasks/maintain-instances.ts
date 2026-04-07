@@ -16,6 +16,7 @@ import { task, schedules, logger } from "@trigger.dev/sdk/v3";
 import { runShell } from "../lib/shell.js";
 import { loadManifest } from "../../orchestrator/bootstrap/manifest-loader.js";
 import { query } from "../../orchestrator/db.js";
+import { propagateMigrations } from "./propagate-migrations.js";
 import { readdirSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
@@ -288,6 +289,26 @@ export const maintainInstances = task({
         if (containerCount < 6) {
           logger.warn(`Only ${containerCount}/6 containers on ${wsId}`);
           checks.containers = `${containerCount}/6 — degraded`;
+        }
+
+        // 8. Check migration status
+        try {
+          const migrationCheck = await runShell({
+            command: `ssh ${sshOpts} ${target} "psql \\$DATABASE_URL -t -A -c \\"SELECT COUNT(*) FROM schema_migrations\\" 2>/dev/null || echo 0"`,
+            timeoutMs: 10000,
+          });
+          const appliedCount = parseInt(migrationCheck.stdout.trim(), 10) || 0;
+          const totalMigrations = readdirSync(join(NEXAAS_ROOT, "database", "migrations"))
+            .filter((f) => f.endsWith(".sql")).length;
+
+          if (appliedCount < totalMigrations) {
+            await propagateMigrations.trigger({ workspaceId: wsId });
+            checks.migrations = `behind (${appliedCount}/${totalMigrations}) — triggered sync`;
+          } else {
+            checks.migrations = `current (${appliedCount}/${totalMigrations})`;
+          }
+        } catch (e) {
+          checks.migrations = `error: ${(e as Error).message}`;
         }
 
         // Record last maintenance
