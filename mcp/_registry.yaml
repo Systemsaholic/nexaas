@@ -79,11 +79,11 @@ servers:
     config: configs/sequential-thinking.yaml
 
   - id: memory
-    name: "Memory"
-    description: "Persistent agent memory across sessions"
+    name: "Nexaas Memory"
+    description: "Event log, knowledge graph, semantic search, agent journal"
     defaultPort: 3109
-    capabilities: [store, retrieve, search]
-    requiredEnv: []
+    capabilities: [store, search, entities, relations, facts, journal, status]
+    requiredEnv: [DATABASE_URL]
     config: configs/memory.yaml
 
   - id: fetch
