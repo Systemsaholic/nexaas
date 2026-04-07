@@ -96,6 +96,14 @@ server.tool(
     trigger_task_id: z.string().optional().describe("Trigger.dev run ID"),
   },
   async ({ agent_id, event_type, content, metadata, parent_event_id, trigger_task_id }) => {
+    // Content size guard
+    if (content.length > 100_000) {
+      return jsonResult({ error: "Content exceeds 100KB limit. Truncate before storing." });
+    }
+    if (content.length > 10_000) {
+      console.error(`Warning: large event content (${content.length} bytes) from ${agent_id}`);
+    }
+
     const hash = contentHash(content);
 
     // Dedup: skip if identical content already stored
@@ -118,22 +126,8 @@ server.tool(
 
     const eventId = row!.id;
 
-    // Embed and upsert to Qdrant (inline for now — Phase 3 moves to async)
-    try {
-      await ensureCollection();
-      const vector = await embed(content);
-      await qdrant.upsert(COLLECTION, {
-        points: [{
-          id: hashToPointId(eventId),
-          vector,
-          payload: { event_id: eventId, event_type, agent_id, created_at: new Date().toISOString() },
-        }],
-      });
-      await sql(`UPDATE nexaas_memory.events SET embedding_id = $1 WHERE id = $2`,
-        [String(hashToPointId(eventId)), eventId]);
-    } catch {
-      // Embedding failure is non-fatal — event is safely in Postgres
-    }
+    // Trigger async embedding via Trigger.dev task (fire-and-forget)
+    triggerEmbedding(eventId);
 
     return jsonResult({ event_id: eventId });
   }
@@ -513,6 +507,23 @@ server.tool(
     });
   }
 );
+
+// ── Trigger.dev Integration ─────────────────────────────────────────────
+
+const TRIGGER_API_URL = process.env.TRIGGER_API_URL ?? "http://localhost:3040";
+const TRIGGER_SECRET_KEY = process.env.TRIGGER_SECRET_KEY;
+
+function triggerEmbedding(eventId: string): void {
+  if (!TRIGGER_SECRET_KEY) return;
+  fetch(`${TRIGGER_API_URL}/api/v1/tasks/embed-event/trigger`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${TRIGGER_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ payload: { eventId } }),
+  }).catch(() => {}); // fire-and-forget
+}
 
 // ── Search Helpers ──────────────────────────────────────────────────────
 

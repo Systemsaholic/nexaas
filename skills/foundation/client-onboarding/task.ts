@@ -198,6 +198,42 @@ Follow this structure:
       }
     }
 
+    // Seed memory knowledge graph
+    try {
+      const { seedMemory } = await import("../../../orchestrator/memory/seed.js");
+      const seedData = {
+        entities: [
+          { name: input.businessName, entity_type: "client", aliases: [workspaceId], metadata: { industry: input.industry } },
+          ...input.keyPeople.map((p) => ({
+            name: p.name, entity_type: "person" as const,
+            aliases: [], metadata: { role: p.role, handles: p.handles },
+          })),
+        ],
+        relations: input.keyPeople.map((p) => ({
+          from: p.name, relation_type: "works_at", to: input.businessName,
+        })),
+        facts: [
+          { entity: input.businessName, key: "industry", value: input.industry },
+          { entity: input.businessName, key: "timezone", value: input.timezone },
+          { entity: input.businessName, key: "brand_tone", value: input.brandTone },
+          ...input.keyPeople.filter((p) => p.email).map((p) => ({
+            entity: p.name, key: "email", value: p.email,
+          })),
+          ...input.keyPeople.map((p) => ({
+            entity: p.name, key: "role", value: p.role,
+          })),
+        ],
+      };
+      const seedResult = await seedMemory(seedData);
+      logger.info(`Memory seeded: ${seedResult.entities} entities, ${seedResult.relations} relations, ${seedResult.facts} facts`);
+
+      // Also write seed.yaml for reference
+      const seedYaml = await import("js-yaml");
+      writeFileSync(join(identityDir, "seed.yaml"), seedYaml.dump(seedData, { lineWidth: 120 }));
+    } catch (e) {
+      logger.warn(`Memory seeding failed (non-fatal): ${(e as Error).message}`);
+    }
+
     logger.info(`Foundation Skill complete for ${workspaceId}: ${input.departments.length} departments, ${input.keyPeople.length} contacts`);
 
     return {
@@ -207,7 +243,8 @@ Follow this structure:
         operations: input.departments.map((d) => `${d}-operations.md`),
         handbook: "agent-handbook.md",
         contract: "client-profile.yaml",
-        channels: ["dashboard", ...input.keyPeople.filter((p) => p.email).map((p) => `email-${p.name.toLowerCase().replace(/\s+/g, "-")}`)],
+        seed: "seed.yaml",
+        channels: ["dashboard", "nexmatic-email", ...input.keyPeople.filter((p) => p.email).map((p) => `email-${p.name.toLowerCase().replace(/\s+/g, "-")}`)],
         departments: input.departments,
       },
     };

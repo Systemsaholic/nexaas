@@ -22,6 +22,7 @@ import { resolveChannel, type ChannelRequirement } from "../../orchestrator/chan
 import { deliver } from "../../orchestrator/channels/deliver.js";
 import { storeFeedbackEvent } from "../../orchestrator/feedback/events.js";
 import { retrieveRelevantDocs } from "../../orchestrator/rag/client.js";
+import { storeEvent, flushJournal } from "../../orchestrator/memory/store.js";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT || process.cwd();
 
@@ -156,6 +157,15 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
 
   if (!result.success) {
     await logSkillActivity(workspaceId, skillId, "error", result.error ?? "Skill execution failed", "flag", { output: result.output });
+    // Store error in memory system
+    try {
+      await storeEvent({
+        agentId: `skill/${skillId}`,
+        eventType: "error",
+        content: `Skill ${skillId} failed: ${result.error ?? "unknown"}\n\nOutput: ${result.output.slice(0, 2000)}`,
+        metadata: { skillId, workspaceId, model: result.model, tokens: result.tokens },
+      });
+    } catch { /* non-fatal */ }
     return { success: false, output: result.output, parsed: null, tokens: result.tokens, model: result.model, durationMs: result.durationMs, error: result.error };
   }
 
@@ -168,6 +178,20 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
 
   // 8. Log token usage (always, regardless of approval)
   await logSkillTokenUsage(workspaceId, skillId, result.model, result.tokens.input, result.tokens.output);
+
+  // 8b. Store skill execution in memory system
+  try {
+    await storeEvent({
+      agentId: `skill/${skillId}`,
+      eventType: "skill_run",
+      content: result.output.slice(0, 10_000),
+      triggerTaskId: undefined,
+      metadata: {
+        skillId, workspaceId, model: result.model, tagRoute,
+        tokens: result.tokens, durationMs: result.durationMs,
+      },
+    });
+  } catch { /* memory store failure is non-fatal */ }
 
   // 9. APPROVAL GATE — if TAG says approval_required, pause and wait for client
   if (tagRoute === "approval_required") {
@@ -263,6 +287,15 @@ export async function executeSkill(payload: SkillPayload): Promise<SkillResult> 
     });
 
     logger.info(`Skill ${skillId} approved by client`);
+    // Store approval in memory
+    try {
+      await storeEvent({
+        agentId: `skill/${skillId}`,
+        eventType: "human_approval",
+        content: `Skill ${skillId} approved${approval.output.comment ? `: ${approval.output.comment}` : ""}`,
+        metadata: { skillId, workspaceId, approved: true, edited: !!editedOutput },
+      });
+    } catch { /* non-fatal */ }
     await logSkillActivity(
       workspaceId, skillId, contract.skill,
       typeof summary === "string" ? summary : String(summary),
