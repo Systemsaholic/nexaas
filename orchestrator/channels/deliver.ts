@@ -48,11 +48,23 @@ export async function deliver(payload: DeliveryPayload): Promise<boolean> {
     case "mcp":
     case "api":
       // Email or chat depending on the server
-      if (channel.implementation.server?.includes("email") || channel.implementation.server?.includes("smtp")) {
+      if (
+        channel.implementation.server?.includes("email") ||
+        channel.implementation.server?.includes("smtp") ||
+        channel.implementation.server?.includes("resend")
+      ) {
+        const emailTo = payload.targetEmail
+          ?? (channel.implementation.config?.to as string | undefined)
+          ?? "";
         success = await deliverViaEmail({
-          to: payload.targetEmail ?? "",
+          to: emailTo,
           subject: payload.summary,
           body: payload.body,
+          type: payload.type,
+          details: payload.details,
+          buttons: payload.buttons,
+          workspaceId: payload.workspaceId,
+          skillId: payload.skillId,
         });
       } else {
         success = await deliverViaChat({

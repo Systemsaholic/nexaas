@@ -157,17 +157,29 @@ Follow this structure:
       [workspaceId, JSON.stringify({ type: "internal", server: "nexmatic-portal" }), ["markdown", "interactive-buttons"]]
     );
 
-    // Email channels per key person
+    // Default Nexmatic email channel (Resend) — fallback for all instances
+    await query(
+      `INSERT INTO channel_registry (workspace_id, channel_id, display_name, direction, criticality, latency, implementation, capabilities, fallback_channel, active)
+       VALUES ($1, 'nexmatic-email', 'Nexmatic Email', 'one-way', 'standard', 'async', $2, $3, 'dashboard', true)
+       ON CONFLICT (workspace_id, channel_id) DO NOTHING`,
+      [
+        workspaceId,
+        JSON.stringify({ type: "api", server: "resend", config: {} }),
+        ["markdown", "file-attachments"],
+      ]
+    );
+
+    // Per-person email channels (Resend with recipient in config)
     for (const person of input.keyPeople) {
       if (person.email) {
         const channelId = `email-${person.name.toLowerCase().replace(/\s+/g, "-")}`;
         await query(
-          `INSERT INTO channel_registry (workspace_id, channel_id, display_name, direction, criticality, latency, implementation, capabilities, active)
-           VALUES ($1, $2, $3, 'two-way', 'standard', 'async', $4, $5, true)
+          `INSERT INTO channel_registry (workspace_id, channel_id, display_name, direction, criticality, latency, implementation, capabilities, fallback_channel, active)
+           VALUES ($1, $2, $3, 'one-way', 'standard', 'async', $4, $5, 'nexmatic-email', true)
            ON CONFLICT (workspace_id, channel_id) DO NOTHING`,
           [
             workspaceId, channelId, `Email — ${person.name}`,
-            JSON.stringify({ type: "mcp", server: "mcp/email", config: { to: person.email } }),
+            JSON.stringify({ type: "api", server: "resend", config: { to: person.email } }),
             ["markdown", "file-attachments"],
           ]
         );
