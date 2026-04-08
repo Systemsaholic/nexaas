@@ -16,7 +16,8 @@ import { InstanceSkills } from "@/components/instance-skills";
 import { InstanceIntegrations } from "@/components/instance-integrations";
 import { InstanceKeys } from "@/components/instance-keys";
 import { InstanceUsage } from "@/components/instance-usage";
-import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug, Key, BarChart3, ExternalLink } from "lucide-react";
+import { MemoryStats } from "@/components/memory-stats";
+import { ArrowLeft, RefreshCw, Settings, RotateCcw, TerminalSquare, Activity, Sparkles, Plug, Key, BarChart3, ExternalLink, Brain } from "lucide-react";
 import type { HealthSnapshot, WorkspaceManifest } from "@/lib/types";
 
 interface InstanceDetail {
@@ -149,6 +150,7 @@ export default function InstanceDetailPage() {
           <TabsTrigger value="integrations"><Plug className="h-4 w-4 mr-1" /> Integrations</TabsTrigger>
           <TabsTrigger value="keys"><Key className="h-4 w-4 mr-1" /> AI Keys</TabsTrigger>
           <TabsTrigger value="usage"><BarChart3 className="h-4 w-4 mr-1" /> Usage</TabsTrigger>
+          <TabsTrigger value="memory"><Brain className="h-4 w-4 mr-1" /> Memory</TabsTrigger>
           <TabsTrigger value="terminal"><TerminalSquare className="h-4 w-4 mr-1" /> Claude Code</TabsTrigger>
         </TabsList>
 
@@ -261,6 +263,10 @@ export default function InstanceDetailPage() {
 
         <TabsContent value="usage" className="mt-4">
           <InstanceUsage instanceId={id} />
+        </TabsContent>
+
+        <TabsContent value="memory" className="mt-4">
+          <MemoryStats instanceId={id} />
         </TabsContent>
 
         <TabsContent value="terminal" className="mt-4">

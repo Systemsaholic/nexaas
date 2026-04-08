@@ -26,6 +26,22 @@ export interface HealthSnapshot {
   snapshot_at: string;
 }
 
+export interface MemorySnapshot {
+  id: number;
+  workspace_id: string;
+  event_count: number;
+  entity_count: number;
+  active_fact_count: number;
+  relation_count: number;
+  active_journal_entries: number;
+  embedding_lag: number;
+  events_24h: number;
+  event_type_breakdown: Record<string, number>;
+  oldest_event: string | null;
+  newest_event: string | null;
+  snapshot_at: string;
+}
+
 export interface Instance {
   id: string;
   name: string;
