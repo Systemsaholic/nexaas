@@ -12,6 +12,38 @@ function exec(cmd: string): string {
   }
 }
 
+async function testAnthropicKey(): Promise<{ valid: boolean; error?: string }> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key || key === "" || key.includes("placeholder")) {
+    return { valid: false, error: "not set" };
+  }
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+
+    if (res.ok) return { valid: true };
+    if (res.status === 401) return { valid: false, error: "invalid key" };
+    if (res.status === 403) return { valid: false, error: "forbidden" };
+    // 429 or other errors mean the key works but we hit a limit
+    if (res.status === 429) return { valid: true };
+    return { valid: false, error: `HTTP ${res.status}` };
+  } catch (err) {
+    return { valid: false, error: "network error" };
+  }
+}
+
 export async function run() {
   const workspace = process.env.NEXAAS_WORKSPACE ?? "unknown";
   const dbUrl = process.env.DATABASE_URL ?? "";
@@ -44,6 +76,18 @@ export async function run() {
   const palaceIcon = parseInt(tableCount, 10) >= 10 ? "✓" : "✗";
   console.log(`  ${palaceIcon} Palace:     ${tableCount} tables`);
 
+  // Anthropic API key
+  const keyResult = await testAnthropicKey();
+  const keyIcon = keyResult.valid ? "✓" : "✗";
+  const keyStatus = keyResult.valid ? "valid" : keyResult.error ?? "failed";
+  console.log(`  ${keyIcon} API key:    ${keyStatus}`);
+
+  // Voyage API key
+  const voyageKey = process.env.VOYAGE_API_KEY;
+  const voyageIcon = voyageKey && voyageKey !== "" ? "✓" : "⚠";
+  const voyageStatus = voyageKey && voyageKey !== "" ? "set" : "not set (hash fallback for RAG)";
+  console.log(`  ${voyageIcon} Voyage key: ${voyageStatus}`);
+
   // WAL chain
   const walCount = exec(`psql "${dbUrl}" -c "SELECT count(*) FROM nexaas_memory.wal WHERE workspace = '${workspace}'" -t -A 2>/dev/null`);
   console.log(`  ✓ WAL:        ${walCount} rows`);
@@ -51,6 +95,15 @@ export async function run() {
   // Active runs
   const activeRuns = exec(`psql "${dbUrl}" -c "SELECT count(*) FROM nexaas_memory.skill_runs WHERE workspace = '${workspace}' AND status IN ('running', 'waiting')" -t -A 2>/dev/null`);
   console.log(`  ✓ Active runs: ${activeRuns}`);
+
+  // Registered workspaces
+  const workspaces = exec(`psql "${dbUrl}" -c "SELECT DISTINCT workspace FROM nexaas_memory.wal WHERE op = 'workspace_genesis' ORDER BY workspace" -t -A 2>/dev/null`);
+  if (workspaces) {
+    console.log(`\n  Workspaces:`);
+    for (const ws of workspaces.split("\n")) {
+      if (ws.trim()) console.log(`    • ${ws.trim()}`);
+    }
+  }
 
   // Health endpoint
   let healthStatus = "unreachable";
@@ -62,7 +115,7 @@ export async function run() {
     }
   } catch { /* ignore */ }
   const healthIcon = healthStatus.startsWith("healthy") ? "✓" : "⚠";
-  console.log(`  ${healthIcon} Health:     ${healthStatus}`);
+  console.log(`\n  ${healthIcon} Health:     ${healthStatus}`);
 
   // Dashboard URL
   console.log(`\n  Dashboard:    http://localhost:${port}/queues`);
