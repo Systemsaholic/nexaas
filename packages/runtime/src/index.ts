@@ -20,3 +20,11 @@ export { assemble as cagAssemble } from "./cag/assemble.js";
 export { retrieve as ragRetrieve } from "./rag/retrieve.js";
 export { subagent } from "./subagent.js";
 export { runTracker } from "./run-tracker.js";
+export {
+  enqueueSkillStep,
+  enqueueDelayedSkillStep,
+  enqueueCronSkillStep,
+  startWorker,
+  startOutboxRelay,
+  type SkillJobData,
+} from "./bullmq/index.js";
