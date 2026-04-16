@@ -4,6 +4,7 @@ export interface RoomPath {
   wing: string;
   hall: string;
   room: string;
+  workspace?: string; // cross-workspace: read from or write to another workspace's rooms
 }
 
 export interface DrawerMeta {
@@ -15,6 +16,8 @@ export interface DrawerMeta {
   dormant_until?: Date;
   reminder_at?: Date;
   normalize_version?: number;
+  target_workspace?: string; // cross-workspace: event written for another workspace
+  source_workspace?: string; // cross-workspace: tracks where a cross-workspace read came from
   [key: string]: unknown;
 }
 

@@ -53,6 +53,8 @@ function createSession(ctx: PalaceContext): PalaceSession {
 
     async writeDrawer(room: RoomPath, content: string, meta?: DrawerMeta): Promise<DrawerId> {
       const hash = contentHash(content);
+      // Cross-workspace write: use target workspace if declared, otherwise own workspace
+      const targetWorkspace = room.workspace ?? meta?.target_workspace as string ?? ctx.workspace;
       const row = await sqlOne<{ id: string }>(
         `INSERT INTO nexaas_memory.events
           (workspace, wing, hall, room, content, content_hash, event_type, agent_id,
@@ -61,27 +63,45 @@ function createSession(ctx: PalaceContext): PalaceSession {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
          RETURNING id`,
         [
-          ctx.workspace, room.wing, room.hall, room.room,
+          targetWorkspace, room.wing, room.hall, room.room,
           content, hash, "drawer", ctx.skillId ?? "system",
           ctx.skillId, ctx.runId, ctx.stepId, ctx.subAgentId,
-          JSON.stringify(meta ?? {}),
+          JSON.stringify({ ...meta, source_workspace: ctx.workspace }),
           meta?.dormant_signal ?? null,
           meta?.dormant_until ?? null,
           meta?.reminder_at ?? null,
           meta?.normalize_version ?? 1,
         ],
       );
+
+      // WAL audit for cross-workspace writes
+      if (targetWorkspace !== ctx.workspace) {
+        await appendWal({
+          workspace: ctx.workspace,
+          op: "cross_workspace_write",
+          actor: ctx.skillId ?? "system",
+          payload: {
+            target_workspace: targetWorkspace,
+            wing: room.wing, hall: room.hall, room: room.room,
+            drawer_id: row!.id,
+            run_id: ctx.runId,
+          },
+        });
+      }
+
       return row!.id;
     },
 
     async walkRoom(room: RoomPath, opts?: WalkOpts): Promise<Drawer[]> {
+      // Cross-workspace read: use declared workspace if present, otherwise own
+      const targetWorkspace = room.workspace ?? ctx.workspace;
       const conditions = [
         "workspace = $1",
         "wing = $2",
         "hall = $3",
         "room = $4",
       ];
-      const params: unknown[] = [ctx.workspace, room.wing, room.hall, room.room];
+      const params: unknown[] = [targetWorkspace, room.wing, room.hall, room.room];
       let paramIdx = 5;
 
       if (opts?.since) {

@@ -21,16 +21,20 @@ switch (command) {
   case "verify-wal":
     import("./verify-wal.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "onboard":
+    import("./onboard.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
 
 Commands:
-  init --workspace <id>     Set up Nexaas on this VPS
-  status                    Check runtime health
-  verify-wal [--full]       Verify WAL chain integrity
+  init --workspace <id>              Set up Nexaas on this VPS
+  onboard --workspace <path> --id <id>  Discover and register a workspace
+  status                             Check runtime health
+  verify-wal [--full]                Verify WAL chain integrity
 
 Usage:
-  node packages/cli/src/index.js <command> [options]
+  nexaas <command> [options]
 `);
 }
