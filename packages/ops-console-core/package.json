@@ -1,0 +1,14 @@
+{
+  "name": "@nexaas/ops-console-core",
+  "version": "0.1.0",
+  "description": "Operator console core — palace browser, WAL viewer, effective policy inspector, fleet primitives",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@nexaas/palace": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

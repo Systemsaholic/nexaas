@@ -1,0 +1,16 @@
+{
+  "name": "@nexaas/factory",
+  "version": "0.1.0",
+  "description": "Factory authoring primitives — interview machinery, library RAG, archetype loader, contribution pipeline",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@nexaas/palace": "^0.1.0",
+    "@nexaas/runtime": "^0.1.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

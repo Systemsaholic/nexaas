@@ -1,0 +1,19 @@
+{
+  "name": "@nexaas/cli",
+  "version": "0.1.0",
+  "description": "Nexaas CLI tools — verify-wal, validate-skill, install-agent, rebuild-skill-runs, dry-run",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "nexaas": "src/index.ts"
+  },
+  "dependencies": {
+    "@nexaas/palace": "^0.1.0",
+    "@nexaas/runtime": "^0.1.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

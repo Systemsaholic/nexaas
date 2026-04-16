@@ -1,0 +1,19 @@
+{
+  "name": "@nexaas/runtime",
+  "version": "0.1.0",
+  "description": "Pillar pipeline runtime — CAG, RAG, TAG, model gateway, BullMQ execution, sub-agents",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.82.0",
+    "@nexaas/palace": "^0.1.0",
+    "bullmq": "^5.0.0",
+    "ioredis": "^5.0.0",
+    "openai": "^4.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

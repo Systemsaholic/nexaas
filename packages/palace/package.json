@@ -1,0 +1,16 @@
+{
+  "name": "@nexaas/palace",
+  "version": "0.1.0",
+  "description": "Palace substrate — data model, palace API, WAL, signing, verification, pgvector retrieval",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "pg": "^8.20.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

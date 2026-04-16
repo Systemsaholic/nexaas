@@ -1,9 +1,0 @@
-questions:
-  - id: hard_limits
-    required: true
-    question: Are there things you'd never want the AI to do or say?
-    type: freetext
-    examples:
-      - Never commit to pricing
-      - Never share confidential info
-    maps_to: hard_limits
