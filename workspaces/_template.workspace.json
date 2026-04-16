@@ -10,7 +10,8 @@
   "skills": [],
   "agents": [],
   "mcp": {
-    "filesystem": "http://localhost:3100"
+    "filesystem": "http://localhost:3100",
+    "memory": "http://localhost:3109"
   },
   "capabilities": {
     "playwright": false,

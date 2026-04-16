@@ -1,0 +1,130 @@
+NEXAAS PROPRIETARY LICENSE
+
+Copyright (c) 2026 Al [Last Name], operating as Systemsaholic.
+All rights reserved.
+
+LAWYER REVIEW REQUIRED
+
+This license has been drafted as a working document to capture the intent of
+the Nexaas intellectual property arrangement. It MUST be reviewed and approved
+by a qualified attorney before Nexmatic, Phoenix Voyages, Systemsaholic, or
+any other licensed entity begins commercial operation on the software it
+covers. The terms below reflect the current design intent, but may be
+incomplete, imprecise, or unenforceable as drafted. Do not rely on this
+document as legal protection without review.
+
+1. DEFINITIONS
+
+"Software" means the Nexaas framework, including but not limited to all source
+code, documentation, tests, and build artifacts contained in the repository at
+which this LICENSE file resides, together with all derivative works produced
+by the Licensor.
+
+"Licensor" means Al [Last Name], the individual holder of all intellectual
+property rights in the Software, operating personally or through the business
+entity Systemsaholic.
+
+"Licensee" means any individual or entity explicitly granted a license to use
+the Software under the terms of this agreement. No party is a Licensee except
+those listed in Section 3 or added by subsequent written amendment from the
+Licensor.
+
+2. OWNERSHIP
+
+The Licensor retains all right, title, and interest in and to the Software,
+including all intellectual property rights. This license does not transfer
+ownership of the Software or any portion thereof to any Licensee under any
+circumstances. The Software is proprietary and is not released under any
+open-source license.
+
+3. PERPETUAL LICENSES GRANTED
+
+The Licensor hereby grants the following named entities a perpetual,
+irrevocable, worldwide, royalty-free, non-exclusive, non-transferable license
+to use, modify, deploy, and create derivative works from the Software,
+subject to the conditions in Sections 4 and 5:
+
+   (a) Nexmatic — for the purpose of operating Nexmatic's commercial AI
+       business automation platform, including deployment to Nexmatic client
+       infrastructure and use by Nexmatic employees, contractors, and
+       authorized operators.
+
+   (b) Phoenix Voyages — for the purpose of operating Phoenix Voyages' own
+       automation needs and derivative business activities.
+
+   (c) Systemsaholic — for the purpose of operating Systemsaholic's own
+       business activities and consulting engagements, and for the Licensor's
+       personal use in any capacity.
+
+These grants are perpetual and irrevocable once made, subject only to the
+restrictions in Section 5.
+
+4. RIGHTS RESERVED BY LICENSOR
+
+The Licensor retains, without limitation, the right to:
+
+   (a) Use the Software in any capacity for any purpose, personally or
+       through any business entity owned or controlled by the Licensor,
+       existing or future.
+
+   (b) Grant additional perpetual licenses to other named entities at the
+       Licensor's sole discretion, without consultation with existing
+       Licensees.
+
+   (c) Modify, extend, replace, or discontinue the Software, provided such
+       actions do not retroactively terminate the perpetual grants in
+       Section 3.
+
+   (d) Relicense the Software under different terms for future versions,
+       provided existing Licensees retain their granted rights under the
+       version of the Software existing at the time of the new license.
+
+   (e) Open-source the Software under a different license in the future,
+       provided doing so does not reduce the rights of existing Licensees.
+
+5. RESTRICTIONS
+
+Licensees under this agreement MAY NOT:
+
+   (a) Sublicense, assign, or transfer their rights under this license to any
+       third party, including through corporate acquisition or merger, except
+       with written consent of the Licensor.
+
+   (b) Distribute the Software or derivative works to any party that is not
+       itself a Licensee, except as necessary for the internal operation of
+       the Licensee's own business.
+
+   (c) Remove, obscure, or modify copyright notices or this license file
+       within the Software.
+
+   (d) Use the Software in any manner that is illegal or that causes
+       reputational harm to the Licensor.
+
+6. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+7. UNLICENSED USE
+
+Any party not listed in Section 3 or subsequently granted a license in
+writing by the Licensor has NO rights to the Software. Unauthorized use,
+copying, modification, or distribution of the Software is expressly
+prohibited and constitutes infringement.
+
+8. GOVERNING LAW
+
+This license is governed by the laws of the jurisdiction in which the
+Licensor resides, without regard to conflict-of-law principles.
+
+9. AMENDMENTS
+
+This license may only be amended by written instrument signed by the
+Licensor. Licensees are not required to consent to amendments that do not
+reduce their granted rights.
+
+END OF LICENSE
