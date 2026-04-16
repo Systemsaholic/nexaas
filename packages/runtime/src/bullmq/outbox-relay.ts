@@ -8,7 +8,7 @@
  * If the relay crashes, unprocessed rows remain and retry on next startup.
  */
 
-import { sql } from "@nexaas/palace/db";
+import { sql } from "@nexaas/palace";
 import { enqueueSkillStep, enqueueDelayedSkillStep, type SkillJobData } from "./queues.js";
 
 interface OutboxRow {

@@ -1,18 +1,30 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "esModuleInterop": true,
-    "strict": true,
-    "skipLibCheck": true,
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2022"],
     "outDir": "dist",
     "rootDir": ".",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
     "declaration": true,
+    "sourceMap": true,
     "paths": {
-      "@nexaas/*": ["./*"]
+      "@nexaas/palace": ["./packages/palace/src/index.ts"],
+      "@nexaas/palace/*": ["./packages/palace/src/*"],
+      "@nexaas/runtime": ["./packages/runtime/src/index.ts"],
+      "@nexaas/runtime/*": ["./packages/runtime/src/*"]
     }
   },
-  "include": ["trigger/**/*.ts", "orchestrator/**/*.ts"],
-  "exclude": ["node_modules", "dist", "dashboard", "engine"]
+  "include": [
+    "packages/*/src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

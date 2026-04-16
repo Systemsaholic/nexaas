@@ -15,7 +15,7 @@ import {
 } from "./registry.js";
 import * as anthropicProvider from "./providers/anthropic.js";
 import * as openaiProvider from "./providers/openai.js";
-import { appendWal } from "@nexaas/palace/wal";
+import { appendWal } from "@nexaas/palace";
 
 export type ModelTier = "cheap" | "good" | "better" | "best";
 

@@ -10,7 +10,7 @@ import { Worker, type Job } from "bullmq";
 import { getRedisConnectionOpts } from "./connection.js";
 import { runSkillStep } from "../pipeline.js";
 import { runTracker } from "../run-tracker.js";
-import { appendWal } from "@nexaas/palace/wal";
+import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
 
 let _worker: Worker | null = null;
@@ -18,7 +18,7 @@ let _worker: Worker | null = null;
 export function startWorker(workspaceId: string, concurrency: number = 5): Worker {
   if (_worker) return _worker;
 
-  const queueName = `nexaas:skills:${workspaceId}`;
+  const queueName = `nexaas-skills-${workspaceId}`;
 
   _worker = new Worker(
     queueName,

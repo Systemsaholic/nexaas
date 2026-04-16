@@ -15,7 +15,7 @@ import express from "express";
 import { startWorker } from "./bullmq/worker.js";
 import { startOutboxRelay } from "./bullmq/outbox-relay.js";
 import { createDashboard } from "./bullmq/dashboard.js";
-import { createPool } from "@nexaas/palace/db";
+import { createPool } from "@nexaas/palace";
 
 const WORKSPACE = process.env.NEXAAS_WORKSPACE;
 const CONCURRENCY = parseInt(process.env.NEXAAS_WORKER_CONCURRENCY ?? "5", 10);

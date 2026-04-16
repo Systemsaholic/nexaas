@@ -6,7 +6,7 @@
  * Runs after CAG so retrieval is context-informed.
  */
 
-import { searchSimilar } from "@nexaas/palace/embeddings";
+import { searchSimilar } from "@nexaas/palace";
 import type { PalaceSession } from "@nexaas/palace";
 import type { AssembledContext } from "../cag/assemble.js";
 import type { RetrievalChunk } from "../models/gateway.js";

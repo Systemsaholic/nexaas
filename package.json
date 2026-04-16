@@ -19,5 +19,8 @@
     "url": "git+ssh://git@github.com/Systemsaholic/nexaas.git"
   },
   "author": "Systemsaholic",
-  "license": "SEE LICENSE IN LICENSE"
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  }
 }

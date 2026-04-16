@@ -6,7 +6,7 @@
  * Skill authors never touch skill_runs directly.
  */
 
-import { sql } from "@nexaas/palace/db";
+import { sql } from "@nexaas/palace";
 
 export type RunStatus =
   | "running"

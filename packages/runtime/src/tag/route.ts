@@ -8,7 +8,7 @@
  * Every override (accepted or denied) is logged to the WAL.
  */
 
-import { appendWal } from "@nexaas/palace/wal";
+import { appendWal } from "@nexaas/palace";
 import type { ExecuteResult, ModelAction } from "../models/gateway.js";
 
 export type RoutingDecision =
@@ -18,19 +18,21 @@ export type RoutingDecision =
   | "flag"
   | "defer";
 
+export interface ManifestNotifyConfig {
+  channel_role: string;
+  timeout?: string;
+  on_timeout?: string;
+  reminder_before?: string;
+  reminder_channel?: string;
+  keywords?: Record<string, string[]>;
+}
+
 export interface ManifestOutput {
   id: string;
   routing_default: RoutingDecision;
   overridable?: boolean;
   overridable_to?: RoutingDecision[];
-  notify?: {
-    channel_role: string;
-    timeout?: string;
-    on_timeout?: string;
-    reminder_before?: string;
-    reminder_channel?: string;
-    keywords?: Record<string, string[]>;
-  };
+  notify?: ManifestNotifyConfig;
 }
 
 export interface ContractOverride {
@@ -56,7 +58,7 @@ export interface RoutedAction {
   action: ModelAction;
   routing: RoutingDecision;
   source: string;
-  notify?: ManifestOutput["notify"];
+  notify?: ManifestNotifyConfig;
   authorized_by?: string;
   authorized_at?: string;
   reason?: string;

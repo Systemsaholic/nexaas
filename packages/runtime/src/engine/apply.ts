@@ -10,8 +10,8 @@
  */
 
 import type { PalaceSession } from "@nexaas/palace";
-import { appendWal } from "@nexaas/palace/wal";
-import { sql } from "@nexaas/palace/db";
+import { appendWal } from "@nexaas/palace";
+import { sql } from "@nexaas/palace";
 import type { RoutedAction } from "../tag/route.js";
 import { runTracker } from "../run-tracker.js";
 
@@ -71,7 +71,6 @@ export async function apply(
           notify: action.notify,
         },
         timeout,
-        notify: action.notify,
       });
 
       await runTracker.markWaiting(runId);

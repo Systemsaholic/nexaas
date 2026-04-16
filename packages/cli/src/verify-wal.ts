@@ -7,8 +7,8 @@
  *   nexaas verify-wal --from-id 100    From a specific WAL row ID
  */
 
-import { verifyWalChain } from "@nexaas/palace/wal";
-import { createPool } from "@nexaas/palace/db";
+import { verifyWalChain } from "@nexaas/palace";
+import { createPool } from "@nexaas/palace";
 
 export async function run(args: string[]) {
   const workspace = process.env.NEXAAS_WORKSPACE;

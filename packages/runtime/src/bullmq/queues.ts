@@ -11,7 +11,7 @@ import { getRedisConnectionOpts } from "./connection.js";
 const _queues = new Map<string, Queue>();
 
 export function getSkillQueue(workspaceId: string): Queue {
-  const queueName = `nexaas:skills:${workspaceId}`;
+  const queueName = `nexaas-skills-${workspaceId}`;
 
   if (!_queues.has(queueName)) {
     const opts: QueueOptions = {

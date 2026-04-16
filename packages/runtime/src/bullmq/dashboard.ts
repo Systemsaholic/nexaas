@@ -1,18 +1,10 @@
 /**
  * Bull Board — embedded queue dashboard for Nexaas runtime visibility.
- *
- * Framework-level feature: every Nexaas install gets a queue dashboard
- * at /queues on the health port. No Nexmatic required.
- *
- * Provides:
- * - Active, completed, failed, delayed, waiting job lists
- * - Job details, payloads, error messages
- * - Manual retry, remove, promote operations
- * - Real-time queue metrics
+ * Framework-level feature: every Nexaas install gets /queues out of the box.
  */
 
 import { createBullBoard } from "@bull-board/api";
-import { BullMQAdapter } from "@bull-board/api/bullMQAdapter.js";
+import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
 import { getSkillQueue } from "./queues.js";
 

@@ -1,22 +1,22 @@
 /**
  * Shared Redis connection for BullMQ.
- * Both workers and queues use the same connection config.
+ * Uses the IORedis pattern recommended by BullMQ docs.
  */
 
-import IORedis from "ioredis";
+import { Redis } from "ioredis";
 
-let _connection: IORedis | null = null;
+let _connection: Redis | null = null;
 
-export function getRedisConnection(): IORedis {
+export function getRedisConnection(): Redis {
   if (!_connection) {
-    _connection = new IORedis(process.env.REDIS_URL ?? "redis://localhost:6379", {
-      maxRetriesPerRequest: null, // Required by BullMQ
+    _connection = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
+      maxRetriesPerRequest: null,
       enableReadyCheck: false,
     });
   }
   return _connection;
 }
 
-export function getRedisConnectionOpts(): { connection: IORedis } {
+export function getRedisConnectionOpts() {
   return { connection: getRedisConnection() };
 }

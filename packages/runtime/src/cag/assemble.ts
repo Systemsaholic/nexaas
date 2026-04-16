@@ -9,7 +9,7 @@
  */
 
 import type { PalaceSession, Drawer } from "@nexaas/palace";
-import { sql } from "@nexaas/palace/db";
+import { sql } from "@nexaas/palace";
 import type { ModelTier, Message, Tool } from "../models/gateway.js";
 
 export interface SkillManifestFull {
