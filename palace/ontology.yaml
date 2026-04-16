@@ -1,0 +1,102 @@
+# Nexaas Palace Ontology
+# Canonical registry of wings, halls, and room patterns.
+# Adding a new top-level wing requires a PR against this file.
+# Halls and rooms can be added by skill manifests against registered patterns.
+
+version: "1.0"
+
+wings:
+  inbox:
+    purpose: Incoming messages and events awaiting processing
+    halls:
+      - email
+      - messaging
+      - webhook
+      - file
+
+  events:
+    purpose: Domain events for triggering and audit
+    halls:
+      - bank
+      - accounting
+      - marketing
+      - operations
+      - onboarding
+      - system
+      - skill
+
+  knowledge:
+    purpose: Static or slow-changing reference material
+    halls:
+      - brand
+      - compliance
+      - accounting
+      - marketing
+      - suppliers
+      - customers
+      - policies
+      - landing-pages
+
+  accounting:
+    purpose: Accounting agent business data
+    halls:
+      - transactions
+      - reconciliation
+      - invoices
+      - work-orders
+      - receipts
+      - reports
+
+  marketing:
+    purpose: Marketing agent business data
+    halls:
+      - campaigns
+      - creative
+      - social
+      - analytics
+      - email-broadcasts
+
+  operations:
+    purpose: Operations agent business data
+    halls:
+      - tasks
+      - incidents
+      - maintenance
+      - fleet
+
+  onboarding:
+    purpose: Client/employee onboarding workflows
+    halls:
+      - intake
+      - documents
+      - provisioning
+      - verification
+
+  notifications:
+    purpose: Pending outbound notifications
+    halls:
+      - pending
+      - delivered
+      - failed
+
+  ops:
+    purpose: Ops-visible state (framework-level observability)
+    halls:
+      - escalations
+      - errors
+      - audits
+      - health
+      - telemetry
+      - integrations
+      - domains
+      - backups
+      - models
+      - operators
+      - acknowledgments
+      - incidents
+      - contract_edits
+      - activity
+
+  personas:
+    purpose: Reserved for v1.2 persistent persona memory
+    halls: []

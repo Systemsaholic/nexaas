@@ -1,0 +1,157 @@
+# Nexaas Capability Registry
+# Every capability is an abstract interface for a class of integration.
+# Skills declare capabilities they need; workspace manifests bind them to concrete MCPs.
+#
+# Stages:
+#   experimental — first implementation, provisional interface, version 0.x
+#   converging   — 2+ implementations, interface generalizing, version 1.0-beta
+#   stable       — 3+ implementations, locked interface, conformance tests required
+
+version: "1.0"
+
+capabilities:
+  bank-source:
+    stage: experimental
+    interface_version: "0.1"
+    description: List and fetch bank transactions, balances
+    implementations: []
+    tools:
+      - name: list_transactions
+        input: { account_id: string, from_date: string, to_date: string }
+        output: { transactions: [{ id: string, date: string, amount: number, description: string, normalized_counterparty: string }] }
+      - name: get_balance
+        input: { account_id: string }
+        output: { balance: number, currency: string, as_of: string }
+
+  accounting-system:
+    stage: experimental
+    interface_version: "0.1"
+    description: Read/write accounting entries, find matches, attach documents
+    implementations: []
+    tools:
+      - name: find_matching_entry
+        input: { amount: number, date: string, counterparty_hint: string? }
+        output: { matches: [{ entry_id: string, confidence: number, account_path: string }] }
+      - name: create_entry
+        input: { date: string, amount: number, account_path: string, memo: string?, attachments: string[]? }
+        output: { entry_id: string }
+      - name: attach_document
+        input: { entry_id: string, document_id: string }
+        output: { success: boolean }
+
+  document-store:
+    stage: experimental
+    interface_version: "0.1"
+    description: Upload, retrieve, and search documents by metadata
+    implementations: []
+    tools:
+      - name: upload
+        input: { content_base64: string, filename: string, metadata: object? }
+        output: { document_id: string }
+      - name: search_documents
+        input: { date_range: { from: string, to: string }?, amount_range: { min: number, max: number }?, text_query: string? }
+        output: { documents: [{ id: string, filename: string, metadata: object }] }
+      - name: get_content
+        input: { document_id: string }
+        output: { content_base64: string, filename: string, metadata: object }
+
+  email-inbox:
+    stage: experimental
+    interface_version: "0.1"
+    description: Poll an inbox, read threads, send replies, mark read
+    implementations: []
+    tools:
+      - name: list_unread
+        input: { folder: string?, limit: number? }
+        output: { messages: [{ id: string, from: string, subject: string, date: string, snippet: string }] }
+      - name: read_thread
+        input: { thread_id: string }
+        output: { messages: [{ id: string, from: string, to: string, subject: string, body: string, date: string, attachments: [{ filename: string, content_type: string }] }] }
+      - name: reply_to
+        input: { thread_id: string, body: string, html: boolean? }
+        output: { message_id: string }
+      - name: mark_read
+        input: { message_ids: string[] }
+        output: { success: boolean }
+
+  email-outbound:
+    stage: experimental
+    interface_version: "0.1"
+    description: Send transactional email
+    implementations: []
+    tools:
+      - name: send
+        input: { to: string, from: string, subject: string, html: string?, text: string?, attachments: [{ filename: string, content_base64: string }]? }
+        output: { message_id: string, status: string }
+
+  messaging-inbound:
+    stage: experimental
+    interface_version: "0.1"
+    description: Receive messages from users (Telegram, WhatsApp, SMS, Slack)
+    implementations: []
+    tools:
+      - name: list_unread
+        input: { channel_id: string?, limit: number? }
+        output: { messages: [{ id: string, from: string, content: string, timestamp: string, attachments: [{ type: string, url: string }]? }] }
+      - name: read_message
+        input: { message_id: string }
+        output: { id: string, from: string, content: string, timestamp: string, thread_id: string?, attachments: [{ type: string, url: string, filename: string? }]? }
+      - name: mark_read
+        input: { message_ids: string[] }
+        output: { success: boolean }
+
+  messaging-outbound:
+    stage: experimental
+    interface_version: "0.1"
+    description: Send messages to users on the same channel they came from
+    implementations: []
+    tools:
+      - name: send
+        input: { to: string, content: string, inline_buttons: [{ text: string, callback_data: string }]?, reply_to: string? }
+        output: { message_id: string, status: string }
+
+  crm:
+    stage: experimental
+    interface_version: "0.1"
+    description: Contacts, deals, activities
+    implementations: []
+    tools:
+      - name: find_contact
+        input: { query: string, limit: number? }
+        output: { contacts: [{ id: string, name: string, email: string?, phone: string?, company: string? }] }
+      - name: upsert_contact
+        input: { id: string?, name: string, email: string?, phone: string?, company: string?, metadata: object? }
+        output: { id: string }
+      - name: log_activity
+        input: { contact_id: string, type: string, summary: string, details: object? }
+        output: { activity_id: string }
+
+  calendar:
+    stage: experimental
+    interface_version: "0.1"
+    description: Events, availability, booking
+    implementations: []
+    tools:
+      - name: list_events
+        input: { from: string, to: string, calendar_id: string? }
+        output: { events: [{ id: string, title: string, start: string, end: string, attendees: string[]? }] }
+      - name: create_event
+        input: { title: string, start: string, end: string, attendees: string[]?, description: string?, calendar_id: string? }
+        output: { event_id: string }
+      - name: check_availability
+        input: { attendees: string[], from: string, to: string, duration_minutes: number }
+        output: { slots: [{ start: string, end: string }] }
+
+  vector-retrieval:
+    stage: experimental
+    interface_version: "0.1"
+    description: Semantic search over a corpus (pgvector native in Nexaas)
+    implementations:
+      - pgvector-native (v0.1)
+    tools:
+      - name: search
+        input: { query: string, namespace: string?, limit: number?, min_relevance: number? }
+        output: { results: [{ id: string, content: string, relevance: number, metadata: object }] }
+      - name: upsert
+        input: { id: string, content: string, namespace: string?, metadata: object? }
+        output: { id: string }

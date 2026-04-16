@@ -1,0 +1,117 @@
+# Nexaas Model Registry
+# Maps model tiers to concrete providers and models.
+# Skills declare tiers (cheap/good/better/best); the gateway resolves to concrete models.
+# Consuming businesses can override tier mappings in their configuration.
+
+version: "2.0"
+
+providers:
+  anthropic:
+    kind: remote-api
+    auth_env: ANTHROPIC_API_KEY
+    client: "@anthropic-ai/sdk"
+    status: primary
+
+  openai:
+    kind: remote-api
+    auth_env: OPENAI_API_KEY
+    client: "openai"
+    status: fallback
+
+  openrouter:
+    kind: remote-api
+    auth_env: OPENROUTER_API_KEY
+    client: "@openrouter/sdk"
+    status: fallback
+
+  self-hosted-local:
+    kind: openai-compatible
+    base_url_env: NEXAAS_LLM_BASE_URL
+    auth_env: NEXAAS_LLM_TOKEN
+    status: experimental
+
+tiers:
+  cheap:
+    description: Narrow, deterministic, high-volume — validation, extraction, classification
+    default_for_undeclared: false
+    primary:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      context_window: 200000
+      input_cost_per_m: 1.00
+      output_cost_per_m: 5.00
+    fallbacks:
+      - provider: openai
+        model: gpt-4o-mini
+        context_window: 128000
+        input_cost_per_m: 0.15
+        output_cost_per_m: 0.60
+      - provider: openrouter
+        model: google/gemini-2.0-flash
+        context_window: 1000000
+        input_cost_per_m: 0.10
+        output_cost_per_m: 0.40
+
+  good:
+    description: Routine reasoning, drafting, simple multi-step logic — the default tier
+    default_for_undeclared: true
+    primary:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      context_window: 200000
+      input_cost_per_m: 3.00
+      output_cost_per_m: 15.00
+    fallbacks:
+      - provider: openai
+        model: gpt-4o
+        context_window: 128000
+        input_cost_per_m: 2.50
+        output_cost_per_m: 10.00
+
+  better:
+    description: Complex reasoning, multi-context integration, branching decisions
+    default_for_undeclared: false
+    primary:
+      provider: anthropic
+      model: claude-sonnet-4-6
+      context_window: 200000
+      extended_thinking: true
+      input_cost_per_m: 3.00
+      output_cost_per_m: 15.00
+    fallbacks:
+      - provider: anthropic
+        model: claude-opus-4-6
+        context_window: 200000
+        input_cost_per_m: 15.00
+        output_cost_per_m: 75.00
+      - provider: openai
+        model: gpt-4o
+        context_window: 128000
+
+  best:
+    description: Highest-stakes or most creative work — brand voice, nuanced judgment
+    default_for_undeclared: false
+    primary:
+      provider: anthropic
+      model: claude-opus-4-6
+      context_window: 200000
+      input_cost_per_m: 15.00
+      output_cost_per_m: 75.00
+    fallbacks:
+      - provider: anthropic
+        model: claude-opus-4-6
+        context_window: 1000000
+        input_cost_per_m: 20.00
+        output_cost_per_m: 100.00
+      - provider: openai
+        model: gpt-4o
+        context_window: 128000
+
+# Embedding model for RAG (pgvector)
+embedding:
+  primary:
+    provider: voyage
+    model: voyage-3
+    dimensions: 1024
+    auth_env: VOYAGE_API_KEY
+    cost_per_m: 0.06
