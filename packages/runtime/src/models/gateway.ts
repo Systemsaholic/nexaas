@@ -6,6 +6,15 @@
  * applies workspace policies, and handles fallback chains on failure.
  */
 
+import {
+  loadRegistry,
+  resolveTier,
+  getProviderConfig,
+  estimateCost,
+  type ModelEntry,
+} from "./registry.js";
+import * as anthropicProvider from "./providers/anthropic.js";
+import * as openaiProvider from "./providers/openai.js";
 import { appendWal } from "@nexaas/palace/wal";
 
 export type ModelTier = "cheap" | "good" | "better" | "best";
@@ -52,22 +61,202 @@ export interface ModelAction {
   payload: Record<string, unknown>;
 }
 
+const RETRY_DELAYS = [100, 400, 1000];
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function invokeModel(
+  entry: ModelEntry,
+  messages: Message[],
+  system?: string,
+  tools?: Tool[],
+): Promise<{
+  content: string;
+  actions: ModelAction[];
+  inputTokens: number;
+  outputTokens: number;
+}> {
+  const registry = loadRegistry();
+  const providerConfig = getProviderConfig(entry.provider, registry);
+
+  if (entry.provider === "anthropic") {
+    const result = await anthropicProvider.invoke(entry, messages, system, tools);
+    return {
+      content: result.content,
+      actions: result.actions,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+    };
+  }
+
+  // OpenAI and openai-compatible providers
+  const baseURL =
+    providerConfig.kind === "openai-compatible" && providerConfig.base_url_env
+      ? process.env[providerConfig.base_url_env]
+      : undefined;
+
+  const apiKey = process.env[providerConfig.auth_env];
+
+  const result = await openaiProvider.invoke(
+    entry,
+    messages,
+    system,
+    tools,
+    baseURL,
+    apiKey,
+  );
+
+  return {
+    content: result.content,
+    actions: result.actions,
+    inputTokens: result.inputTokens,
+    outputTokens: result.outputTokens,
+  };
+}
+
+function isRetryable(provider: string, error: unknown): boolean {
+  if (provider === "anthropic") return anthropicProvider.isRetryable(error);
+  return openaiProvider.isRetryable(error);
+}
+
+async function tryWithRetries(
+  entry: ModelEntry,
+  messages: Message[],
+  system?: string,
+  tools?: Tool[],
+): Promise<{
+  content: string;
+  actions: ModelAction[];
+  inputTokens: number;
+  outputTokens: number;
+} | null> {
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    try {
+      return await invokeModel(entry, messages, system, tools);
+    } catch (err) {
+      if (!isRetryable(entry.provider, err)) return null;
+      if (attempt < RETRY_DELAYS.length) {
+        await sleep(RETRY_DELAYS[attempt]!);
+      }
+    }
+  }
+  return null;
+}
+
 export const ModelGateway = {
   async execute(params: ExecuteParams): Promise<ExecuteResult> {
-    // TODO: Week 2 implementation
-    // 1. Load model registry
-    // 2. Resolve tier to primary + fallbacks
-    // 3. Apply workspace contract policies (provider caps, tier caps, cost caps)
-    // 4. Check context window fit
-    // 5. Pre-check workspace cost cap
-    // 6. Try primary with 3-retry exponential backoff (100ms, 400ms, 1s)
-    // 7. On retryable failure, walk fallback chain
-    // 8. Normalize tool-use format across providers
-    // 9. Record token usage + cost
-    // 10. If best-tier fell back to non-Claude, auto-elevate routing
-    // 11. Log to WAL
-    // 12. Return normalized result
+    const { tier, messages, system, tools, workspaceId, runId, stepId } = params;
+    const { primary, fallbacks } = resolveTier(tier);
 
-    throw new Error("ModelGateway.execute not yet implemented — Week 2");
+    // Build the full message list including retrieval context
+    const fullMessages = [...messages];
+    if (params.retrieval && params.retrieval.length > 0) {
+      const retrievalContext = params.retrieval
+        .map((r) => `[Retrieved from ${r.source}, relevance: ${r.relevance.toFixed(2)}]\n${r.content}`)
+        .join("\n\n---\n\n");
+
+      fullMessages.unshift({
+        role: "user",
+        content: `Relevant context retrieved from memory:\n\n${retrievalContext}`,
+      });
+    }
+
+    // Try primary with retries
+    const primaryResult = await tryWithRetries(primary, fullMessages, system, tools);
+
+    if (primaryResult) {
+      const cost = estimateCost(primary, primaryResult.inputTokens, primaryResult.outputTokens);
+
+      await appendWal({
+        workspace: workspaceId,
+        op: "model_call",
+        actor: `skill:${params.stepId}`,
+        payload: {
+          tier,
+          provider: primary.provider,
+          model: primary.model,
+          input_tokens: primaryResult.inputTokens,
+          output_tokens: primaryResult.outputTokens,
+          cost_usd: cost,
+          fallback: false,
+          run_id: runId,
+          step_id: stepId,
+        },
+      });
+
+      return {
+        content: primaryResult.content,
+        actions: primaryResult.actions,
+        tokenUsage: {
+          input: primaryResult.inputTokens,
+          output: primaryResult.outputTokens,
+          cost_usd: cost,
+        },
+        provider: primary.provider,
+        model: primary.model,
+        isFallback: false,
+      };
+    }
+
+    // Primary failed after retries — walk fallback chain
+    for (const fallback of fallbacks) {
+      const fallbackResult = await tryWithRetries(fallback, fullMessages, system, tools);
+
+      if (fallbackResult) {
+        const cost = estimateCost(fallback, fallbackResult.inputTokens, fallbackResult.outputTokens);
+
+        await appendWal({
+          workspace: workspaceId,
+          op: "model_fallback",
+          actor: `skill:${params.stepId}`,
+          payload: {
+            tier,
+            primary_provider: primary.provider,
+            primary_model: primary.model,
+            fallback_provider: fallback.provider,
+            fallback_model: fallback.model,
+            input_tokens: fallbackResult.inputTokens,
+            output_tokens: fallbackResult.outputTokens,
+            cost_usd: cost,
+            run_id: runId,
+            step_id: stepId,
+          },
+        });
+
+        return {
+          content: fallbackResult.content,
+          actions: fallbackResult.actions,
+          tokenUsage: {
+            input: fallbackResult.inputTokens,
+            output: fallbackResult.outputTokens,
+            cost_usd: cost,
+          },
+          provider: fallback.provider,
+          model: fallback.model,
+          isFallback: true,
+        };
+      }
+    }
+
+    // All providers failed
+    await appendWal({
+      workspace: workspaceId,
+      op: "model_all_providers_failed",
+      actor: `skill:${params.stepId}`,
+      payload: {
+        tier,
+        primary: `${primary.provider}/${primary.model}`,
+        fallbacks_tried: fallbacks.map((f) => `${f.provider}/${f.model}`),
+        run_id: runId,
+        step_id: stepId,
+      },
+    });
+
+    throw new Error(
+      `All model providers failed for tier '${tier}'. Primary: ${primary.provider}/${primary.model}. ` +
+      `Fallbacks tried: ${fallbacks.map((f) => `${f.provider}/${f.model}`).join(", ")}`,
+    );
   },
 };

@@ -7,11 +7,11 @@
  * when a BullMQ job fires for a skill step.
  */
 
-import { palace, type PalaceSession } from "@nexaas/palace";
-import { assemble } from "./cag/assemble.js";
+import { palace } from "@nexaas/palace";
+import { assemble, type SkillManifestFull } from "./cag/assemble.js";
 import { retrieve } from "./rag/retrieve.js";
 import { ModelGateway } from "./models/gateway.js";
-import { route } from "./tag/route.js";
+import { route, type SkillManifest, type BehavioralContract } from "./tag/route.js";
 import { apply } from "./engine/apply.js";
 import { runTracker } from "./run-tracker.js";
 
@@ -22,10 +22,20 @@ export interface SkillStepParams {
   skillVersion?: string;
   stepId: string;
   resumedWith?: Record<string, unknown>;
+  manifest?: SkillManifestFull;
+  tagManifest?: SkillManifest;
+  contract?: BehavioralContract;
+  promptTemplate?: string;
+  contractTone?: string;
+  contractRules?: string;
 }
 
 export async function runSkillStep(params: SkillStepParams): Promise<void> {
-  const { workspace, runId, skillId, stepId, resumedWith } = params;
+  const {
+    workspace, runId, skillId, stepId, resumedWith,
+    manifest, tagManifest, contract, promptTemplate,
+    contractTone, contractRules,
+  } = params;
 
   await runTracker.markStepStarted(runId, stepId);
 
@@ -37,17 +47,24 @@ export async function runSkillStep(params: SkillStepParams): Promise<void> {
   });
 
   try {
+    // 1. CAG — assemble context by walking the palace
     const context = await assemble({
       session,
       stepId,
       resumedWith,
+      manifest,
+      contractTone,
+      contractRules,
+      promptTemplate,
     });
 
+    // 2. RAG — retrieve semantically similar drawers
     const retrieval = await retrieve({
       session,
       context,
     });
 
+    // 3. Model — invoke Claude (or fallback) via the gateway
     const modelResult = await ModelGateway.execute({
       tier: context.modelTier,
       messages: context.messages,
@@ -59,12 +76,19 @@ export async function runSkillStep(params: SkillStepParams): Promise<void> {
       stepId,
     });
 
+    // Update token usage on the run
+    await runTracker.updateTokenUsage(runId, modelResult.tokenUsage);
+
+    // 4. TAG — enforce policy on each proposed action
     const routing = await route({
       output: modelResult,
       skillId,
       workspace,
+      manifest: tagManifest,
+      contract,
     });
 
+    // 5. Engine — apply each routing decision
     for (const action of routing.actions) {
       await apply(action, {
         session,
@@ -73,7 +97,14 @@ export async function runSkillStep(params: SkillStepParams): Promise<void> {
       });
     }
 
-    await runTracker.markStepCompleted(runId, stepId);
+    // If no action resulted in waiting/escalation, mark step completed
+    const hasWaiting = routing.actions.some(
+      (a) => a.routing === "approval_required" || a.routing === "escalate",
+    );
+
+    if (!hasWaiting) {
+      await runTracker.markStepCompleted(runId, stepId);
+    }
   } catch (err) {
     await runTracker.markStepFailed(runId, stepId, err);
     throw err;
