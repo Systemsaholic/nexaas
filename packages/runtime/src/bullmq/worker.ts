@@ -9,9 +9,12 @@
 import { Worker, type Job } from "bullmq";
 import { getRedisConnectionOpts } from "./connection.js";
 import { runSkillStep } from "../pipeline.js";
+import { runShellSkill, type ShellSkillManifest } from "../shell-skill.js";
 import { runTracker } from "../run-tracker.js";
 import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
+import { readFileSync } from "fs";
+import { load as yamlLoad } from "js-yaml";
 
 let _worker: Worker | null = null;
 
@@ -45,7 +48,19 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         }
       }
 
-      // Execute the pillar pipeline
+      // Check if this is a shell skill (has manifestPath) or an AI skill
+      const jobData = data as SkillJobData & { manifestPath?: string };
+      if (jobData.manifestPath) {
+        const manifestContent = readFileSync(jobData.manifestPath, "utf-8");
+        const manifest = yamlLoad(manifestContent) as ShellSkillManifest;
+
+        if (manifest.execution?.type === "shell") {
+          await runShellSkill(data.workspace, manifest);
+          return;
+        }
+      }
+
+      // Execute the pillar pipeline (AI skills)
       await runSkillStep({
         workspace: data.workspace,
         runId: data.runId,
