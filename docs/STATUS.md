@@ -65,17 +65,34 @@ Phoenix proof happens BEFORE Nexmatic launch. This ensures the framework is batt
 - [x] `capabilities/model-registry.yaml` — 4 tiers, 4 providers, Voyage-3 embedding
 - [x] `palace/ontology.yaml` — 10 wings with named halls
 
-### Runtime Scaffolding (Day 2 — scaffolded, not implemented)
+### Runtime (Day 2-3 — IMPLEMENTED)
 
-- [x] `@nexaas/runtime` package structure created
-- [x] `pipeline.ts` — runSkillStep() with full CAG→RAG→Model→TAG→Engine flow (STUB)
-- [x] `models/gateway.ts` — ModelGateway with tier resolution (STUB)
-- [x] `tag/route.ts` — TAG Option C layered policy (STUB)
-- [x] `cag/assemble.ts` — context assembly (STUB)
-- [x] `rag/retrieve.ts` — pgvector retrieval (STUB)
-- [x] `engine/apply.ts` — routing decision execution (STUB)
-- [x] `run-tracker.ts` — skill_runs state transitions (IMPLEMENTED)
-- [x] `subagent.ts` — L1 sub-agent invocation (STUB)
+- [x] `pipeline.ts` — runSkillStep() with full CAG→RAG→Model→TAG→Engine flow
+- [x] `models/gateway.ts` — ModelGateway with tier resolution, retry, fallback chain, cost tracking
+- [x] `models/providers/anthropic.ts` — Claude SDK integration with tool-use formatting
+- [x] `models/providers/openai.ts` — GPT SDK + openai-compatible endpoint support
+- [x] `models/registry.ts` — YAML registry loader, tier resolver, cost estimator
+- [x] `tag/route.ts` — TAG Option C layered policy, override enforcement, WAL audit
+- [x] `cag/assemble.ts` — palace walking, contract injection, run history, staleness telemetry
+- [x] `rag/retrieve.ts` — Voyage-3 embeddings + pgvector search + hash fallback for dev
+- [x] `engine/apply.ts` — all 5 routing outcomes with WAL + dashboard projections
+- [x] `run-tracker.ts` — skill_runs state transitions
+- [x] `subagent.ts` — L1 sub-agent invocation (STUB — not needed for basic flows)
+
+### BullMQ Execution (Day 3 — IMPLEMENTED)
+
+- [x] `bullmq/connection.ts` — shared Redis connection
+- [x] `bullmq/queues.ts` — per-workspace queues, enqueue, delayed, cron scheduling
+- [x] `bullmq/worker.ts` — sandboxed job processing through the pillar pipeline
+- [x] `bullmq/outbox-relay.ts` — Postgres outbox → BullMQ job relay with crash recovery
+- [x] `bullmq/dashboard.ts` — Bull Board embedded as framework-level feature
+- [x] `worker.ts` — entry point: boots worker + outbox relay + Bull Board + health endpoint
+
+### CLI (Day 3 — IMPLEMENTED)
+
+- [x] `cli/init.ts` — full VPS setup (prereqs, DB, migrations, config, operator, signing key, systemd)
+- [x] `cli/status.ts` — health check (worker, Redis, Postgres, pgvector, palace, WAL, active runs)
+- [x] `cli/verify-wal.ts` — WAL chain verification (incremental, full, from-id)
 
 ### Nexmatic Repo (Day 1 — initial structure)
 
@@ -89,38 +106,31 @@ Phoenix proof happens BEFORE Nexmatic launch. This ensures the framework is batt
 
 ---
 
-## What's In Progress
+## What's Ready for Phoenix
 
-### Runtime Implementation (blocking everything else)
+The core framework is functionally complete for deploying to Phoenix:
 
-The `@nexaas/runtime` stubs need to be filled in. This is the critical path — nothing can run until the pillar pipeline actually executes.
+| Component | Status |
+|---|---|
+| Palace API (drawers, WAL, embeddings) | **DONE** |
+| Pillar pipeline (CAG→RAG→Model→TAG→Engine) | **DONE** |
+| ModelGateway (Anthropic + OpenAI + fallback) | **DONE** |
+| TAG Option C policy enforcement | **DONE** |
+| BullMQ worker + queues + outbox relay | **DONE** |
+| Bull Board dashboard (framework-level) | **DONE** |
+| `nexaas init` command | **DONE** |
+| `nexaas status` command | **DONE** |
+| `nexaas verify-wal` command | **DONE** |
 
-| Component | Status | Est. effort | Blocks |
-|---|---|---|---|
-| ModelGateway (Anthropic provider) | STUB | 2-3 days | Everything that calls Claude |
-| ModelGateway (OpenAI fallback) | STUB | 1 day | Fallback resilience |
-| TAG route (Option C) | STUB | 1-2 days | Policy enforcement |
-| CAG assemble | STUB | 2-3 days | Context for every skill |
-| RAG retrieve (Voyage-3 + pgvector) | STUB | 1-2 days | Semantic retrieval |
-| Engine apply | STUB | 1-2 days | Side effect execution |
-| BullMQ integration | NOT STARTED | 2-3 days | Job scheduling, retries |
-| Outbox relay service | NOT STARTED | 1 day | Postgres↔Redis atomicity |
-| Sub-agent invocation | STUB | 1 day | L1 focused calls |
-| **Total remaining** | | **~13-18 days** | |
+### What's still needed before first skill runs on Phoenix
 
-### `nexaas init` command
-
-Needs to be built before Phoenix can install Nexaas. Mostly a packaging of manual steps.
-
-| Component | Status | Est. effort |
+| Item | Status | Est. effort |
 |---|---|---|
-| Prerequisite checker (Node, Postgres, Redis, pgvector) | NOT STARTED | 0.5 day |
-| Migration runner | NOT STARTED | 0.5 day |
-| Config generator (interactive .env setup) | NOT STARTED | 0.5 day |
-| Operator bootstrap (identity, ed25519 key, genesis WAL) | NOT STARTED | 0.5 day |
-| Service installer (systemd unit) | NOT STARTED | 0.5 day |
-| Health verifier | NOT STARTED | 0.5 day |
-| **Total** | | **~2-3 days** |
+| End-to-end smoke test on this VPS | NOT STARTED | 0.5-1 day |
+| npm install + TypeScript compilation | NOT STARTED | 0.5 day |
+| Test `nexaas init` on Phoenix VPS | NOT STARTED | 0.5 day |
+| `/migrate-flow` slash command | NOT STARTED | 3-5 days |
+| First skill migration (heartbeat) | NOT STARTED | 0.5 day |
 
 ---
 
