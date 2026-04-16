@@ -45,18 +45,36 @@ Nexaas is IP owned by Al personally (operating via Systemsaholic). Nexmatic is a
 **`github.com/Systemsaholic/nexmatic`** — the business repository
 - Owned by Nexmatic / Systemsaholic (TBD exact ownership — may shift if Nexmatic incorporates as a separate entity)
 - Depends on `@nexaas/*` packages via npm
-- Contains:
-  - `skills/` — library of canonical Nexmatic skills
-  - `agents/` — Nexmatic agent bundles
-  - `mcp/servers/` — Nexmatic MCP server implementations
-  - `factory/` — Nexmatic's `/new-skill` and `/new-flow` slash command implementations
-  - `factory/archetypes/` — Nexmatic's pattern library
-  - `ops-console/` — Nexmatic-branded Ops Console application
-  - `client-dashboard/` — Nexmatic-branded client dashboard
+- **Monorepo with workspace packages:**
+  - `packages/ops-console/` (`@nexmatic/ops-console`) — Ops Console app, deploys to ops VPS
+  - `packages/client-dashboard/` (`@nexmatic/client-dashboard`) — Client Dashboard app, deploys to client VPSes
+  - `packages/auth/` (`@nexmatic/auth`) — unified auth: NextAuthJS + WebAuthn + operators + sessions + role-based access. Shared by both apps.
+  - `packages/library/` (`@nexmatic/library`) — canonical skills, agents, archetypes
+  - `packages/mcp-servers/` (`@nexmatic/mcp-servers`) — all MCP implementations
+  - `packages/factory/` (`@nexmatic/factory`) — `/new-skill`, `/new-flow` slash commands
+  - `packages/shared/` (`@nexmatic/shared`) — types, utils, manifest schemas
+  - `scripts/` — deploy, provision, upgrade (ops-side tooling)
   - `workspaces/` — client workspace manifests
   - `secrets/platform.env.enc` — sops-encrypted Tier 1 platform secrets
-  - `scripts/` — Nexmatic-specific deployment and onboarding scripts
   - `docs/nexmatic.md` — business documentation
+
+### Unified Auth Model
+
+One auth system for everything: `@nexmatic/auth`. No separate auth for ops vs clients.
+
+- **Session auth**: NextAuthJS with OAuth providers (Google, Microsoft 365, GitHub) + email/password/TOTP fallback
+- **Action signing**: WebAuthn per-action gestures for all privileged actions, ops and clients alike
+- **Identity**: single `operators` table with `role` (ops_admin, ops_member, client_admin) and `workspace_scope` (NULL = fleet-wide, specific = per-workspace)
+- **Access control**: role + scope determines what the authenticated user sees and can do
+- **Ops backdoor into client dashboards**: ops_admin can log into any client's dashboard URL and see the client view for support/debugging — the auth layer checks role and grants scope override when `role = ops_admin`
+
+Dependency chain:
+```
+@nexaas/palace ← @nexmatic/auth ← @nexmatic/ops-console
+                                 ← @nexmatic/client-dashboard
+```
+
+Both apps are separate Next.js applications deploying to separate VPSes, but they share the auth package. A bug in one doesn't affect the other. Auth logic is written once.
 
 ### Package Distribution
 
@@ -766,17 +784,26 @@ Embedded in the Nexmatic Ops Console at `/ops/queues/<workspace-id>`. Provides p
 
 ---
 
-## Part VII.5: Client Dashboard Auth
+## Part VII.5: Unified Auth (`@nexmatic/auth`)
 
-Session authentication for client admins uses **NextAuthJS** with multiple provider options. Privileged action signing uses **WebAuthn** per-action gestures, independent of session auth. The two concerns are decoupled: session auth gets you into the dashboard; WebAuthn signing proves you authorized a specific action.
+One auth system for everything — Ops Console and Client Dashboard share `@nexmatic/auth`. No separate auth implementations. Session authentication uses **NextAuthJS** with multiple provider options. Privileged action signing uses **WebAuthn** per-action gestures, independent of session auth. The two concerns are decoupled: session auth gets you in; WebAuthn signing proves you authorized a specific action.
+
+### Identity Model
+
+The `operators` table is the single identity store for all users:
+- `role: ops_admin` + `workspace_scope: NULL` → full Ops Console access, fleet-wide, can backdoor into any client dashboard for support
+- `role: ops_member` + `workspace_scope: NULL` → limited Ops Console access, fleet-wide
+- `role: client_admin` + `workspace_scope: ['envirotem']` → Client Dashboard access, one workspace only
+
+When an `ops_admin` navigates to a client's dashboard URL (e.g., `envirotem.nexmatic.ca`), the auth layer detects their fleet-wide scope and grants access with an "ops support mode" indicator visible in the UI. The client sees their normal dashboard; ops sees the same view with an ops badge and additional debugging tools.
 
 ### Session Auth Options
 
-- **OAuth providers**: Google, Microsoft 365 (primary); GitHub, Apple (secondary as client demand dictates)
-- **Email + password + TOTP 2FA**: fallback for clients without supported OAuth providers; TOTP is required, not optional
-- **Magic link**: optional alternative for clients preferring email-code-based auth
+- **OAuth providers**: Google, Microsoft 365 (primary for clients); GitHub (primary for ops); Apple (secondary as demand dictates)
+- **Email + password + TOTP 2FA**: fallback for users without supported OAuth providers; TOTP is required, not optional
+- **Magic link**: optional alternative for users preferring email-code-based auth
 
-NextAuthJS handles all three via its adapter pattern. Configuration lives in the Nexmatic client dashboard application.
+NextAuthJS handles all three via its adapter pattern. Configuration lives in `@nexmatic/auth`, shared by both apps.
 
 ### Session Duration
 
@@ -1583,11 +1610,14 @@ For quick reference, the architectural decisions locked through Q&A:
 - **Operator signing for all seven privileged action categories** in v1
 - **Client signing first-class**: client admins sign their own waitpoint approvals, contract edits, and configuration changes
 
-### Client Dashboard Auth
+### Unified Auth (`@nexmatic/auth`)
 
-- **NextAuthJS** for session auth with OAuth (Google, Microsoft 365 primary), email+password+TOTP fallback, magic link optional
+- **One auth system** for both Ops Console and Client Dashboard — `@nexmatic/auth` shared package
+- **NextAuthJS** for session auth with OAuth (Google, Microsoft 365, GitHub), email+password+TOTP fallback, magic link optional
+- **Single `operators` table** with role-based access: `ops_admin` (fleet-wide), `ops_member` (fleet-wide limited), `client_admin` (per-workspace)
+- **Ops backdoor into client dashboards** — ops_admin can log into any client URL for support, sees client view with ops badge
 - **Session duration**: 4-hour sliding / 8-hour absolute / 2-hour silent re-auth threshold for privileged actions
-- **Max 3 concurrent sessions** per client admin
+- **Max 3 concurrent sessions** per user (ops or client)
 - **Recovery via 10 one-time codes** in `xxxx-xxxx-xxxx` format, hashed on storage
 - **Out-of-band ops recovery** as signed operator action
 
