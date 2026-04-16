@@ -15,6 +15,7 @@ import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
 import { readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
+import { randomUUID } from "crypto";
 
 let _worker: Worker | null = null;
 
@@ -27,6 +28,11 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
     queueName,
     async (job: Job<SkillJobData>) => {
       const data = job.data;
+
+      // Generate a runId if not provided (cron-triggered jobs don't have one)
+      if (!data.runId) {
+        data.runId = randomUUID();
+      }
 
       // Create the run record if this is the first step
       if (data.stepId === "init" || !data.resumedWith) {
