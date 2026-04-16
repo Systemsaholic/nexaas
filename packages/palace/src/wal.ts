@@ -1,0 +1,128 @@
+import { createHash } from "crypto";
+import { sql, sqlOne } from "./db.js";
+
+export interface WalEntry {
+  workspace: string;
+  op: string;
+  actor: string;
+  payload: Record<string, unknown>;
+  signedByKeyId?: string;
+  signature?: Buffer;
+}
+
+function canonicalize(entry: WalEntry, createdAt: string, prevHash: string): string {
+  const parts = [prevHash, entry.op, entry.actor, JSON.stringify(entry.payload, Object.keys(entry.payload).sort()), createdAt];
+  return parts.join("|");
+}
+
+function computeHash(canonical: string): string {
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+const GENESIS_HASH = "0".repeat(64);
+
+export async function appendWal(entry: WalEntry): Promise<void> {
+  const maxRetries = 3;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const prev = await sqlOne<{ hash: string }>(
+        `SELECT hash FROM nexaas_memory.wal
+         WHERE workspace = $1
+         ORDER BY id DESC
+         LIMIT 1
+         FOR UPDATE`,
+        [entry.workspace],
+      );
+
+      const prevHash = prev?.hash ?? GENESIS_HASH;
+      const createdAt = new Date().toISOString();
+      const canonical = canonicalize(entry, createdAt, prevHash);
+      const hash = computeHash(canonical);
+
+      const signedContentHash = entry.signature
+        ? computeHash(canonical)
+        : null;
+
+      await sql(
+        `INSERT INTO nexaas_memory.wal
+          (workspace, op, actor, payload, prev_hash, hash,
+           signed_by_key_id, signature, signed_content_hash, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          entry.workspace, entry.op, entry.actor,
+          JSON.stringify(entry.payload),
+          prevHash, hash,
+          entry.signedByKeyId ?? null,
+          entry.signature ?? null,
+          signedContentHash,
+          createdAt,
+        ],
+      );
+
+      return;
+    } catch (err: unknown) {
+      const pgErr = err as { code?: string };
+      if (pgErr.code === "23505" && attempt < maxRetries - 1) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+export async function verifyWalChain(
+  workspace: string,
+  fromId?: number,
+): Promise<{ valid: boolean; brokenAt?: number; error?: string }> {
+  const condition = fromId ? `AND id >= $2` : "";
+  const params: unknown[] = [workspace];
+  if (fromId) params.push(fromId);
+
+  const rows = await sql<{
+    id: number;
+    op: string;
+    actor: string;
+    payload: Record<string, unknown>;
+    prev_hash: string;
+    hash: string;
+    created_at: string;
+  }>(
+    `SELECT id, op, actor, payload, prev_hash, hash, created_at::text
+     FROM nexaas_memory.wal
+     WHERE workspace = $1 ${condition}
+     ORDER BY id ASC`,
+    params,
+  );
+
+  let expectedPrevHash = fromId ? undefined : GENESIS_HASH;
+
+  for (const row of rows) {
+    if (expectedPrevHash !== undefined && row.prev_hash !== expectedPrevHash) {
+      return {
+        valid: false,
+        brokenAt: row.id,
+        error: `prev_hash mismatch at id ${row.id}: expected ${expectedPrevHash}, got ${row.prev_hash}`,
+      };
+    }
+
+    const canonical = canonicalize(
+      { workspace, op: row.op, actor: row.actor, payload: row.payload },
+      row.created_at,
+      row.prev_hash,
+    );
+    const recomputed = computeHash(canonical);
+
+    if (recomputed !== row.hash) {
+      return {
+        valid: false,
+        brokenAt: row.id,
+        error: `hash mismatch at id ${row.id}: expected ${recomputed}, got ${row.hash}`,
+      };
+    }
+
+    expectedPrevHash = row.hash;
+  }
+
+  return { valid: true };
+}
