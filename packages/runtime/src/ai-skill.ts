@@ -11,7 +11,7 @@
  *   6. Log everything to the WAL
  */
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { randomUUID } from "crypto";
 import { palace, appendWal } from "@nexaas/palace";
@@ -82,7 +82,24 @@ export async function runAiSkill(
   const model = TIER_MAP[tier] ?? "claude-sonnet-4-6";
 
   // Connect to MCP servers
-  const workspacePath = dirname(dirname(dirname(manifestPath))); // go up from nexaas-skills/category/skill/
+  // Look for .mcp.json in these locations (in order):
+  // 1. NEXAAS_WORKSPACE_ROOT env var
+  // 2. Walk up from manifest path until we find .mcp.json
+  // 3. Home directory
+  let workspacePath = process.env.NEXAAS_WORKSPACE_ROOT ?? "";
+  if (!workspacePath) {
+    let searchPath = dirname(manifestPath);
+    for (let i = 0; i < 10; i++) {
+      if (existsSync(join(searchPath, ".mcp.json"))) {
+        workspacePath = searchPath;
+        break;
+      }
+      const parent = dirname(searchPath);
+      if (parent === searchPath) break;
+      searchPath = parent;
+    }
+  }
+  if (!workspacePath) workspacePath = process.env.HOME ?? "/home/ubuntu";
   const mcpConfigs = loadMcpConfigs(workspacePath);
   const mcpClients: McpClient[] = [];
   const allTools: McpTool[] = [];
