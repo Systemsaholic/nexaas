@@ -10,6 +10,7 @@ import { Worker, type Job } from "bullmq";
 import { getRedisConnectionOpts } from "./connection.js";
 import { runSkillStep } from "../pipeline.js";
 import { runShellSkill, type ShellSkillManifest } from "../shell-skill.js";
+import { runAiSkill, type AiSkillManifest } from "../ai-skill.js";
 import { runTracker } from "../run-tracker.js";
 import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
@@ -54,14 +55,20 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         }
       }
 
-      // Check if this is a shell skill (has manifestPath) or an AI skill
+      // Route to the right executor based on manifest execution type
       const jobData = data as SkillJobData & { manifestPath?: string };
       if (jobData.manifestPath) {
         const manifestContent = readFileSync(jobData.manifestPath, "utf-8");
-        const manifest = yamlLoad(manifestContent) as ShellSkillManifest;
+        const manifest = yamlLoad(manifestContent) as Record<string, unknown>;
+        const execType = (manifest.execution as Record<string, unknown>)?.type;
 
-        if (manifest.execution?.type === "shell") {
-          await runShellSkill(data.workspace, manifest);
+        if (execType === "shell") {
+          await runShellSkill(data.workspace, manifest as unknown as ShellSkillManifest);
+          return;
+        }
+
+        if (execType === "ai-skill") {
+          await runAiSkill(data.workspace, manifest as unknown as AiSkillManifest, jobData.manifestPath);
           return;
         }
       }
