@@ -88,9 +88,21 @@ export class McpClient {
     // Send initialized notification
     this.sendNotification("notifications/initialized", {});
 
-    // List available tools
-    const toolsResult = await this.send("tools/list", {}) as { tools: McpTool[] };
-    this.tools = toolsResult.tools ?? [];
+    // List available tools and normalize schema field names
+    const toolsResult = await this.send("tools/list", {}) as {
+      tools: Array<{
+        name: string;
+        description: string;
+        inputSchema?: Record<string, unknown>;
+        input_schema?: Record<string, unknown>;
+      }>;
+    };
+
+    this.tools = (toolsResult.tools ?? []).map((t) => ({
+      name: t.name,
+      description: t.description ?? "",
+      input_schema: t.inputSchema ?? t.input_schema ?? { type: "object", properties: {} },
+    }));
   }
 
   getTools(): McpTool[] {
