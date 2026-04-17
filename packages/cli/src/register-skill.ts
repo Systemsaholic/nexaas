@@ -16,9 +16,11 @@ interface SkillManifest {
   id: string;
   version: string;
   description?: string;
+  timezone?: string;
   triggers?: Array<{
     type: string;
     schedule?: string;
+    timezone?: string;
   }>;
   execution?: {
     type: string;
@@ -62,23 +64,25 @@ export async function run(args: string[]) {
       if (trigger.type === "cron" && trigger.schedule) {
         const jobName = `cron-${manifest.id.replace(/\//g, "-")}`;
 
+        const tz = trigger.timezone ?? manifest.timezone ?? process.env.NEXAAS_TIMEZONE ?? "America/Toronto";
+
         await queue.upsertJobScheduler(
           jobName,
-          { pattern: trigger.schedule },
+          { pattern: trigger.schedule, tz },
           {
             name: "skill-step",
             data: {
               workspace,
               skillId: manifest.id,
               skillVersion: manifest.version,
-              stepId: "shell-exec",
+              stepId: manifest.execution?.type === "ai-skill" ? "ai-exec" : "shell-exec",
               triggerType: "cron",
               manifestPath,
             },
           },
         );
 
-        console.log(`  ✓ Cron registered: ${trigger.schedule} → ${jobName}`);
+        console.log(`  ✓ Cron registered: ${trigger.schedule} (${tz}) → ${jobName}`);
         registered++;
       }
     }

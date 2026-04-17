@@ -106,12 +106,28 @@ If your skill needs to call external tools (email, database, API), it MUST decla
 
 ## 3. Skill Manifest Reference
 
+### Timezone
+
+All cron schedules should declare a timezone. Without one, the system defaults to `America/Toronto` (Eastern Time). The VPS clock runs UTC but cron expressions are interpreted in the declared timezone.
+
+```yaml
+timezone: America/Toronto    # skill-level default for all triggers
+
+triggers:
+  - type: cron
+    schedule: "*/15 8-22 * * *"    # 8am-10pm ET, every 15 min
+    timezone: America/Toronto       # per-trigger override (optional)
+```
+
+**Always think in the business's timezone, not UTC.** "Business hours" means 8 AM - 8 PM in the timezone where the team operates, not where the server sits.
+
 ### Shell Skill
 
 ```yaml
 id: operations/my-cron-job
 version: 1.0.0
 description: What this skill does in one sentence
+timezone: America/Toronto
 
 triggers:
   - type: cron
@@ -192,6 +208,8 @@ Choose the right tier for the task complexity:
 **Rule of thumb**: start with `cheap` and upgrade only if the output quality requires it. Email sorting is a `cheap` task. Creative content generation is a `best` task. Most operational tasks are `good`.
 
 **Rate limits matter.** The Anthropic API has per-organization rate limits. Running multiple skills at the `good` or `best` tier simultaneously can hit these limits. Use `cheap` for high-frequency skills to stay within bounds.
+
+**Timezones matter.** VPS clocks run UTC. Business teams work in local time. Always declare `timezone` in skill manifests so cron schedules fire at the right business hours. Default is `America/Toronto` (Eastern Time). Forgetting this means "business hours" skills fire at 4 AM instead of 8 AM.
 
 ---
 
