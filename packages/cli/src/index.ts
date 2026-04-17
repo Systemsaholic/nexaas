@@ -30,6 +30,9 @@ switch (command) {
   case "trigger-skill":
     import("./trigger-skill.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "config":
+    import("./config.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution

@@ -8,6 +8,7 @@
  */
 
 import { readFileSync } from "fs";
+import { execSync } from "child_process";
 import { load as yamlLoad } from "js-yaml";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
@@ -64,7 +65,18 @@ export async function run(args: string[]) {
       if (trigger.type === "cron" && trigger.schedule) {
         const jobName = `cron-${manifest.id.replace(/\//g, "-")}`;
 
-        const tz = trigger.timezone ?? manifest.timezone ?? process.env.NEXAAS_TIMEZONE ?? "America/Toronto";
+        // Timezone resolution: trigger → manifest → workspace config → env var → UTC
+        let workspaceTz = "UTC";
+        try {
+          const dbUrl = process.env.DATABASE_URL ?? "";
+          const result = execSync(
+            `psql "${dbUrl}" -c "SELECT timezone FROM nexaas_memory.workspace_config WHERE workspace = '${workspace}'" -t -A 2>/dev/null`,
+            { encoding: "utf-8", stdio: "pipe" },
+          ).trim();
+          if (result) workspaceTz = result;
+        } catch { /* use default */ }
+
+        const tz = trigger.timezone ?? manifest.timezone ?? workspaceTz ?? process.env.NEXAAS_TIMEZONE ?? "UTC";
 
         await queue.upsertJobScheduler(
           jobName,
