@@ -2,7 +2,15 @@
 
 Vocabulary reference for the Nexaas framework and the Nexmatic business built on it. Terms are alphabetical. One-sentence minimum; longer when the concept has subtleties worth surfacing.
 
-For framework conceptual context, see [`architecture.md`](./architecture.md). For business-layer context, see [`nexmatic.md`](./nexmatic.md).
+For framework conceptual context, see [`architecture.md`](./architecture.md). For skill authoring, see [`skill-authoring.md`](./skill-authoring.md). For business-layer context, see [`nexmatic.md`](./nexmatic.md).
+
+---
+
+**Agentic Loop** — The multi-turn execution pattern where Claude calls MCP tools iteratively: send prompt → Claude returns tool_use → execute tool → send result → Claude continues → repeat until done. Each turn is WAL-recorded. The core of how AI skills operate in Nexaas.
+
+**AI Skill** — A skill with `execution.type: ai-skill` that runs through the full Nexaas pillar pipeline: MCP connection, CAG context assembly, agentic loop with Claude, TAG policy routing, palace recording, cost tracking. Contrasts with shell skills which bypass the pipeline.
+
+
 
 ---
 
@@ -74,6 +82,8 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 
 **Locus** — MemPalace term for a memory record. Synonymous with drawer in the cognitive-metaphor sense. Nexaas uses "drawer" as the primary term.
 
+**MCP Client** — The Nexaas runtime component that connects to MCP servers via the stdio protocol. Spawns the server as a child process, sends JSON-RPC messages (initialize, tools/list, tools/call), and normalizes tool schemas (inputSchema → input_schema) for the Anthropic API.
+
 **MCP (Model Context Protocol) server** — A service implementing one or more capabilities. Provides normalized tool interfaces to the model. The only component that knows about external systems like Plaid, QBO, Paperless, Telegram. MCPs contain the chaos of real-world integrations. Nexmatic maintains its own MCP implementations in its repository.
 
 **MemPalace** — The open-source project whose conceptual model we ported to Nexaas. We do not run their code (Python / SQLite / Chroma / stdio) but we adopted their insights: drawers as verbatim records, wings/halls/rooms as flat metadata facets, WAL for audit, normalization-version gate for re-mining.
@@ -81,6 +91,8 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 **Model gateway** — The framework component that handles all model invocations. Provides provider-agnostic execution, tier-based selection, fallback chain management, cost tracking, tool-use format normalization. Skills and the pillar pipeline use it; direct provider SDK calls are forbidden.
 
 **Model tier** — Semantic grade of a model call. `cheap`, `good`, `better`, `best`. Skill steps declare the tier they need; the model registry maps tiers to concrete providers and models, with fallback chains per tier.
+
+**Nexaasify** — The process of converting an existing automation (Trigger.dev task, n8n workflow, cron script, `claude --print` hack) into a proper Nexaas AI skill that runs through the full pillar pipeline. Key changes: Claude Code CLI → Agent SDK via ModelGateway; shell scripts → MCP tools; local files → palace drawers; stdout logging → WAL audit trail; no policy → TAG enforcement; Max subscription → API key with tier-based billing. See `skill-authoring.md`.
 
 **Nexaas** — The framework this documentation describes. The Four Pillars (CAG, RAG, TAG, Contracts) running over a MemPalace-derived palace substrate, with BullMQ execution, pgvector retrieval, ed25519 operator signing, and provider-agnostic model gateway. Owned by Al personally via Systemsaholic, licensed perpetually to Nexmatic and Phoenix Voyages.
 
@@ -129,6 +141,8 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 **Self-Reflection Protocol** — Required closing block on every skill prompt. Instructs the model to emit `SKILL_IMPROVEMENT_CANDIDATE: [...]` if it notices a better approach during execution. Captured as drawers for the promotion pipeline.
 
 **Signal (waitpoint)** — The unique token identifying a waitpoint. External events resolve waitpoints by calling `resolveWaitpoint(signal, resolution, actor)`.
+
+**Shell Skill** — A skill with `execution.type: shell` that runs a command and records the result. Bypasses the pillar pipeline (no CAG, RAG, TAG, model gateway). Used as a migration convenience for simple cron jobs and scripts. Not a real Nexaas skill — it's a scheduling wrapper. Convert to AI skills where AI reasoning adds value.
 
 **Skill** — The atomic unit of authored work. Contains `skill.yaml` (manifest), `prompt.md` (model prompt), and optionally `task.ts` (pre/post glue). Declares capability requirements, triggers, outputs with TAG routing, palace footprint, optional sub-agent declarations, model tier selection per step.
 

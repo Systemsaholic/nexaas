@@ -1,18 +1,39 @@
 # Nexaas + Nexmatic — Build Status
 
-**Last updated:** 2026-04-16
-**Current phase:** Phoenix proof-of-concept (pre-Nexmatic launch)
+**Last updated:** 2026-04-17
+**Current phase:** Phoenix proof — migrating flows from Trigger.dev to Nexaas
 
 ---
 
 ## Strategic Sequence
 
 ```
-Phase 1: Build Nexaas framework runtime        ← WE ARE HERE
-Phase 2: Prove Nexaas on Phoenix (own company)
+Phase 1: Build Nexaas framework runtime        ✓ DONE
+Phase 2: Prove Nexaas on Phoenix (own company) ← IN PROGRESS
 Phase 3: Launch Nexmatic on proven framework
 Phase 4: Onboard Nexmatic clients organically
 ```
+
+## Phoenix Deployment Results (overnight 2026-04-16 → 2026-04-17)
+
+**Worker uptime:** 6.7+ hours, zero crashes
+**WAL entries:** 1,373+
+**Total skill runs:** 1,000+
+
+### Shell skills (100% success rate)
+- hello-inbox-poll: 109+ completions, 0 failures
+- nc-status-sync: 179+ completions, 0 failures
+- lead-sync-all: 101+ completions, 0 failures
+
+### AI skills (pillar pipeline)
+- email-sorting: 11+ completions through full agentic loop (Claude + MCP tools)
+- Confirmed: multi-turn tool use, palace WAL recording, cost tracking, per-turn audit
+
+### Migration scorecard
+- 9 Trigger.dev schedules disabled
+- 3 shell skills running at 100% reliability
+- 3 AI skills converted from shell hacks to proper pillar pipeline execution
+- 10 Trigger.dev schedules remaining (higher-risk flows, pending migration)
 
 Phoenix proof happens BEFORE Nexmatic launch. This ensures the framework is battle-tested on real production workloads before clients depend on it.
 

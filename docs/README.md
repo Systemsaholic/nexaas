@@ -7,8 +7,8 @@ This directory holds canonical documentation for both **Nexaas** (the framework)
 | Document | What it's for | When to read it |
 |---|---|---|
 | [`architecture.md`](./architecture.md) | The Nexaas framework — conceptual foundation, the Four Pillars, palace, capabilities, agents, skills, sub-agents, triggers, channels, contracts, WAL + signing, model gateway. Timeless, framework-only. | First. Read it before anything else if you're new. |
-| [`nexmatic.md`](./nexmatic.md) | The Nexmatic business — what Nexmatic sells, how it uses Nexaas, the library and agent bundles, pricing, onboarding, ops processes. | Second. After understanding the framework, read how the first business is built on it. |
-| [`v1-refactor-plan.md`](./v1-refactor-plan.md) | The current execution plan — repo split, substrate build, runtime, factory, pilot clients, open questions. Time-bounded, versioned. | Third. This is what we're actually doing right now. |
+| [`skill-authoring.md`](./skill-authoring.md) | How to build skills — shell vs AI, nexaasification, model tiers, MCP integration, the agentic loop, migration workflow. Practical, hands-on. | Second. Read this when you're ready to build. |
+| [`migration-guide.md`](./migration-guide.md) | Moving from Trigger.dev, n8n, or any automation system to Nexaas — parallel operation, per-flow revert, risk tiers. | When migrating existing systems. |
 | [`glossary.md`](./glossary.md) | Terminology cheat sheet. Every named concept in the system, framework and business. | As needed, whenever a term trips you up. |
 
 ## The Nexaas / Nexmatic split
