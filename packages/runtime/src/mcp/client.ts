@@ -7,6 +7,8 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import type { McpTool } from "../models/agentic-loop.js";
 
 interface McpServerConfig {
@@ -181,9 +183,6 @@ export class McpClient {
  * Load MCP server configs from a workspace's .mcp.json
  */
 export function loadMcpConfigs(workspacePath: string): Record<string, McpServerConfig> {
-  const { readFileSync, existsSync } = require("fs");
-  const { join } = require("path");
-
   const mcpJsonPath = join(workspacePath, ".mcp.json");
   if (!existsSync(mcpJsonPath)) return {};
 
