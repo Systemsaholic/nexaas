@@ -17,7 +17,7 @@ import { randomUUID } from "crypto";
 import { palace, appendWal } from "@nexaas/palace";
 import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
-import { runAgenticLoop, type McpTool } from "./models/agentic-loop.js";
+import { runAgenticLoop, type McpTool, type AgenticLimits } from "./models/agentic-loop.js";
 import { resolveTier, estimateCost, type ModelEntry } from "./models/registry.js";
 
 export interface AiSkillManifest {
@@ -38,7 +38,22 @@ export interface AiSkillManifest {
     routing_default: string;
   }>;
   self_reflection?: boolean;
+  limits?: {
+    max_turns?: number;
+    max_spend_usd?: number;
+    max_input_tokens?: number;
+    max_output_tokens?: number;
+    max_consecutive_identical_tool_calls?: number;
+    max_consecutive_errors?: number;
+  };
 }
+
+const DEFAULT_LIMITS: Required<Pick<AiSkillManifest, "limits">>["limits"] = {
+  max_turns: 10,
+  max_spend_usd: 2.0,
+  max_consecutive_identical_tool_calls: 3,
+  max_consecutive_errors: 3,
+};
 
 const TIER_MAP: Record<string, string> = {
   cheap: "claude-haiku-4-5-20251001",
@@ -167,6 +182,32 @@ export async function runAiSkill(
       ? `${contextParts.join("\n\n")}\n\nNow proceed with the task.`
       : "Proceed with the task.";
 
+    // Resolve pricing from the model registry for real spend-cap enforcement.
+    let modelPricing: { inputCostPerM: number; outputCostPerM: number } | undefined;
+    let pricedModelEntry: ModelEntry | undefined;
+    try {
+      const resolved = resolveTier(tier);
+      pricedModelEntry = resolved.primary;
+      if (resolved.primary.input_cost_per_m != null && resolved.primary.output_cost_per_m != null) {
+        modelPricing = {
+          inputCostPerM: resolved.primary.input_cost_per_m,
+          outputCostPerM: resolved.primary.output_cost_per_m,
+        };
+      }
+    } catch { /* registry not available — spend cap will be skipped */ }
+
+    // Merge manifest limits with defaults.
+    const m = manifest.limits ?? {};
+    const agenticLimits: AgenticLimits = {
+      maxTurns: m.max_turns ?? DEFAULT_LIMITS.max_turns,
+      maxSpendUsd: m.max_spend_usd ?? DEFAULT_LIMITS.max_spend_usd,
+      maxInputTokens: m.max_input_tokens,
+      maxOutputTokens: m.max_output_tokens,
+      maxConsecutiveIdenticalToolCalls:
+        m.max_consecutive_identical_tool_calls ?? DEFAULT_LIMITS.max_consecutive_identical_tool_calls,
+      maxConsecutiveErrors: m.max_consecutive_errors ?? DEFAULT_LIMITS.max_consecutive_errors,
+    };
+
     // Run the agentic loop
     console.log(`[nexaas] Running AI skill '${manifest.id}' with ${allTools.length} tools, model: ${model}`);
 
@@ -176,30 +217,36 @@ export async function runAiSkill(
       messages: [{ role: "user", content: userMessage }],
       tools: allTools,
       executeTool,
-      maxTurns: 20,
       workspace,
       runId,
       skillId: manifest.id,
+      limits: agenticLimits,
+      modelPricing,
     });
 
     // Record the result as a palace drawer
     const primaryRoom = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
     await session.writeDrawer(primaryRoom, JSON.stringify({
       skill: manifest.id,
-      success: true,
+      success: !result.aborted,
+      stop_reason: result.stopReason,
+      aborted: result.aborted,
       turns: result.turns,
       tool_calls: result.toolCalls.length,
       content_preview: result.content.slice(0, 500),
       input_tokens: result.inputTokens,
       output_tokens: result.outputTokens,
+      cost_usd: result.costUsd,
     }));
 
-    // Update token usage
-    const cost = estimateCost(
-      { provider: "anthropic", model, input_cost_per_m: tier === "good" ? 3 : 1, output_cost_per_m: tier === "good" ? 15 : 5 } as ModelEntry,
-      result.inputTokens,
-      result.outputTokens,
-    );
+    // Update token usage — prefer registry-sourced pricing, fall back to previous guess.
+    const cost = pricedModelEntry
+      ? estimateCost(pricedModelEntry, result.inputTokens, result.outputTokens)
+      : estimateCost(
+          { provider: "anthropic", model, input_cost_per_m: tier === "good" ? 3 : 1, output_cost_per_m: tier === "good" ? 15 : 5 } as ModelEntry,
+          result.inputTokens,
+          result.outputTokens,
+        );
 
     await runTracker.updateTokenUsage(runId, {
       input: result.inputTokens,
@@ -209,7 +256,7 @@ export async function runAiSkill(
 
     await appendWal({
       workspace,
-      op: "ai_skill_completed",
+      op: result.aborted ? "ai_skill_aborted" : "ai_skill_completed",
       actor: `skill:${manifest.id}`,
       payload: {
         run_id: runId,
@@ -219,6 +266,8 @@ export async function runAiSkill(
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
         cost_usd: cost,
+        stop_reason: result.stopReason,
+        aborted: result.aborted,
       },
     });
 
@@ -233,12 +282,21 @@ export async function runAiSkill(
     } catch { /* non-fatal — billing table may not exist on all installs */ }
 
     await runTracker.markStepCompleted(runId, stepId);
-    await runTracker.markCompleted(runId);
 
-    console.log(`[nexaas] AI skill '${manifest.id}' completed: ${result.turns} turns, ${result.toolCalls.length} tool calls`);
+    if (result.aborted) {
+      await runTracker.markStepFailed(runId, stepId, `agentic loop aborted: ${result.stopReason}`);
+      console.warn(
+        `[nexaas] AI skill '${manifest.id}' aborted (${result.stopReason}): ${result.turns} turns, $${result.costUsd.toFixed(4)}`,
+      );
+    } else {
+      await runTracker.markCompleted(runId);
+      console.log(
+        `[nexaas] AI skill '${manifest.id}' completed: ${result.turns} turns, ${result.toolCalls.length} tool calls`,
+      );
+    }
 
     return {
-      success: true,
+      success: !result.aborted,
       turns: result.turns,
       toolCalls: result.toolCalls.length,
       content: result.content,
