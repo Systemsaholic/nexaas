@@ -260,6 +260,11 @@ NEXAAS_WORKER_PORT=9090
 
   step(5, TOTAL_STEPS, "Installing services...");
 
+  // Resolve tsx path — bypass npm/npx wrapper to fix journald logging (#20)
+  // and orphan process cleanup (#18)
+  const tsxBin = `${NEXAAS_ROOT}/node_modules/.bin/tsx`;
+  const nodeBin = exec("which node", { silent: true }) || "/usr/bin/node";
+
   const serviceContent = `[Unit]
 Description=Nexaas Worker (${workspaceId})
 After=network.target postgresql.service redis-server.service
@@ -269,12 +274,17 @@ Type=simple
 User=${dbUser}
 WorkingDirectory=${NEXAAS_ROOT}
 EnvironmentFile=${NEXAAS_ROOT}/.env
-ExecStart=/usr/bin/node ${NEXAAS_ROOT}/packages/runtime/src/worker.ts
+ExecStart=${nodeBin} ${tsxBin} ${NEXAAS_ROOT}/packages/runtime/src/worker.ts
+ExecStopPost=/bin/sh -c 'fuser -k -TERM 9090/tcp 2>/dev/null; sleep 2; fuser -k -KILL 9090/tcp 2>/dev/null; exit 0'
 Restart=always
 RestartSec=5
 MemoryMax=6G
 MemoryHigh=5G
-KillMode=control-group
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

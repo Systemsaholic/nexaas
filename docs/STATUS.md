@@ -1,7 +1,7 @@
 # Nexaas + Nexmatic — Build Status
 
-**Last updated:** 2026-04-17
-**Current phase:** Phoenix fully migrated — framework features + PA system building
+**Last updated:** 2026-04-18
+**Current phase:** Phase 3 (Nexmatic launch) — items 23-33 done, 6 stability bugs open
 
 ---
 

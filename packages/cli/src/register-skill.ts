@@ -78,6 +78,18 @@ export async function run(args: string[]) {
 
         const tz = trigger.timezone ?? manifest.timezone ?? workspaceTz ?? process.env.NEXAAS_TIMEZONE ?? "UTC";
 
+        // Remove any legacy repeatable entries for this skill (#22)
+        try {
+          const existing = await queue.getRepeatableJobs();
+          const stale = existing.filter(j => j.name === jobName);
+          for (const j of stale) {
+            await queue.removeRepeatableByKey(j.key);
+          }
+          if (stale.length > 0) {
+            console.log(`  Cleaned ${stale.length} legacy repeatable(s) for ${jobName}`);
+          }
+        } catch { /* non-fatal */ }
+
         await queue.upsertJobScheduler(
           jobName,
           { pattern: trigger.schedule, tz },
