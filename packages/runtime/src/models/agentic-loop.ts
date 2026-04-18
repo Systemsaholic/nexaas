@@ -53,6 +53,13 @@ export interface AgenticLimits {
   maxSpendUsd?: number;
   maxInputTokens?: number;
   maxOutputTokens?: number;
+  /**
+   * Per-turn `max_tokens` sent to the Anthropic API. Bounds the size of a
+   * single assistant response (including any tool_use block). Too low and
+   * large string params (reports, long content) get truncated mid-JSON,
+   * producing malformed tool calls — see issue #26.
+   */
+  maxOutputTokensPerTurn?: number;
   maxConsecutiveIdenticalToolCalls?: number;
   maxConsecutiveErrors?: number;
 }
@@ -77,6 +84,7 @@ export interface AgenticResult {
 const DEFAULT_MAX_TURNS = 10;
 const DEFAULT_MAX_CONSECUTIVE_IDENTICAL = 3;
 const DEFAULT_MAX_CONSECUTIVE_ERRORS = 3;
+const DEFAULT_MAX_OUTPUT_TOKENS_PER_TURN = 16000;
 
 function canonicalize(input: Record<string, unknown>): string {
   const keys = Object.keys(input).sort();
@@ -119,6 +127,7 @@ export async function runAgenticLoop(params: {
   const maxTurns = limits.maxTurns ?? params.maxTurns ?? DEFAULT_MAX_TURNS;
   const maxIdentical = limits.maxConsecutiveIdenticalToolCalls ?? DEFAULT_MAX_CONSECUTIVE_IDENTICAL;
   const maxErrors = limits.maxConsecutiveErrors ?? DEFAULT_MAX_CONSECUTIVE_ERRORS;
+  const maxTokensPerTurn = limits.maxOutputTokensPerTurn ?? DEFAULT_MAX_OUTPUT_TOKENS_PER_TURN;
 
   const client = getClient();
 
@@ -156,7 +165,7 @@ export async function runAgenticLoop(params: {
 
     const response = await client.messages.create({
       model,
-      max_tokens: 4096,
+      max_tokens: maxTokensPerTurn,
       system,
       messages,
       tools: anthropicTools,
@@ -177,6 +186,30 @@ export async function runAgenticLoop(params: {
     }
 
     finalContent = turnText;
+
+    // Detect output-cap truncation mid-tool_use — see issue #26. The tool_use
+    // block's JSON is cut off, which downstream reads as a malformed call and
+    // the agent confabulates an explanation. Log loudly so operators notice.
+    const truncatedMidToolUse =
+      response.stop_reason === "max_tokens" && toolUseBlocks.length > 0;
+    if (truncatedMidToolUse) {
+      console.warn(
+        `[nexaas] agentic-loop turn ${turns} hit max_tokens (${maxTokensPerTurn}) mid-tool_use — ` +
+        `tool call likely malformed. Raise limits.max_output_tokens_per_turn in the skill manifest.`,
+      );
+      await appendWal({
+        workspace,
+        op: "agentic_truncated",
+        actor: `skill:${skillId}`,
+        payload: {
+          run_id: runId,
+          turn: turns,
+          max_tokens: maxTokensPerTurn,
+          output_tokens: response.usage.output_tokens,
+          tools_attempted: toolUseBlocks.map((t) => t.name),
+        },
+      });
+    }
 
     // Natural stop — agent declared completion.
     if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {

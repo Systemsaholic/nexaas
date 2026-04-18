@@ -43,6 +43,7 @@ export interface AiSkillManifest {
     max_spend_usd?: number;
     max_input_tokens?: number;
     max_output_tokens?: number;
+    max_output_tokens_per_turn?: number;
     max_consecutive_identical_tool_calls?: number;
     max_consecutive_errors?: number;
   };
@@ -51,6 +52,7 @@ export interface AiSkillManifest {
 const DEFAULT_LIMITS: Required<Pick<AiSkillManifest, "limits">>["limits"] = {
   max_turns: 10,
   max_spend_usd: 2.0,
+  max_output_tokens_per_turn: 16000,
   max_consecutive_identical_tool_calls: 3,
   max_consecutive_errors: 3,
 };
@@ -203,6 +205,7 @@ export async function runAiSkill(
       maxSpendUsd: m.max_spend_usd ?? DEFAULT_LIMITS.max_spend_usd,
       maxInputTokens: m.max_input_tokens,
       maxOutputTokens: m.max_output_tokens,
+      maxOutputTokensPerTurn: m.max_output_tokens_per_turn ?? DEFAULT_LIMITS.max_output_tokens_per_turn,
       maxConsecutiveIdenticalToolCalls:
         m.max_consecutive_identical_tool_calls ?? DEFAULT_LIMITS.max_consecutive_identical_tool_calls,
       maxConsecutiveErrors: m.max_consecutive_errors ?? DEFAULT_LIMITS.max_consecutive_errors,
