@@ -30,6 +30,11 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
     async (job: Job<SkillJobData>) => {
       const data = job.data;
 
+      // Ensure workspace is set — scheduler templates may not persist data
+      if (!data.workspace) {
+        data.workspace = workspaceId;
+      }
+
       // Generate a runId if not provided (cron-triggered jobs don't have one)
       if (!data.runId) {
         data.runId = randomUUID();
@@ -95,7 +100,7 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
 
   _worker.on("completed", async (job: Job<SkillJobData>) => {
     await appendWal({
-      workspace: job.data.workspace,
+      workspace: job.data.workspace ?? workspaceId,
       op: "job_completed",
       actor: "bullmq-worker",
       payload: {
@@ -112,7 +117,7 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
     if (!job) return;
 
     await appendWal({
-      workspace: job.data.workspace,
+      workspace: job.data.workspace ?? workspaceId,
       op: "job_failed",
       actor: "bullmq-worker",
       payload: {
