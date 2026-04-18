@@ -10,8 +10,8 @@
 ```
 Phase 1: Build Nexaas framework runtime        ✓ DONE
 Phase 2: Prove Nexaas on Phoenix (own company) ✓ DONE (19/19 flows migrated)
-Phase 2.5: Framework features + PA system      ← IN PROGRESS
-Phase 3: Launch Nexmatic on proven framework
+Phase 2.5: Framework features + PA system      ✓ DONE
+Phase 3: Launch Nexmatic on proven framework   ← IN PROGRESS
 Phase 4: Onboard Nexmatic clients organically
 ```
 
