@@ -28,3 +28,5 @@ export {
   startOutboxRelay,
   type SkillJobData,
 } from "./bullmq/index.js";
+export { runCompaction } from "./tasks/closet-compaction.js";
+export { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";

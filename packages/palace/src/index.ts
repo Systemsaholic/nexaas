@@ -22,3 +22,14 @@ export { createPool, getPool, sql, sqlOne, sqlInTransaction } from "./db.js";
 
 // Embeddings
 export { upsertEmbedding, searchSimilar, type EmbeddingResult } from "./embeddings.js";
+
+// Signing
+export {
+  generateOperatorKeyPair,
+  loadPrivateKey,
+  signPayload,
+  verifySignature,
+  canonicalSigningPayload,
+  signWalEntry,
+  getOperatorKeyId,
+} from "./signing.js";

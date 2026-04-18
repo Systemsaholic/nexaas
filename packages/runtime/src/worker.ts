@@ -16,6 +16,8 @@ import { startWorker } from "./bullmq/worker.js";
 import { startOutboxRelay } from "./bullmq/outbox-relay.js";
 import { createDashboard } from "./bullmq/dashboard.js";
 import { createPool } from "@nexaas/palace";
+import { runCompaction } from "./tasks/closet-compaction.js";
+import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
 
 const WORKSPACE = process.env.NEXAAS_WORKSPACE;
 const CONCURRENCY = parseInt(process.env.NEXAAS_WORKER_CONCURRENCY ?? "5", 10);
@@ -68,6 +70,34 @@ async function main() {
     console.log(`[nexaas]   /health  — health check`);
   });
 
+  // Background tasks — closet compaction + waitpoint reaper
+  const isBusinessHours = () => {
+    const hour = new Date().getUTCHours();
+    return hour >= 12 && hour <= 1; // ~8am-9pm ET roughly
+  };
+
+  setInterval(async () => {
+    try {
+      const cadence = isBusinessHours() ? 5 * 60 * 1000 : 30 * 60 * 1000;
+      const compacted = await runCompaction(WORKSPACE!);
+      if (compacted > 0) console.log(`[nexaas] Compacted ${compacted} drawers into closets`);
+    } catch (err) {
+      console.error("[nexaas] Compaction error:", err);
+    }
+  }, 5 * 60 * 1000); // Check every 5 min, cadence logic inside
+
+  setInterval(async () => {
+    try {
+      const reaped = await reapExpiredWaitpoints();
+      const reminded = await sendPendingReminders();
+      if (reaped > 0) console.log(`[nexaas] Reaped ${reaped} expired waitpoints`);
+      if (reminded > 0) console.log(`[nexaas] Sent ${reminded} waitpoint reminders`);
+    } catch (err) {
+      console.error("[nexaas] Reaper error:", err);
+    }
+  }, 60 * 1000); // Every 60 seconds
+
+  console.log("[nexaas] Background tasks started (compaction + waitpoint reaper)");
   console.log("[nexaas] Worker ready. Waiting for jobs...");
 }
 
