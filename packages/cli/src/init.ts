@@ -268,7 +268,8 @@ NEXAAS_WORKER_PORT=9090
 
   // Resolve tsx path — bypass npm/npx wrapper to fix journald logging (#20)
   // and orphan process cleanup (#18)
-  const tsxBin = `${NEXAAS_ROOT}/node_modules/.bin/tsx`;
+  // Prefer global tsx, fall back to local
+  const tsxBin = exec("which tsx", { silent: true }) || `${NEXAAS_ROOT}/node_modules/.bin/tsx`;
   const nodeBin = exec("which node", { silent: true }) || "/usr/bin/node";
 
   const serviceContent = `[Unit]
