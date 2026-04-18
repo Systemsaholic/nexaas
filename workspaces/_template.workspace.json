@@ -1,0 +1,31 @@
+{
+  "id": "client-id",
+  "name": "Client Display Name",
+  "workspaceRoot": "/home/ubuntu/client-id",
+  "skills": [],
+  "agents": [],
+  "mcp": {},
+  "capabilities": {
+    "playwright": false,
+    "docker": false,
+    "bash": true
+  },
+  "nexaas": {
+    "workerPort": 9090,
+    "timezone": "America/Toronto",
+    "defaultModelTier": "good"
+  },
+  "network": {
+    "privateIp": "",
+    "publicIp": ""
+  },
+  "ssh": {
+    "host": "",
+    "user": "ubuntu",
+    "port": 22
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}

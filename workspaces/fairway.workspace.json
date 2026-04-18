@@ -1,0 +1,38 @@
+{
+  "id": "fairway",
+  "name": "Fairway",
+  "workspaceRoot": "/opt/workspaces/fairway",
+  "claudeMd": {
+    "full": "/opt/workspaces/fairway/CLAUDE.md",
+    "summary": "/opt/workspaces/fairway/CLAUDE.summary.md",
+    "minimal": "/opt/workspaces/fairway/CLAUDE.minimal.md"
+  },
+  "skills": [],
+  "agents": [],
+  "mcp": {
+    "filesystem": "http://localhost:3100",
+    "memory": "http://localhost:3109"
+  },
+  "capabilities": {
+    "playwright": false,
+    "docker": true,
+    "bash": true
+  },
+  "trigger": {
+    "projectId": "proj_fairway",
+    "workerUrl": "http://localhost:3000"
+  },
+  "network": {
+    "privateIp": "10.10.0.12",
+    "publicIp": "15.235.46.181"
+  },
+  "ssh": {
+    "host": "10.10.0.12",
+    "user": "ubuntu",
+    "port": 22
+  },
+  "context": {
+    "threadTtlDays": 90,
+    "maxTurnsBeforeSummary": 10
+  }
+}
