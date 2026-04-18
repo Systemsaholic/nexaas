@@ -1,7 +1,7 @@
 # Nexaas + Nexmatic — Build Status
 
 **Last updated:** 2026-04-18
-**Current phase:** Phase 3 (Nexmatic launch) — items 23-33 done, 6 stability bugs open
+**Current phase:** Phase 3 COMPLETE — all 21 items done, ready for Phase 4 (client onboarding)
 
 ---
 
@@ -11,7 +11,7 @@
 Phase 1: Build Nexaas framework runtime        ✓ DONE
 Phase 2: Prove Nexaas on Phoenix (own company) ✓ DONE (19/19 flows migrated)
 Phase 2.5: Framework features + PA system      ✓ DONE
-Phase 3: Launch Nexmatic on proven framework   ← IN PROGRESS
+Phase 3: Launch Nexmatic on proven framework   ✓ DONE (21/21 items)
 Phase 4: Onboard Nexmatic clients organically
 ```
 
@@ -200,15 +200,15 @@ The core framework is functionally complete for deploying to Phoenix:
 31. ~~**Implement closet compaction task**~~ — ✓ DONE (runtime background task, 5min cadence)
 32. ~~**Implement waitpoint timeout reaper**~~ — ✓ DONE (runtime background task, 60s cadence)
 33. ~~**Implement WAL signing**~~ — ✓ DONE (ed25519 in @nexaas/palace, operator keys, signed WAL entries)
-34. **Implement client dashboard extensions** — WebAuthn wiring, session management, palace-backed writes, custom domains, recovery codes, usage reframing
+34. ~~**Implement client dashboard extensions**~~ — ✓ DONE (WebAuthn passkeys, palace-backed settings API, WAL-audited config writes)
 35. ~~**Implement Ops Console extensions**~~ — ✓ MOSTLY DONE (fleet view, skills/proposals/feedback UI exist; remaining: effective policy inspector, Factory Health metrics)
 36. **`nexmatic-testlab` workspace** — conformance test suite, mock MCPs, test runner
 37. **`nexmatic-ops` workspace** — dogfood with real Nexmatic internal automation
 38. ~~**Implement backup strategy**~~ — ✓ DONE (`nexaas backup` CLI — run, list, test-restore, retention, backup_history tracking)
-39. **Implement GDPR** — PII encryption, key revocation, tombstone redaction, gdpr-export/delete/rectify ops actions
+39. ~~**Implement GDPR**~~ — ✓ DONE (`nexaas gdpr` CLI — export, delete/cryptographic erasure, redact, subjects, audit trail)
 40. ~~**Implement MCP scaffold**~~ — ✓ DONE (`nexaas create-mcp` + `/new-mcp` factory command)
 41. ~~**Implement `nexaas dry-run`**~~ — ✓ DONE (manifest validation, MCP checks, prompt checks, shell --live execution)
-42. **Implement skill versioning runtime** — multi-version loading, version pinning per run, deprecation GC
+42. ~~**Implement skill versioning runtime**~~ — ✓ DONE (version pinning, multi-version loading, version history tracking)
 43. ~~**Implement framework upgrade mechanism**~~ — ✓ DONE (`nexaas upgrade` — git pull, npm install, migrations, worker restart, health verify)
 
 ### Phase 4: Client Onboarding
