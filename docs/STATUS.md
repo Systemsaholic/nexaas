@@ -1,7 +1,7 @@
 # Nexaas + Nexmatic — Build Status
 
 **Last updated:** 2026-04-17
-**Current phase:** Phoenix proof — migrating flows from Trigger.dev to Nexaas
+**Current phase:** Phoenix fully migrated — framework features + PA system building
 
 ---
 
@@ -9,7 +9,8 @@
 
 ```
 Phase 1: Build Nexaas framework runtime        ✓ DONE
-Phase 2: Prove Nexaas on Phoenix (own company) ← IN PROGRESS
+Phase 2: Prove Nexaas on Phoenix (own company) ✓ DONE (19/19 flows migrated)
+Phase 2.5: Framework features + PA system      ← IN PROGRESS
 Phase 3: Launch Nexmatic on proven framework
 Phase 4: Onboard Nexmatic clients organically
 ```
