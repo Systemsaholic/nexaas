@@ -41,6 +41,12 @@ function commandExists(cmd: string): boolean {
 }
 
 async function prompt(question: string, defaultValue?: string): Promise<string> {
+  // Non-interactive: use defaults or env vars when stdin is not a TTY
+  if (!process.stdin.isTTY) {
+    const val = defaultValue || "";
+    if (val) console.log(`  ? ${question} [${val}]: (auto)`);
+    return val;
+  }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const suffix = defaultValue ? ` [${defaultValue}]` : "";
   return new Promise((resolve) => {
@@ -205,7 +211,7 @@ NEXAAS_WORKER_PORT=9090
 
   step(4, TOTAL_STEPS, "Creating operator identity...");
 
-  const operatorName = await prompt("Your name", "Al");
+  const operatorName = await prompt("Your name", process.env.OPERATOR_NAME ?? "Al");
   const operatorEmail = await prompt("Your email", "al@systemsaholic.com");
 
   // Generate ed25519 signing key
