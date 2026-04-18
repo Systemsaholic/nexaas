@@ -40,27 +40,8 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         data.runId = randomUUID();
       }
 
-      // Create the run record if this is the first step
-      if (data.stepId === "init" || !data.resumedWith) {
-        try {
-          await runTracker.createRun({
-            runId: data.runId,
-            workspace: data.workspace,
-            skillId: data.skillId,
-            skillVersion: data.skillVersion,
-            triggerType: data.triggerType,
-            triggerPayload: data.triggerPayload,
-            parentRunId: data.parentRunId,
-            depth: data.depth,
-          });
-        } catch (err) {
-          // Run might already exist (resumed from waitpoint)
-          const pgErr = err as { code?: string };
-          if (pgErr.code !== "23505") throw err;
-        }
-      }
-
       // Route to the right executor based on manifest execution type
+      // Shell/AI skill executors create their own run records
       const jobData = data as SkillJobData & { manifestPath?: string };
       if (jobData.manifestPath) {
         const manifestContent = readFileSync(jobData.manifestPath, "utf-8");
@@ -78,7 +59,25 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         }
       }
 
-      // Execute the pillar pipeline (AI skills)
+      // Pillar pipeline path — create run record here (shell/AI executors create their own)
+      if (!data.resumedWith) {
+        try {
+          await runTracker.createRun({
+            runId: data.runId,
+            workspace: data.workspace,
+            skillId: data.skillId,
+            skillVersion: data.skillVersion,
+            triggerType: data.triggerType ?? "manual",
+            triggerPayload: data.triggerPayload,
+            parentRunId: data.parentRunId,
+            depth: data.depth,
+          });
+        } catch (err) {
+          const pgErr = err as { code?: string };
+          if (pgErr.code !== "23505") throw err;
+        }
+      }
+
       await runSkillStep({
         workspace: data.workspace,
         runId: data.runId,
