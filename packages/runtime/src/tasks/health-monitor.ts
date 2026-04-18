@@ -57,22 +57,9 @@ export async function runHealthCheck(workspace: string): Promise<HealthReport> {
   const alerts: HealthAlert[] = [];
   const now = new Date().toISOString();
 
-  // 1. Worker health
-  let workerUptime = 0;
-  try {
-    const health = exec("curl -sf http://localhost:9090/health 2>/dev/null");
-    if (health) {
-      const parsed = JSON.parse(health);
-      workerUptime = parsed.uptime ?? 0;
-      if (parsed.status !== "healthy") {
-        alerts.push({ severity: "critical", component: "worker", message: "Worker reports unhealthy" });
-      }
-    } else {
-      alerts.push({ severity: "critical", component: "worker", message: "Worker health endpoint not responding" });
-    }
-  } catch {
-    alerts.push({ severity: "critical", component: "worker", message: "Cannot reach worker health endpoint" });
-  }
+  // 1. Worker health — use process.uptime() directly when running in-process
+  // to avoid deadlocking the event loop with a synchronous self-curl
+  let workerUptime = process.uptime();
 
   // 2. Skill success rates (last hour)
   const hourlyStats = await sql<{ completed: string; failed: string }>(`
