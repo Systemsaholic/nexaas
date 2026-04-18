@@ -7,6 +7,7 @@
  *   nexaas status                    Check Nexaas runtime health
  *   nexaas verify-wal                Verify WAL chain integrity
  *   nexaas validate-skill <path>     Validate a skill manifest
+ *   nexaas library <subcommand>      Manage the cross-workspace skill library
  */
 
 const command = process.argv[2];
@@ -42,6 +43,9 @@ switch (command) {
   case "seed-palace":
     import("./seed-palace.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "library":
+    import("./library.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -50,6 +54,7 @@ Commands:
   init --workspace <id>                 Set up Nexaas on this VPS
   onboard --workspace <path> --id <id>  Discover and register a workspace
   register-skill <path-to-skill.yaml>  Register a skill with the scheduler
+  library list|contribute|install|diff  Cross-workspace skill library
   status                                Check runtime health
   verify-wal [--full]                   Verify WAL chain integrity
 

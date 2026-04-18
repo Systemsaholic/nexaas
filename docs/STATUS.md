@@ -115,6 +115,7 @@ Phoenix proof happens BEFORE Nexmatic launch. This ensures the framework is batt
 - [x] `cli/init.ts` — full VPS setup (prereqs, DB, migrations, config, operator, signing key, systemd)
 - [x] `cli/status.ts` — health check (worker, Redis, Postgres, pgvector, palace, WAL, active runs)
 - [x] `cli/verify-wal.ts` — WAL chain verification (incremental, full, from-id)
+- [x] `cli/library.ts` — cross-workspace skill library (list, contribute, install, diff)
 
 ### Nexmatic Repo (Day 1 — initial structure)
 
@@ -192,7 +193,7 @@ The core framework is functionally complete for deploying to Phoenix:
 24. **Wire auth into ops-console** — login, session management, operator directory, fleet-wide scope
 25. **Wire auth into client-dashboard** — login, passkey enrollment, per-action signing, recovery codes
 26. **Implement Nexmatic factory** — `/new-skill`, `/new-flow` slash commands with authoring interview, archetype stamping, library RAG, contribution pipeline
-27. **Implement `@nexmatic/library` infrastructure** — versioning, genealogy, contribution tracking, proposal flow
+27. ~~**Implement `@nexmatic/library` infrastructure**~~ — ✓ DONE (`nexaas library` CLI — list, contribute, install, diff via palace)
 28. **Implement skill propagation** (`orchestrator/sync/`) — push proposals to subscribed workspaces
 29. **Implement library curation** (`orchestrator/promotion/`) — experimental → canonical promotion
 30. **Implement ops notifications** — Slack + email, tiered routing, ack/snooze, rate limiting
