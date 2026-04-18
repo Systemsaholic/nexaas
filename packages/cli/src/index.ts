@@ -36,6 +36,9 @@ switch (command) {
   case "migrate-flow":
     import("./migrate-flow.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "seed-palace":
+    import("./seed-palace.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
