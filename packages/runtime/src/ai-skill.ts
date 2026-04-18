@@ -222,6 +222,16 @@ export async function runAiSkill(
       },
     });
 
+    // Write to token_usage table for billing dashboard
+    try {
+      const { sql } = await import("@nexaas/palace");
+      await sql(
+        `INSERT INTO token_usage (workspace, agent, session_id, source, model, input_tokens, output_tokens, cost_usd, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
+        [workspace, manifest.id, runId, "ai-skill", model, result.inputTokens, result.outputTokens, cost],
+      );
+    } catch { /* non-fatal — billing table may not exist on all installs */ }
+
     await runTracker.markStepCompleted(runId, stepId);
     await runTracker.markCompleted(runId);
 
