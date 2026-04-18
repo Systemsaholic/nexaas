@@ -19,6 +19,7 @@
 
 import { sql, appendWal } from "@nexaas/palace";
 import { execSync } from "child_process";
+import { notify } from "../notifications.js";
 
 function exec(cmd: string): string {
   try { return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim(); } catch { return ""; }
@@ -284,43 +285,42 @@ export async function runAndRecord(workspace: string): Promise<HealthReport> {
   return report;
 }
 
-export async function sendTelegramAlert(report: HealthReport, botToken: string, chatId: string): Promise<void> {
+export async function sendAlerts(report: HealthReport): Promise<void> {
   if (report.alerts.length === 0) return;
 
   const criticals = report.alerts.filter(a => a.severity === "critical");
   const warnings = report.alerts.filter(a => a.severity === "warning");
 
-  let message = `⚠️ *Nexaas Health Alert* — ${report.workspace}\n\n`;
-  message += `Status: *${report.status.toUpperCase()}*\n`;
-  message += `Time: ${new Date(report.timestamp).toLocaleString("en-US", { timeZone: "America/Toronto" })}\n\n`;
+  let body = `Status: ${report.status.toUpperCase()}\n\n`;
 
   if (criticals.length > 0) {
-    message += `🔴 *Critical:*\n`;
-    for (const a of criticals) {
-      message += `• ${a.component}: ${a.message}\n`;
-    }
-    message += "\n";
+    body += "Critical:\n";
+    for (const a of criticals) body += `- ${a.component}: ${a.message}\n`;
+    body += "\n";
   }
 
   if (warnings.length > 0) {
-    message += `🟡 *Warnings:*\n`;
-    for (const a of warnings) {
-      message += `• ${a.component}: ${a.message}\n`;
-    }
-    message += "\n";
+    body += "Warnings:\n";
+    for (const a of warnings) body += `- ${a.component}: ${a.message}\n`;
+    body += "\n";
   }
 
-  message += `📊 Success: ${report.metrics.success_rate_last_hour}% | `;
-  message += `Cost: $${report.metrics.api_cost_today_usd.toFixed(2)} | `;
-  message += `RAM: ${report.metrics.memory_available_gb}GB free`;
+  body += `Success: ${report.metrics.success_rate_last_hour}% | Cost: $${report.metrics.api_cost_today_usd.toFixed(2)} | RAM: ${report.metrics.memory_available_gb}GB free`;
 
-  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text: message,
-      parse_mode: "Markdown",
-    }),
+  const severity = criticals.length > 0 ? "critical" : "warning";
+
+  await notify({
+    workspace: report.workspace,
+    severity,
+    title: `Health ${report.status.toUpperCase()}`,
+    body,
+    component: "health-monitor",
+    dedupeKey: `health-${report.workspace}-${report.status}`,
+    dedupeWindowMinutes: severity === "critical" ? 5 : 30,
   });
+}
+
+/** @deprecated Use sendAlerts() instead — kept for backward compatibility */
+export async function sendTelegramAlert(report: HealthReport, botToken: string, chatId: string): Promise<void> {
+  await sendAlerts(report);
 }

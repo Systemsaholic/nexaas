@@ -194,9 +194,9 @@ The core framework is functionally complete for deploying to Phoenix:
 25. ~~**Wire auth into client-dashboard**~~ — ✓ DONE (operator lookup, JWT sessions, 8h max)
 26. ~~**Implement Nexmatic factory**~~ — ✓ DONE (`/new-skill`, `/new-flow`, `/new-mcp` moved to framework)
 27. ~~**Implement `@nexmatic/library` infrastructure**~~ — ✓ DONE (`nexaas library` CLI — list, contribute, install, diff via palace)
-28. **Implement skill propagation** (`orchestrator/sync/`) — push proposals to subscribed workspaces
-29. **Implement library curation** (`orchestrator/promotion/`) — experimental → canonical promotion
-30. **Implement ops notifications** — Slack + email, tiered routing, ack/snooze, rate limiting
+28. ~~**Implement skill propagation**~~ — ✓ DONE (`nexaas propagate` CLI — check, push, accept, reject)
+29. ~~**Implement library curation**~~ — ✓ DONE (`nexaas library promote/feedback`)
+30. ~~**Implement ops notifications**~~ — ✓ DONE (unified dispatch: Telegram + Email/Resend + Palace, severity routing, dedup)
 31. ~~**Implement closet compaction task**~~ — ✓ DONE (runtime background task, 5min cadence)
 32. ~~**Implement waitpoint timeout reaper**~~ — ✓ DONE (runtime background task, 60s cadence)
 33. ~~**Implement WAL signing**~~ — ✓ DONE (ed25519 in @nexaas/palace, operator keys, signed WAL entries)
