@@ -204,12 +204,12 @@ The core framework is functionally complete for deploying to Phoenix:
 35. ~~**Implement Ops Console extensions**~~ — ✓ MOSTLY DONE (fleet view, skills/proposals/feedback UI exist; remaining: effective policy inspector, Factory Health metrics)
 36. **`nexmatic-testlab` workspace** — conformance test suite, mock MCPs, test runner
 37. **`nexmatic-ops` workspace** — dogfood with real Nexmatic internal automation
-38. **Implement backup strategy** — per-workspace OVH bucket, daily backups, bi-weekly restore tests
+38. ~~**Implement backup strategy**~~ — ✓ DONE (`nexaas backup` CLI — run, list, test-restore, retention, backup_history tracking)
 39. **Implement GDPR** — PII encryption, key revocation, tombstone redaction, gdpr-export/delete/rectify ops actions
 40. **Implement MCP scaffold** — `@nexaas/mcp-server` package, `nexaas create-mcp`, `/new-mcp` slash command
 41. ~~**Implement `nexaas dry-run`**~~ — ✓ DONE (manifest validation, MCP checks, prompt checks, shell --live execution)
 42. **Implement skill versioning runtime** — multi-version loading, version pinning per run, deprecation GC
-43. **Implement framework upgrade mechanism** — upgrade-workspace.sh, rollback, snapshot, smoke tests, 5-layer validation gate
+43. ~~**Implement framework upgrade mechanism**~~ — ✓ DONE (`nexaas upgrade` — git pull, npm install, migrations, worker restart, health verify)
 
 ### Phase 4: Client Onboarding
 
