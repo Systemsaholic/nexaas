@@ -61,6 +61,9 @@ switch (command) {
   case "upgrade":
     import("./upgrade.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "create-mcp":
+    import("./create-mcp.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -75,6 +78,7 @@ Commands:
   dry-run <path> [--live]              Validate and test a skill locally
   backup [list|test|schedule]          Database backup and restore
   upgrade                              Pull latest framework + apply migrations
+  create-mcp <name>                    Scaffold a new MCP server
   status                                Check runtime health
   verify-wal [--full]                   Verify WAL chain integrity
 

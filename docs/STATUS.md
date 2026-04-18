@@ -206,7 +206,7 @@ The core framework is functionally complete for deploying to Phoenix:
 37. **`nexmatic-ops` workspace** — dogfood with real Nexmatic internal automation
 38. ~~**Implement backup strategy**~~ — ✓ DONE (`nexaas backup` CLI — run, list, test-restore, retention, backup_history tracking)
 39. **Implement GDPR** — PII encryption, key revocation, tombstone redaction, gdpr-export/delete/rectify ops actions
-40. **Implement MCP scaffold** — `@nexaas/mcp-server` package, `nexaas create-mcp`, `/new-mcp` slash command
+40. ~~**Implement MCP scaffold**~~ — ✓ DONE (`nexaas create-mcp` + `/new-mcp` factory command)
 41. ~~**Implement `nexaas dry-run`**~~ — ✓ DONE (manifest validation, MCP checks, prompt checks, shell --live execution)
 42. **Implement skill versioning runtime** — multi-version loading, version pinning per run, deprecation GC
 43. ~~**Implement framework upgrade mechanism**~~ — ✓ DONE (`nexaas upgrade` — git pull, npm install, migrations, worker restart, health verify)
