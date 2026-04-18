@@ -1,0 +1,12 @@
+{
+  "name": "@nexaas/mcp-palace",
+  "version": "0.1.0",
+  "description": "Palace MCP server — gives any Claude session live access to the Nexaas memory palace",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "pg": "^8.20.0",
+    "zod": "^3.23.0"
+  }
+}
