@@ -1,7 +1,25 @@
-# Nexaas + Nexmatic — Build Status
+# Nexaas — Build Status
 
 **Last updated:** 2026-04-18
-**Current phase:** Phase 3 COMPLETE — all 21 items done, ready for Phase 4 (client onboarding)
+**Current phase:** Phase 3 COMPLETE — all 21 items done. Nexmatic paused. Phoenix stabilization in progress.
+
+## Phoenix Stabilization (2026-04-18)
+
+**Completed today:**
+- Trigger.dev fully removed — Docker images, volumes (11GB freed), services, code archived
+- Worker stability: 7 bugs fixed (#18-#24 + health monitor deadlock + duplicate skill_runs)
+- CLAUDE.md rewritten with Nexaas-only instructions + palace memory guidance
+- Legacy artifacts archived to `~/.archive-legacy-2026-04-18/`
+- `claude --print` skills converted to proper `ai-skill` type (tln-nightly-cruise, wp-daily)
+- check-dispatch.sh written — bridges 68 YAML checks to run under Nexaas
+- Duplicate BullMQ repeatables cleaned, all 21 skills re-registered cleanly
+- `/nexaasify` slash command deployed for converting remaining YAML checks
+- 15-command CLI fully operational
+
+**Remaining Phoenix work:**
+- 68 YAML checks to convert to proper Nexaas skills (via `/nexaasify`)
+- `operations/memory/` flat-file state to migrate to palace drawers
+- Notification channels to configure (TELEGRAM_BOT_TOKEN, RESEND_API_KEY)
 
 ---
 
