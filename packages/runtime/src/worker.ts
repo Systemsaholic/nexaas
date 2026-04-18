@@ -116,11 +116,15 @@ async function main() {
     }
   }, 5 * 60 * 1000);
 
-  // Run initial health check
-  try {
-    const initial = await runAndRecord(WORKSPACE!);
-    console.log(`[nexaas] Initial health: ${initial.status} (${initial.metrics.skills_total} skills, ${initial.metrics.palace_drawers} drawers)`);
-  } catch { /* ignore startup check failure */ }
+  // Delay initial health check to avoid startup race conditions
+  setTimeout(async () => {
+    try {
+      const initial = await runAndRecord(WORKSPACE!);
+      console.log(`[nexaas] Initial health: ${initial.status} (${initial.metrics.skills_total} skills, ${initial.metrics.palace_drawers} drawers)`);
+    } catch (err) {
+      console.warn("[nexaas] Initial health check failed (non-fatal):", err instanceof Error ? err.message : String(err));
+    }
+  }, 15000);
 
   console.log("[nexaas] Background tasks started (compaction + waitpoint reaper + health monitor)");
   console.log("[nexaas] Worker ready. Waiting for jobs...");
