@@ -46,6 +46,9 @@ switch (command) {
   case "library":
     import("./library.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "propagate":
+    import("./propagate.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -54,7 +57,8 @@ Commands:
   init --workspace <id>                 Set up Nexaas on this VPS
   onboard --workspace <path> --id <id>  Discover and register a workspace
   register-skill <path-to-skill.yaml>  Register a skill with the scheduler
-  library list|contribute|install|diff  Cross-workspace skill library
+  library list|contribute|install|diff|promote  Skill library management
+  propagate check|push|accept|reject   Skill update propagation
   status                                Check runtime health
   verify-wal [--full]                   Verify WAL chain integrity
 

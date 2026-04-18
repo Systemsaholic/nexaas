@@ -260,6 +260,118 @@ export async function run(args: string[]) {
       break;
     }
 
+    case "promote": {
+      const skillId = args[1];
+      if (!skillId) {
+        console.error("Usage: nexaas library promote <skill-id>");
+        process.exit(1);
+      }
+
+      const libResult = await pool.query(
+        `SELECT content, content_hash FROM nexaas_memory.events
+         WHERE wing = 'library' AND hall = 'skills' AND room = $1
+           AND event_type = 'skill-registration'
+         ORDER BY created_at DESC LIMIT 1`,
+        [skillId],
+      );
+
+      if (libResult.rows.length === 0) {
+        console.error(`  Skill '${skillId}' not found in library`);
+        process.exit(1);
+      }
+
+      const data = JSON.parse(libResult.rows[0].content);
+
+      // Check if already promoted at this version
+      const existing = await pool.query(
+        `SELECT id FROM nexaas_memory.events
+         WHERE wing = 'library' AND hall = 'canonical' AND room = $1
+           AND content_hash = $2`,
+        [skillId, libResult.rows[0].content_hash],
+      );
+
+      if (existing.rows.length > 0) {
+        console.log(`\n  ⚠ ${skillId} v${data.version} is already canonical\n`);
+        break;
+      }
+
+      // Promote: copy to canonical hall
+      await pool.query(
+        `INSERT INTO nexaas_memory.events
+          (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id, metadata)
+         VALUES ($1, 'library', 'canonical', $2, $3, $4, 'skill-promotion', 'library', $2, $5)`,
+        [
+          workspace,
+          skillId,
+          libResult.rows[0].content,
+          libResult.rows[0].content_hash,
+          JSON.stringify({ version: data.version, promoted_at: new Date().toISOString(), promoted_by: "ops" }),
+        ],
+      );
+
+      // WAL entry
+      await pool.query(
+        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
+         SELECT $1, 'library_promote', 'nexaas-cli',
+           $2::jsonb,
+           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
+           encode(digest($4, 'sha256'), 'hex')`,
+        [
+          workspace,
+          JSON.stringify({ skill_id: skillId, version: data.version }),
+          "0".repeat(64),
+          `promote-${skillId}-${Date.now()}`,
+        ],
+      );
+
+      console.log(`\n  ✓ Promoted: ${skillId} v${data.version} → canonical`);
+      console.log(`    This version is now the recommended baseline for all workspaces.\n`);
+      break;
+    }
+
+    case "feedback": {
+      const skillId = args[1];
+
+      console.log("\n  Skill Improvement Signals\n");
+
+      let query = `
+        SELECT content, created_at::text, room
+        FROM nexaas_memory.events
+        WHERE wing = 'library' AND hall = 'feedback'
+          AND event_type = 'skill-improvement'
+        ORDER BY created_at DESC LIMIT 20
+      `;
+      const params: string[] = [];
+
+      if (skillId) {
+        query = `
+          SELECT content, created_at::text, room
+          FROM nexaas_memory.events
+          WHERE wing = 'library' AND hall = 'feedback' AND room = $1
+            AND event_type = 'skill-improvement'
+          ORDER BY created_at DESC LIMIT 20
+        `;
+        params.push(skillId);
+      }
+
+      const signals = await pool.query(query, params);
+
+      if (signals.rows.length === 0) {
+        console.log("  (no improvement signals captured yet)\n");
+        break;
+      }
+
+      for (const row of signals.rows) {
+        try {
+          const data = JSON.parse(row.content);
+          console.log(`  [${row.created_at}] ${row.room}`);
+          console.log(`    ${(data.reflection ?? data.content ?? "").slice(0, 120)}`);
+          console.log("");
+        } catch { /* skip */ }
+      }
+      break;
+    }
+
     default:
       console.log(`
   nexaas library — manage the skill library
@@ -269,6 +381,8 @@ export async function run(args: string[]) {
     contribute <path>       Contribute a workspace skill to the library
     install <skill-id>      Install a library skill to this workspace
     diff <skill-id>         Compare workspace vs library versions
+    promote <skill-id>      Promote a skill to canonical status
+    feedback [skill-id]     View skill improvement signals
 
   The library is stored in the palace (library/skills/* rooms).
   Any Nexaas workspace on this VPS can share skills through the library.

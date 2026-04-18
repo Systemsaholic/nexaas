@@ -189,17 +189,17 @@ The core framework is functionally complete for deploying to Phoenix:
 
 ### Phase 3: Nexmatic Launch (after Phoenix is proven)
 
-23. **Implement `@nexmatic/auth`** — NextAuthJS + WebAuthn + operators + sessions, shared by both apps
-24. **Wire auth into ops-console** — login, session management, operator directory, fleet-wide scope
-25. **Wire auth into client-dashboard** — login, passkey enrollment, per-action signing, recovery codes
-26. **Implement Nexmatic factory** — `/new-skill`, `/new-flow` slash commands with authoring interview, archetype stamping, library RAG, contribution pipeline
+23. ~~**Implement `@nexmatic/auth`**~~ — ✓ DONE (NextAuth + operators + role-based access)
+24. ~~**Wire auth into ops-console**~~ — ✓ DONE (email+password login, session checking, middleware)
+25. ~~**Wire auth into client-dashboard**~~ — ✓ DONE (operator lookup, JWT sessions, 8h max)
+26. ~~**Implement Nexmatic factory**~~ — ✓ DONE (`/new-skill`, `/new-flow`, `/new-mcp` moved to framework)
 27. ~~**Implement `@nexmatic/library` infrastructure**~~ — ✓ DONE (`nexaas library` CLI — list, contribute, install, diff via palace)
 28. **Implement skill propagation** (`orchestrator/sync/`) — push proposals to subscribed workspaces
 29. **Implement library curation** (`orchestrator/promotion/`) — experimental → canonical promotion
 30. **Implement ops notifications** — Slack + email, tiered routing, ack/snooze, rate limiting
-31. **Implement closet compaction task** — background worker, deterministic clustering, staleness escalation
-32. **Implement waitpoint timeout reaper** — 60s cadence, timeout policy enforcement, reminder sending
-33. **Implement WAL signing** — ed25519 library, operator key management, signed privilege actions, verify-wal with signature checking
+31. ~~**Implement closet compaction task**~~ — ✓ DONE (runtime background task, 5min cadence)
+32. ~~**Implement waitpoint timeout reaper**~~ — ✓ DONE (runtime background task, 60s cadence)
+33. ~~**Implement WAL signing**~~ — ✓ DONE (ed25519 in @nexaas/palace, operator keys, signed WAL entries)
 34. **Implement client dashboard extensions** — WebAuthn wiring, session management, palace-backed writes, custom domains, recovery codes, usage reframing
 35. **Implement Ops Console extensions** — fleet view, library inbox, proposal review, effective policy inspector, framework updates view, backup health, Factory Health metrics view
 36. **`nexmatic-testlab` workspace** — conformance test suite, mock MCPs, test runner
