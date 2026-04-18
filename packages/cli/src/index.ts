@@ -33,6 +33,9 @@ switch (command) {
   case "config":
     import("./config.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "health":
+    import("./health.js").then((m) => m.run());
+    break;
   case "migrate-flow":
     import("./migrate-flow.js").then((m) => m.run(process.argv.slice(3)));
     break;

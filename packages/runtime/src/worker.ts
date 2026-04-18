@@ -18,6 +18,7 @@ import { createDashboard } from "./bullmq/dashboard.js";
 import { createPool } from "@nexaas/palace";
 import { runCompaction } from "./tasks/closet-compaction.js";
 import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
+import { runAndRecord, sendTelegramAlert } from "./tasks/health-monitor.js";
 
 const WORKSPACE = process.env.NEXAAS_WORKSPACE;
 const CONCURRENCY = parseInt(process.env.NEXAAS_WORKER_CONCURRENCY ?? "5", 10);
@@ -97,7 +98,31 @@ async function main() {
     }
   }, 60 * 1000); // Every 60 seconds
 
-  console.log("[nexaas] Background tasks started (compaction + waitpoint reaper)");
+  // Health monitor — every 5 minutes
+  const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
+  const TELEGRAM_ALERT_CHAT_ID = process.env.TELEGRAM_ALERT_CHAT_ID ?? "";
+
+  setInterval(async () => {
+    try {
+      const report = await runAndRecord(WORKSPACE!);
+      if (report.alerts.length > 0 && TELEGRAM_BOT_TOKEN && TELEGRAM_ALERT_CHAT_ID) {
+        await sendTelegramAlert(report, TELEGRAM_BOT_TOKEN, TELEGRAM_ALERT_CHAT_ID);
+      }
+      if (report.status !== "healthy") {
+        console.log(`[nexaas] Health: ${report.status} (${report.alerts.length} alerts)`);
+      }
+    } catch (err) {
+      console.error("[nexaas] Health monitor error:", err);
+    }
+  }, 5 * 60 * 1000);
+
+  // Run initial health check
+  try {
+    const initial = await runAndRecord(WORKSPACE!);
+    console.log(`[nexaas] Initial health: ${initial.status} (${initial.metrics.skills_total} skills, ${initial.metrics.palace_drawers} drawers)`);
+  } catch { /* ignore startup check failure */ }
+
+  console.log("[nexaas] Background tasks started (compaction + waitpoint reaper + health monitor)");
   console.log("[nexaas] Worker ready. Waiting for jobs...");
 }
 
