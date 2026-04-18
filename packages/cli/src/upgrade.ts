@@ -187,15 +187,36 @@ async function getPendingMigrations(pool: pg.Pool, nexaasRoot: string): Promise<
     .filter(f => f.endsWith(".sql"))
     .sort();
 
-  // Check which are already applied
   let applied: Set<string>;
   try {
-    const result = await pool.query(
-      `SELECT filename FROM nexaas_memory.schema_migrations`,
-    );
+    // Ensure tracking table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS nexaas_memory.schema_migrations (
+        filename TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+
+    // If tracking is empty but tables exist, seed with all existing migrations
+    const trackCount = await pool.query(`SELECT count(*) FROM nexaas_memory.schema_migrations`);
+    if (parseInt(trackCount.rows[0].count, 10) === 0) {
+      const tableCount = await pool.query(
+        `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'nexaas_memory'`,
+      );
+      if (parseInt(tableCount.rows[0].count, 10) > 5) {
+        // Tables exist — seed tracking with all migrations
+        for (const f of allFiles) {
+          await pool.query(
+            `INSERT INTO nexaas_memory.schema_migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING`,
+            [f],
+          );
+        }
+      }
+    }
+
+    const result = await pool.query(`SELECT filename FROM nexaas_memory.schema_migrations`);
     applied = new Set(result.rows.map(r => r.filename));
   } catch {
-    // Table might not exist yet
     applied = new Set();
   }
 
