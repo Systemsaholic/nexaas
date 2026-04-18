@@ -303,6 +303,19 @@ ORDER BY id DESC;
 
 ## 8. Registering and Running Skills
 
+### Create a new skill via the factory
+
+From a Claude Code session on the workspace:
+```
+/new-skill I need a skill that checks for new invoices in QBO and matches them to receipts in Paperless
+```
+
+The factory walks you through an 8-phase interview, generates the manifest + prompt, registers with BullMQ, and tests it. This is the **required** way to create skills — it enforces framework conventions.
+
+Other factory commands:
+- `/new-flow` — compose multiple skills into an automation flow
+- `/new-mcp` — create a new MCP server integration
+
 ### Register a skill with the scheduler
 
 ```bash
