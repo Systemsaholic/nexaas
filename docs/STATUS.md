@@ -201,13 +201,13 @@ The core framework is functionally complete for deploying to Phoenix:
 32. ~~**Implement waitpoint timeout reaper**~~ — ✓ DONE (runtime background task, 60s cadence)
 33. ~~**Implement WAL signing**~~ — ✓ DONE (ed25519 in @nexaas/palace, operator keys, signed WAL entries)
 34. **Implement client dashboard extensions** — WebAuthn wiring, session management, palace-backed writes, custom domains, recovery codes, usage reframing
-35. **Implement Ops Console extensions** — fleet view, library inbox, proposal review, effective policy inspector, framework updates view, backup health, Factory Health metrics view
+35. ~~**Implement Ops Console extensions**~~ — ✓ MOSTLY DONE (fleet view, skills/proposals/feedback UI exist; remaining: effective policy inspector, Factory Health metrics)
 36. **`nexmatic-testlab` workspace** — conformance test suite, mock MCPs, test runner
 37. **`nexmatic-ops` workspace** — dogfood with real Nexmatic internal automation
 38. **Implement backup strategy** — per-workspace OVH bucket, daily backups, bi-weekly restore tests
 39. **Implement GDPR** — PII encryption, key revocation, tombstone redaction, gdpr-export/delete/rectify ops actions
 40. **Implement MCP scaffold** — `@nexaas/mcp-server` package, `nexaas create-mcp`, `/new-mcp` slash command
-41. **Implement `nexaas dry-run`** — local skill testing with fixtures
+41. ~~**Implement `nexaas dry-run`**~~ — ✓ DONE (manifest validation, MCP checks, prompt checks, shell --live execution)
 42. **Implement skill versioning runtime** — multi-version loading, version pinning per run, deprecation GC
 43. **Implement framework upgrade mechanism** — upgrade-workspace.sh, rollback, snapshot, smoke tests, 5-layer validation gate
 

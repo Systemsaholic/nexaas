@@ -52,6 +52,9 @@ switch (command) {
   case "alerts":
     import("./alerts.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "dry-run":
+    import("./dry-run.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -63,6 +66,7 @@ Commands:
   library list|contribute|install|diff|promote  Skill library management
   propagate check|push|accept|reject   Skill update propagation
   alerts [test|config]                 View and manage notifications
+  dry-run <path> [--live]              Validate and test a skill locally
   status                                Check runtime health
   verify-wal [--full]                   Verify WAL chain integrity
 
