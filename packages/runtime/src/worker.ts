@@ -57,7 +57,7 @@ async function reconcileOrphanedRuns(workspace: string): Promise<number> {
        WHERE workspace = $1
          AND status = 'running'
          AND last_activity < now() - interval '2 minutes'
-       RETURNING id
+       RETURNING 1
     )
     SELECT count(*)::text as count FROM reconciled
   `, [workspace]);
