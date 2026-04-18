@@ -387,3 +387,35 @@ Real-world findings from the first Nexaas production deployment:
 **Bull Board is essential for operational visibility.** Without it, you're blind to what's running. Every Nexaas install should expose Bull Board on a local port.
 
 **Cross-workspace support is needed from day one.** Phoenix has two workspaces (Phoenix-Voyages + Accounting) on one VPS. They share the Nexaas runtime but have separate palace scopes. Cross-workspace event triggers allow accounting flows to be triggered by main workspace events.
+
+---
+
+## 11. Palace Memory vs Claude Code Memory
+
+Every Nexaas workspace has TWO memory systems. Using the wrong one causes knowledge to be siloed or lost.
+
+### Palace memory (nexaas_memory in Postgres)
+
+Written via `palace_write` MCP tool or skill drawers. Use for anything that other skills, sessions, or team members need to see:
+
+- Operational decisions ("retired check-X", "switched supplier Y to tier 2")
+- Business state changes ("lead contacted", "onboarding started")
+- Skill outcomes and findings
+- Configuration changes
+- Anything that should survive if the Claude Code session ends
+
+### Claude Code memory (.claude/ markdown files)
+
+Local to one operator's session. Use ONLY for personal context:
+
+- User preferences ("prefers terse responses", "wants French headers")
+- Working patterns ("this repo uses tabs not spaces")
+- Session-specific notes that aren't business decisions
+
+### Rule of thumb
+
+If another skill, agent, or person would need this information to do their job correctly, it goes in the palace. If it's just about how to interact with one person, it stays in Claude Code memory.
+
+**When in doubt, use the palace.** Palace writes are audited via the WAL. Claude Code memory files can be lost, aren't searchable by skills, and are invisible to the ops console.
+
+When deploying a new workspace, add this guidance to the workspace CLAUDE.md in a blockquote at the top (see Phoenix Voyages CLAUDE.md for the canonical format).
