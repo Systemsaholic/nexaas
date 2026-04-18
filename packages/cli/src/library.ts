@@ -8,7 +8,7 @@
  *   nexaas library diff <skill-id>         Show diff between workspace and library versions
  */
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync, cpSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, cpSync, readdirSync } from "fs";
 import { join, dirname, basename } from "path";
 import { createHash } from "crypto";
 import { execSync } from "child_process";
@@ -280,7 +280,6 @@ export async function run(args: string[]) {
 
 function findSkillManifests(dir: string): Array<SkillManifest & { path: string }> {
   const results: Array<SkillManifest & { path: string }> = [];
-  const { readdirSync, statSync } = require("fs");
 
   function walk(d: string) {
     for (const entry of readdirSync(d, { withFileTypes: true })) {
