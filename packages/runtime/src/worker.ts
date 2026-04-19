@@ -165,12 +165,18 @@ async function main() {
     try {
       const { handlePaMessage } = await import("./pa/service.js");
 
-      const { message, senderName, senderId, channel, threadId, systemPrompt, mcpServers } = req.body;
+      const { message, senderName, senderId, channel, threadId, systemPrompt } = req.body;
 
       if (!message) {
         res.status(400).json({ error: "message required" });
         return;
       }
+
+      // Auto-discover MCP servers from workspace .mcp.json
+      const { loadMcpConfigs } = await import("./mcp/client.js");
+      const wsRoot = process.env.NEXAAS_WORKSPACE_ROOT ?? "";
+      const mcpConfigs = loadMcpConfigs(wsRoot);
+      const availableMcpServers = Object.keys(mcpConfigs);
 
       const persona = {
         id: "nexmatic-ai",
@@ -179,7 +185,7 @@ async function main() {
         owner: senderId ?? "dashboard",
         modelTier: "good",
         systemPrompt: systemPrompt ?? "You are a helpful AI assistant for this business.",
-        mcpServers: mcpServers ?? [],
+        mcpServers: availableMcpServers,
         palaceAccess: { read: ["*"], deny: [] },
         channels: ["dashboard"],
         maxTurns: 10,
