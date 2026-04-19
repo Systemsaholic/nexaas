@@ -7,6 +7,7 @@
  */
 
 import { sql } from "@nexaas/palace";
+import { getFrameworkIdentity } from "./fleet/heartbeat.js";
 
 export type RunStatus =
   | "running"
@@ -29,18 +30,46 @@ export const runTracker = {
     parentRunId?: string;
     depth?: number;
   }): Promise<void> {
-    await sql(
-      `INSERT INTO nexaas_memory.skill_runs
-        (run_id, workspace, skill_id, skill_version, agent_id,
-         trigger_type, trigger_payload, status, parent_run_id, depth)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8, $9)`,
-      [
-        params.runId, params.workspace, params.skillId,
-        params.skillVersion, params.agentId,
-        params.triggerType, JSON.stringify(params.triggerPayload ?? {}),
-        params.parentRunId, params.depth ?? 0,
-      ],
-    );
+    // Stamp the framework version that produced this run. Best-effort —
+    // older installs without migration 015 will error on the extra column,
+    // in which case we fall back to the legacy insert shape.
+    const identity = (() => {
+      try { return getFrameworkIdentity(); } catch { return null; }
+    })();
+    try {
+      await sql(
+        `INSERT INTO nexaas_memory.skill_runs
+          (run_id, workspace, skill_id, skill_version, agent_id,
+           trigger_type, trigger_payload, status, parent_run_id, depth, framework_version)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8, $9, $10)`,
+        [
+          params.runId, params.workspace, params.skillId,
+          params.skillVersion, params.agentId,
+          params.triggerType, JSON.stringify(params.triggerPayload ?? {}),
+          params.parentRunId, params.depth ?? 0,
+          identity?.version ?? null,
+        ],
+      );
+    } catch (err) {
+      const pgErr = err as { code?: string; message?: string };
+      // 42703 = undefined_column — pre-migration-015 schema. Retry without it.
+      if (pgErr.code === "42703") {
+        await sql(
+          `INSERT INTO nexaas_memory.skill_runs
+            (run_id, workspace, skill_id, skill_version, agent_id,
+             trigger_type, trigger_payload, status, parent_run_id, depth)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8, $9)`,
+          [
+            params.runId, params.workspace, params.skillId,
+            params.skillVersion, params.agentId,
+            params.triggerType, JSON.stringify(params.triggerPayload ?? {}),
+            params.parentRunId, params.depth ?? 0,
+          ],
+        );
+        return;
+      }
+      throw err;
+    }
   },
 
   async markStepStarted(runId: string, stepId: string): Promise<void> {

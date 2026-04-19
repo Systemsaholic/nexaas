@@ -164,16 +164,38 @@ export async function run(args: string[]) {
     }
   }
 
-  // Record in framework_versions
-  try {
-    const newCommit = exec(`git -C ${nexaasRoot} rev-parse --short HEAD`, { silent: true });
-    await pool.query(
-      `INSERT INTO nexaas_memory.framework_versions (workspace, version, commit_hash, applied_at, applied_by)
-       VALUES ($1, $2, $3, now(), 'nexaas-upgrade')
-       ON CONFLICT DO NOTHING`,
-      [workspace, newCommit, exec(`git -C ${nexaasRoot} rev-parse HEAD`, { silent: true })],
-    );
-  } catch { /* non-fatal */ }
+  // The restarted worker fires a startup heartbeat to the fleet dashboard
+  // within ~5s of coming up (see packages/runtime/src/fleet/heartbeat.ts).
+  // Poll `framework_heartbeat.last_push_at` briefly so the operator can see
+  // confirmation before the command exits.
+  if (!migrateOnly) {
+    try {
+      let confirmed = false;
+      for (let i = 0; i < 6; i++) {
+        execSync("sleep 2", { stdio: "pipe" });
+        const row = await pool.query(
+          `SELECT version, commit_sha, last_push_at, last_push_status
+           FROM nexaas_memory.framework_heartbeat WHERE workspace = $1`,
+          [workspace],
+        );
+        const hb = row.rows[0];
+        if (hb?.last_push_at && (Date.now() - new Date(hb.last_push_at).getTime()) < 30_000) {
+          console.log(`  ✓ Fleet heartbeat: ${hb.version} (${hb.commit_sha}) — ${hb.last_push_status}`);
+          confirmed = true;
+          break;
+        }
+      }
+      if (!confirmed) {
+        console.log("  ⚠ Fleet heartbeat not seen yet — check NEXAAS_FLEET_ENDPOINT / NEXAAS_FLEET_TOKEN in .env if the dashboard doesn't pick up the new version.");
+      }
+    } catch (err) {
+      // framework_heartbeat table missing → pre-015 install. No action.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("framework_heartbeat")) {
+        console.log(`  ⚠ Heartbeat confirmation skipped: ${msg.slice(0, 120)}`);
+      }
+    }
+  }
 
   console.log("");
   await pool.end();

@@ -11,10 +11,11 @@
  */
 
 import { execSync, spawnSync } from "child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, appendFileSync } from "fs";
 import { join } from "path";
 import { randomBytes, generateKeyPairSync } from "crypto";
 import { createInterface } from "readline";
+import { hostname as osHostname } from "os";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT ?? process.cwd();
 
@@ -59,10 +60,18 @@ async function prompt(question: string, defaultValue?: string): Promise<string> 
 
 export async function run(args: string[]) {
   let workspaceId = "";
+  let fleetEndpoint = "";
+  let bootstrapSecret = "";
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--workspace" && args[i + 1]) {
       workspaceId = args[i + 1]!;
+      i++;
+    } else if (args[i] === "--fleet-endpoint" && args[i + 1]) {
+      fleetEndpoint = args[i + 1]!;
+      i++;
+    } else if (args[i] === "--bootstrap-secret" && args[i + 1]) {
+      bootstrapSecret = args[i + 1]!;
       i++;
     }
   }
@@ -226,6 +235,44 @@ NEXAAS_WORKER_PORT=9090
       },
     }, null, 2));
     log("Default .mcp.json created (fetch MCP included)");
+  }
+
+  // ── Step 3b: Fleet registration (optional) ─────────────────────────
+  // If both --fleet-endpoint and --bootstrap-secret are provided, register
+  // this VPS with the Nexmatic ops dashboard and persist the issued token
+  // to .env. Silent skip if either is missing — backwards compatible.
+  if (fleetEndpoint && bootstrapSecret) {
+    const registerUrl = fleetEndpoint.replace(/\/$/, "") + "/register";
+    const host = osHostname();
+    try {
+      const res = await fetch(registerUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          workspace: workspaceId,
+          bootstrap_secret: bootstrapSecret,
+          hostname: host,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.text().catch(() => "")).slice(0, 300);
+        warn(`Fleet registration failed (HTTP ${res.status}): ${body}`);
+        warn("Skipping — framework will run without fleet heartbeat. Set NEXAAS_FLEET_ENDPOINT + NEXAAS_FLEET_TOKEN in .env later to enable.");
+      } else {
+        const data = await res.json() as { token?: string };
+        if (!data.token) {
+          warn("Fleet registration returned no token — skipping .env write.");
+        } else {
+          appendFileSync(envPath, `\n# Fleet dashboard\nNEXAAS_FLEET_ENDPOINT=${fleetEndpoint}\nNEXAAS_FLEET_TOKEN=${data.token}\n`);
+          log(`Registered with fleet at ${fleetEndpoint} — token persisted to .env`);
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      warn(`Fleet registration error: ${msg}`);
+      warn("Skipping — framework will run without fleet heartbeat.");
+    }
   }
 
   // ── Step 4: Operator bootstrap ─────────────────────────────────────

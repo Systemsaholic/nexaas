@@ -15,6 +15,7 @@ import { runTracker } from "../run-tracker.js";
 import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
 import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
+import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
 import { readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { randomUUID } from "crypto";
@@ -23,6 +24,10 @@ let _worker: Worker | null = null;
 
 export function startWorker(workspaceId: string, concurrency: number = 5): Worker {
   if (_worker) return _worker;
+
+  // Fire the fleet heartbeat loop alongside the worker. Silent no-op if
+  // NEXAAS_FLEET_ENDPOINT / NEXAAS_FLEET_TOKEN aren't set.
+  startHeartbeatLoop();
 
   const queueName = `nexaas-skills-${workspaceId}`;
 
@@ -145,6 +150,7 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
 
   // Graceful shutdown
   process.on("SIGTERM", async () => {
+    stopHeartbeatLoop();
     if (_worker) {
       await _worker.close();
       _worker = null;
@@ -153,6 +159,7 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
   });
 
   process.on("SIGINT", async () => {
+    stopHeartbeatLoop();
     if (_worker) {
       await _worker.close();
       _worker = null;
