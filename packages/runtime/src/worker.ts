@@ -158,6 +158,47 @@ async function main() {
   app.use("/queues", dashboard.getRouter());
   console.log("[nexaas] Bull Board dashboard at /queues");
 
+  // PA HTTP adapter — enables client dashboard to use the full PA service
+  app.use(express.json());
+
+  app.post("/api/pa/message", async (req, res) => {
+    try {
+      const { handlePaMessage } = await import("./pa/service.js");
+
+      const { message, senderName, senderId, channel, threadId, systemPrompt, mcpServers } = req.body;
+
+      if (!message) {
+        res.status(400).json({ error: "message required" });
+        return;
+      }
+
+      const persona = {
+        id: "nexmatic-ai",
+        displayName: "Nexmatic AI",
+        type: "human-facing" as const,
+        owner: senderId ?? "dashboard",
+        modelTier: "good",
+        systemPrompt: systemPrompt ?? "You are a helpful AI assistant for this business.",
+        mcpServers: mcpServers ?? [],
+        palaceAccess: { read: ["*"], deny: [] },
+        channels: ["dashboard"],
+        maxTurns: 10,
+      };
+
+      const result = await handlePaMessage(WORKSPACE!, persona, {
+        channel: channel ?? "dashboard",
+        senderId: senderId ?? "dashboard-user",
+        senderName: senderName ?? "User",
+        content: message,
+        threadId,
+      });
+
+      res.json({ ok: true, data: result });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
   // Health check
   app.get("/health", (_req, res) => {
     const isRunning = worker.isRunning();
