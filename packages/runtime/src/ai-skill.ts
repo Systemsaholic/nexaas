@@ -20,6 +20,7 @@ import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
 import { runAgenticLoop, type McpTool, type AgenticLimits } from "./models/agentic-loop.js";
 import { resolveTier, estimateCost, type ModelEntry } from "./models/registry.js";
+import { verifyOutputs, summarizeFailures, type OutputVerification } from "./ai-skill-verify.js";
 
 export interface AiSkillManifest {
   id: string;
@@ -47,6 +48,7 @@ export interface AiSkillManifest {
   outputs?: Array<{
     id: string;
     routing_default: string;
+    verify?: OutputVerification;
   }>;
   self_reflection?: boolean;
   limits?: {
@@ -354,10 +356,64 @@ export async function runAiSkill(
 
     await runTracker.markStepCompleted(runId, stepId);
 
+    // Output verification (#28) — only when the loop wasn't already aborted.
+    // A skill that declares `outputs[].verify` gets checked here before the
+    // run is marked complete.
+    const verifiableOutputs = (manifest.outputs ?? []).filter((o) => o.verify);
+    let verificationFailed = false;
+    let verificationSummary = "";
+    if (!result.aborted && verifiableOutputs.length > 0) {
+      const vResults = await verifyOutputs({
+        workspace,
+        runId,
+        skillId: manifest.id,
+        outputs: verifiableOutputs,
+        primaryRoom,
+        toolCalls: result.toolCalls,
+      });
+      const { requiredFailures, optionalFailures } = summarizeFailures(vResults);
+
+      await appendWal({
+        workspace,
+        op: "ai_skill_verification",
+        actor: `skill:${manifest.id}`,
+        payload: {
+          run_id: runId,
+          results: vResults,
+          required_failures: requiredFailures.length,
+          optional_failures: optionalFailures.length,
+        },
+      });
+
+      await session.writeDrawer(primaryRoom, JSON.stringify({
+        skill: manifest.id,
+        kind: "verification",
+        results: vResults,
+      }));
+
+      for (const f of optionalFailures) {
+        console.warn(
+          `[nexaas] AI skill '${manifest.id}' output '${f.outputId}' verification failed (optional): ${f.reason}`,
+        );
+      }
+
+      if (requiredFailures.length > 0) {
+        verificationFailed = true;
+        verificationSummary = requiredFailures
+          .map((f) => `output '${f.outputId}' (${f.type}): ${f.reason}`)
+          .join("; ");
+      }
+    }
+
     if (result.aborted) {
       await runTracker.markStepFailed(runId, stepId, `agentic loop aborted: ${result.stopReason}`);
       console.warn(
         `[nexaas] AI skill '${manifest.id}' aborted (${result.stopReason}): ${result.turns} turns, $${result.costUsd.toFixed(4)}`,
+      );
+    } else if (verificationFailed) {
+      await runTracker.markStepFailed(runId, stepId, `output verification failed: ${verificationSummary}`);
+      console.warn(
+        `[nexaas] AI skill '${manifest.id}' verification failed: ${verificationSummary}`,
       );
     } else {
       await runTracker.markCompleted(runId);
@@ -367,7 +423,7 @@ export async function runAiSkill(
     }
 
     return {
-      success: !result.aborted,
+      success: !result.aborted && !verificationFailed,
       turns: result.turns,
       toolCalls: result.toolCalls.length,
       content: result.content,
