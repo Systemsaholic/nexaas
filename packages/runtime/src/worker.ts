@@ -297,6 +297,186 @@ async function main() {
     }
   });
 
+  // ─── WebStudio endpoints ────────────────────────────────────────────
+
+  const WS_SITE_DIR = join(process.env.NEXAAS_ROOT ?? "/opt/nexaas", "web-studio", WORKSPACE ?? "default", "site");
+  const WS_PORT = 3002;
+
+  // Import: download site with wget
+  app.post("/api/webstudio/import", async (req, res) => {
+    try {
+      const { url, method } = req.body;
+      if (!url) { res.status(400).json({ error: "url required" }); return; }
+
+      const { execSync } = await import("child_process");
+      const { mkdirSync, readdirSync } = await import("fs");
+
+      mkdirSync(WS_SITE_DIR, { recursive: true });
+
+      if (method === "scrape" || !method) {
+        // Download site with wget mirror
+        try {
+          execSync(
+            `wget --mirror --convert-links --adjust-extension --page-requisites --no-parent --timeout=30 --tries=2 -q -P "${WS_SITE_DIR}" "${url}" 2>&1 || true`,
+            { timeout: 120000, stdio: "pipe" },
+          );
+        } catch {
+          // wget may exit non-zero but still download files
+        }
+
+        // Count downloaded files
+        let fileCount = 0;
+        const countFiles = (dir: string): void => {
+          try {
+            for (const entry of readdirSync(dir, { withFileTypes: true })) {
+              if (entry.isDirectory()) countFiles(join(dir, entry.name));
+              else fileCount++;
+            }
+          } catch {}
+        };
+        countFiles(WS_SITE_DIR);
+
+        // Start or restart the static file server
+        try {
+          execSync(`fuser -k ${WS_PORT}/tcp 2>/dev/null || true`, { stdio: "pipe" });
+        } catch {}
+
+        // Find the actual site directory (wget creates hostname subdirectory)
+        const hostname = new URL(url).hostname;
+        const siteRoot = existsSync(join(WS_SITE_DIR, hostname))
+          ? join(WS_SITE_DIR, hostname)
+          : WS_SITE_DIR;
+
+        // Start a simple static server in background
+        const { spawn } = await import("child_process");
+        const server = spawn("npx", ["-y", "serve", "-l", String(WS_PORT), "-s", siteRoot], {
+          detached: true,
+          stdio: "ignore",
+          env: { ...process.env },
+        });
+        server.unref();
+
+        console.log(`[webstudio] Site downloaded: ${fileCount} files from ${url}, serving on :${WS_PORT}`);
+
+        res.json({
+          ok: true,
+          data: {
+            previewUrl: `http://localhost:${WS_PORT}`,
+            fileCount,
+            siteRoot,
+            method: "scrape",
+          },
+        });
+      } else {
+        res.status(400).json({ error: `Import method '${method}' not yet implemented` });
+      }
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  // Edit: AI modifies files in the working copy
+  app.post("/api/webstudio/edit", async (req, res) => {
+    try {
+      const { instruction, senderName } = req.body;
+      if (!instruction) { res.status(400).json({ error: "instruction required" }); return; }
+
+      const { readdirSync, readFileSync, writeFileSync } = await import("fs");
+
+      // Find the site root
+      const hostname = readdirSync(WS_SITE_DIR).find(d => !d.startsWith("."));
+      const siteRoot = hostname ? join(WS_SITE_DIR, hostname) : WS_SITE_DIR;
+
+      // List HTML files
+      const htmlFiles: string[] = [];
+      const walkHtml = (dir: string, prefix = ""): void => {
+        try {
+          for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+            if (entry.isDirectory() && !entry.name.startsWith(".")) walkHtml(join(dir, entry.name), rel);
+            else if (entry.name.endsWith(".html") || entry.name.endsWith(".htm")) htmlFiles.push(rel);
+          }
+        } catch {}
+      };
+      walkHtml(siteRoot);
+
+      // Read the main HTML file (index.html or first found)
+      const mainFile = htmlFiles.find(f => f === "index.html") ?? htmlFiles[0];
+      if (!mainFile) {
+        res.json({ ok: false, error: "No HTML files found in working copy" });
+        return;
+      }
+
+      const mainContent = readFileSync(join(siteRoot, mainFile), "utf-8");
+
+      // Use the PA to generate the edit
+      const { handlePaMessage } = await import("./pa/service.js");
+      const result = await handlePaMessage(WORKSPACE!, {
+        id: "webstudio-editor",
+        displayName: "WebStudio Editor",
+        type: "human-facing" as const,
+        owner: senderName ?? "user",
+        modelTier: "good",
+        systemPrompt: `You are a web developer assistant. The user wants to modify their website.
+
+Current HTML file (${mainFile}):
+\`\`\`html
+${mainContent.slice(0, 15000)}
+\`\`\`
+
+${htmlFiles.length > 1 ? `Other files: ${htmlFiles.join(", ")}` : ""}
+
+The user's instruction: "${instruction}"
+
+Generate the COMPLETE modified HTML file with the requested changes applied. Output ONLY the full HTML — no explanations, no markdown code blocks, just the raw HTML that should replace the file.`,
+        mcpServers: [],
+        palaceAccess: { read: ["*"], deny: [] },
+        channels: ["web-studio"],
+        maxTurns: 3,
+      }, {
+        channel: "web-studio",
+        senderId: "webstudio",
+        senderName: senderName ?? "User",
+        content: instruction,
+      });
+
+      // Extract the HTML from the response
+      let newHtml = result.response;
+
+      // Clean up — remove markdown code fences if present
+      const htmlMatch = newHtml.match(/```html?\n([\s\S]*?)```/);
+      if (htmlMatch) newHtml = htmlMatch[1];
+
+      // If it looks like complete HTML, write it
+      if (newHtml.includes("<") && newHtml.includes(">")) {
+        writeFileSync(join(siteRoot, mainFile), newHtml);
+
+        res.json({
+          ok: true,
+          data: {
+            file: mainFile,
+            description: instruction,
+            previewUrl: `http://localhost:${WS_PORT}`,
+            applied: true,
+          },
+        });
+      } else {
+        res.json({
+          ok: true,
+          data: {
+            file: mainFile,
+            description: result.response.slice(0, 200),
+            previewUrl: `http://localhost:${WS_PORT}`,
+            applied: false,
+            response: result.response,
+          },
+        });
+      }
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
   // Document ingest — chunk + embed a palace drawer
   app.post("/api/ingest", async (req, res) => {
     try {
