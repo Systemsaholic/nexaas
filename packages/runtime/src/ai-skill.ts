@@ -14,6 +14,7 @@
 import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { randomUUID } from "crypto";
+import { spawnSync } from "child_process";
 import { palace, appendWal } from "@nexaas/palace";
 import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
@@ -27,6 +28,16 @@ export interface AiSkillManifest {
   execution: {
     type: "ai-skill";
     model_tier?: string;
+    /**
+     * Optional cheap shell check that decides whether the AI loop runs.
+     * Exit 0 → proceed. Exit 1 → skip (status='skipped', $0 cost). Exit ≥2 → fail.
+     * Runs before MCP connect so a skipped run pays nothing.
+     */
+    preflight?: {
+      command: string;
+      timeout?: number;
+      working_directory?: string;
+    };
   };
   mcp_servers?: string[];
   rooms?: {
@@ -83,6 +94,63 @@ export async function runAiSkill(
   await runTracker.markStepStarted(runId, stepId);
 
   const session = palace.enter({ workspace, runId, skillId: manifest.id, stepId });
+
+  // Preflight gate — run before any MCP / model cost. See issue #30.
+  const preflight = manifest.execution.preflight;
+  if (preflight?.command) {
+    const preflightStart = Date.now();
+    const result = spawnSync(preflight.command, {
+      shell: true,
+      encoding: "utf-8",
+      cwd: preflight.working_directory,
+      timeout: (preflight.timeout ?? 30) * 1000,
+      env: { ...process.env, NEXAAS_RUN_ID: runId, NEXAAS_SKILL_ID: manifest.id },
+    });
+    const preflightMs = Date.now() - preflightStart;
+    const exitCode = result.status ?? (result.signal ? 124 : 1);
+    const stderr = (result.stderr ?? "").toString();
+    const stdout = (result.stdout ?? "").toString();
+
+    if (exitCode === 0) {
+      await appendWal({
+        workspace,
+        op: "ai_skill_preflight_passed",
+        actor: `skill:${manifest.id}`,
+        payload: { run_id: runId, duration_ms: preflightMs },
+      });
+    } else if (exitCode === 1) {
+      const reason = (stdout.trim() || stderr.trim() || "preflight returned 1").slice(0, 500);
+      const room = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
+      await session.writeDrawer(room, JSON.stringify({
+        skill: manifest.id,
+        success: true,
+        skipped: true,
+        reason,
+        duration_ms: preflightMs,
+      }));
+      await appendWal({
+        workspace,
+        op: "ai_skill_skipped",
+        actor: `skill:${manifest.id}`,
+        payload: { run_id: runId, reason, duration_ms: preflightMs },
+      });
+      await runTracker.markStepCompleted(runId, stepId);
+      await runTracker.markSkipped(runId, reason);
+      console.log(`[nexaas] AI skill '${manifest.id}' skipped by preflight: ${reason}`);
+      return { success: true, turns: 0, toolCalls: 0, content: `skipped: ${reason}` };
+    } else {
+      const errSummary = (stderr.trim() || stdout.trim() || `preflight exited ${exitCode}`).slice(0, 500);
+      await appendWal({
+        workspace,
+        op: "ai_skill_preflight_failed",
+        actor: `skill:${manifest.id}`,
+        payload: { run_id: runId, exit_code: exitCode, error: errSummary, duration_ms: preflightMs },
+      });
+      await runTracker.markStepFailed(runId, stepId, `preflight exit ${exitCode}: ${errSummary}`);
+      console.error(`[nexaas] AI skill '${manifest.id}' preflight failed (exit ${exitCode}): ${errSummary}`);
+      return { success: false, turns: 0, toolCalls: 0, content: errSummary };
+    }
+  }
 
   // Load the prompt
   const skillDir = dirname(manifestPath);

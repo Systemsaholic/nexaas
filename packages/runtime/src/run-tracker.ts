@@ -14,7 +14,8 @@ export type RunStatus =
   | "completed"
   | "failed"
   | "escalated"
-  | "cancelled";
+  | "cancelled"
+  | "skipped";
 
 export const runTracker = {
   async createRun(params: {
@@ -103,6 +104,18 @@ export const runTracker = {
        SET status = 'cancelled', last_activity = now(), completed_at = now()
        WHERE run_id = $1`,
       [runId],
+    );
+  },
+
+  async markSkipped(runId: string, reason: string): Promise<void> {
+    await sql(
+      `UPDATE nexaas_memory.skill_runs
+       SET status = 'skipped',
+           error_summary = $2,
+           last_activity = now(),
+           completed_at = now()
+       WHERE run_id = $1`,
+      [runId, reason],
     );
   },
 
