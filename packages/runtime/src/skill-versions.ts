@@ -26,7 +26,7 @@ export async function getSkillVersion(
   // Check for workspace-level version pin
   if (!requestedVersion) {
     const pin = await sql<{ value: string }>(
-      `SELECT value FROM nexaas_memory.workspace_config
+      `SELECT value FROM nexaas_memory.workspace_kv
        WHERE workspace = $1 AND key = $2`,
       [workspace, `skill_pin:${skillId}`],
     );
@@ -72,7 +72,7 @@ export async function pinSkillVersion(
   version: string,
 ): Promise<void> {
   await sql(
-    `INSERT INTO nexaas_memory.workspace_config (workspace, key, value)
+    `INSERT INTO nexaas_memory.workspace_kv (workspace, key, value)
      VALUES ($1, $2, $3)
      ON CONFLICT (workspace, key) DO UPDATE SET value = $3`,
     [workspace, `skill_pin:${skillId}`, version],
@@ -91,7 +91,7 @@ export async function unpinSkillVersion(
   skillId: string,
 ): Promise<void> {
   await sql(
-    `DELETE FROM nexaas_memory.workspace_config
+    `DELETE FROM nexaas_memory.workspace_kv
      WHERE workspace = $1 AND key = $2`,
     [workspace, `skill_pin:${skillId}`],
   );

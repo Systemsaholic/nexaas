@@ -87,7 +87,7 @@ export async function run(args: string[]) {
       const libData = JSON.parse(libResult.rows[0].content);
 
       const workspaces = await pool.query(
-        `SELECT DISTINCT workspace FROM nexaas_memory.workspace_config`,
+        `SELECT DISTINCT workspace FROM nexaas_memory.workspace_kv`,
       );
 
       let proposed = 0;
@@ -256,7 +256,7 @@ async function ensureProposalTable(pool: pg.Pool) {
 
 async function getWorkspaceSkillDir(pool: pg.Pool, wsId: string, skillId: string): Promise<string | null> {
   const config = await pool.query(
-    `SELECT value FROM nexaas_memory.workspace_config WHERE workspace = $1 AND key = 'workspace_root'`,
+    `SELECT value FROM nexaas_memory.workspace_kv WHERE workspace = $1 AND key = 'workspace_root'`,
     [wsId],
   );
 
