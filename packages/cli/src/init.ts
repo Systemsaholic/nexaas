@@ -213,6 +213,21 @@ NEXAAS_WORKER_PORT=9090
   chmodSync(envPath, 0o600);
   log("Configuration saved to .env");
 
+  // Create default .mcp.json with fetch (required for PA web access)
+  const mcpPath = join(NEXAAS_ROOT, ".mcp.json");
+  if (!existsSync(mcpPath)) {
+    writeFileSync(mcpPath, JSON.stringify({
+      mcpServers: {
+        fetch: {
+          command: "npx",
+          args: ["-y", "@anthropic-ai/fetch-mcp"],
+          env: {},
+        },
+      },
+    }, null, 2));
+    log("Default .mcp.json created (fetch MCP included)");
+  }
+
   // ── Step 4: Operator bootstrap ─────────────────────────────────────
 
   step(4, TOTAL_STEPS, "Creating operator identity...");
