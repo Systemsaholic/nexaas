@@ -172,8 +172,14 @@ export async function run(args: string[]) {
   const envPath = join(NEXAAS_ROOT, ".env");
   const existingEnv = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
 
-  let anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
-  let voyageKey = process.env.VOYAGE_API_KEY ?? "";
+  // Preserve existing API keys from previous .env
+  function extractEnvValue(content: string, key: string): string {
+    const match = content.match(new RegExp(`^${key}=(.+)$`, "m"));
+    return match?.[1]?.trim() ?? "";
+  }
+
+  let anthropicKey = process.env.ANTHROPIC_API_KEY ?? extractEnvValue(existingEnv, "ANTHROPIC_API_KEY") ?? "";
+  let voyageKey = process.env.VOYAGE_API_KEY ?? extractEnvValue(existingEnv, "VOYAGE_API_KEY") ?? "";
 
   if (!anthropicKey) {
     anthropicKey = await prompt("ANTHROPIC_API_KEY (required for skill execution)");
