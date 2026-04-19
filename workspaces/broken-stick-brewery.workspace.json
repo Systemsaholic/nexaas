@@ -39,5 +39,9 @@
     "subdomain": "bsbc",
     "fullDomain": "bsbc.nexmatic.ca",
     "configuredAt": "2026-04-05T12:27:46.597Z"
-  }
+  },
+  "plan": "intelligent",
+  "addons": [
+    "social-command-center"
+  ]
 }
