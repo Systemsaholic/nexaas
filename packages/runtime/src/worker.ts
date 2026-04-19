@@ -205,6 +205,121 @@ async function main() {
     }
   });
 
+  // Add-on activation/deactivation
+  app.post("/api/addons/activate", async (req, res) => {
+    try {
+      const { addonId, enable, skills, mcpServers } = req.body as {
+        addonId: string;
+        enable: boolean;
+        skills: string[];
+        mcpServers?: Record<string, { command: string; args: string[]; env?: Record<string, string> }>;
+      };
+
+      if (!addonId) { res.status(400).json({ error: "addonId required" }); return; }
+
+      const { readFileSync, writeFileSync, existsSync, mkdirSync } = await import("fs");
+      const { join } = await import("path");
+      const { sql } = await import("@nexaas/palace");
+      const wsRoot = process.env.NEXAAS_WORKSPACE_ROOT ?? "";
+      const nexaasRoot = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
+
+      // 1. Update .mcp.json with add-on's MCP servers
+      const mcpPath = join(nexaasRoot, ".mcp.json");
+      let mcpConfig: Record<string, unknown> = { mcpServers: {} };
+      try { mcpConfig = JSON.parse(readFileSync(mcpPath, "utf-8")); } catch {}
+      const servers = (mcpConfig.mcpServers ?? {}) as Record<string, unknown>;
+
+      if (enable && mcpServers) {
+        for (const [name, config] of Object.entries(mcpServers)) {
+          servers[name] = config;
+        }
+      } else if (!enable && mcpServers) {
+        for (const name of Object.keys(mcpServers)) {
+          delete servers[name];
+        }
+      }
+
+      mcpConfig.mcpServers = servers;
+      writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2));
+
+      // 2. Install/remove skill manifests from the library
+      const results: string[] = [];
+
+      if (enable) {
+        for (const skillId of skills) {
+          // Check if skill exists in the library
+          const libSkill = await sql<{ content: string }>(
+            `SELECT content FROM nexaas_memory.events
+             WHERE wing = 'library' AND hall = 'skills' AND room = $1
+               AND event_type = 'skill-registration'
+             ORDER BY created_at DESC LIMIT 1`,
+            [skillId],
+          );
+
+          if (libSkill.length > 0) {
+            const data = JSON.parse(libSkill[0].content);
+            const [cat, ...nameParts] = skillId.split("/");
+            const skillDir = join(wsRoot, "nexaas-skills", cat!, nameParts.join("/"));
+            mkdirSync(skillDir, { recursive: true });
+
+            for (const [filename, fileContent] of Object.entries(data.files ?? {})) {
+              writeFileSync(join(skillDir, filename), fileContent as string);
+            }
+
+            // Register with BullMQ scheduler
+            const manifestPath = join(skillDir, "skill.yaml");
+            if (existsSync(manifestPath)) {
+              try {
+                const { execSync } = await import("child_process");
+                execSync(`npx tsx ${nexaasRoot}/packages/cli/src/index.ts register-skill "${manifestPath}"`, {
+                  env: { ...process.env },
+                  stdio: "pipe",
+                  timeout: 30000,
+                });
+                results.push(`installed: ${skillId}`);
+              } catch (e) {
+                results.push(`installed but failed to register: ${skillId}`);
+              }
+            }
+          } else {
+            results.push(`not in library: ${skillId}`);
+          }
+        }
+      } else {
+        // Disable: remove scheduler entries (keep files for now)
+        for (const skillId of skills) {
+          try {
+            const jobName = `cron-${skillId.replace(/\//g, "-")}`;
+            const { Queue } = await import("bullmq");
+            const { getRedisConnectionOpts: getOpts } = await import("./bullmq/connection.js");
+            const q = new Queue(`nexaas-skills-${WORKSPACE}`, getOpts());
+            const repeatables = await q.getRepeatableJobs();
+            for (const r of repeatables.filter(j => j.name === jobName)) {
+              await q.removeRepeatableByKey(r.key);
+            }
+            await q.close();
+            results.push(`disabled: ${skillId}`);
+          } catch {
+            results.push(`failed to disable: ${skillId}`);
+          }
+        }
+      }
+
+      // 3. WAL audit
+      const { appendWal } = await import("@nexaas/palace");
+      await appendWal({
+        workspace: WORKSPACE!,
+        op: enable ? "addon_activated" : "addon_deactivated",
+        actor: "dashboard",
+        payload: { addon: addonId, skills: results },
+      });
+
+      res.json({ ok: true, addon: addonId, enabled: enable, results });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
   // Health check
   app.get("/health", (_req, res) => {
     const isRunning = worker.isRunning();
