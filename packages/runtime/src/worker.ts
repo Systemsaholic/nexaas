@@ -297,6 +297,30 @@ async function main() {
     }
   });
 
+  // Document ingest — chunk + embed a palace drawer
+  app.post("/api/ingest", async (req, res) => {
+    try {
+      const { drawerId, wing, hall, room, content } = req.body;
+      if (!drawerId || !content) {
+        res.status(400).json({ error: "drawerId and content required" });
+        return;
+      }
+
+      const { ingestDocument } = await import("./ingest/index.js");
+      const result = await ingestDocument(
+        WORKSPACE!,
+        drawerId,
+        { wing: wing ?? "documents", hall: hall ?? "general", room: room ?? drawerId },
+        content,
+        {},
+      );
+
+      res.json({ ok: true, data: result });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
   // Add-on activation/deactivation
   app.post("/api/addons/activate", async (req, res) => {
     try {

@@ -201,18 +201,41 @@ export async function handlePaMessage(
   const executeTool = async (toolName: string, input: Record<string, unknown>): Promise<string> => {
     // Palace tools
     if (toolName === "palace__search") {
-      const query = input.query as string;
+      const queryText = input.query as string;
       const wing = input.wing as string | undefined;
 
+      // Try semantic search first (vector similarity)
+      try {
+        const { embedText } = await import("../ingest/embedder.js");
+        const { searchSimilar } = await import("@nexaas/palace");
+        const queryEmb = await embedText(queryText);
+
+        const semanticResults = await searchSimilar(workspace, queryEmb, {
+          limit: 8,
+          minSimilarity: 0.3,
+        });
+
+        if (semanticResults.length > 0) {
+          return JSON.stringify(semanticResults.map(r => ({
+            wing: r.wing, hall: r.hall, room: r.room,
+            content: r.content.slice(0, 1500),
+            similarity: Math.round(r.similarity * 100) + "%",
+          })));
+        }
+      } catch {
+        // Embeddings not available — fall through to text search
+      }
+
+      // Fallback: text search across all content including chunks
       const conditions = [`workspace = $1`, `content ILIKE $2`];
-      const params: unknown[] = [workspace, `%${query}%`];
+      const params: unknown[] = [workspace, `%${queryText}%`];
       if (wing) { conditions.push(`wing = $3`); params.push(wing); }
 
       const results = await sql(
-        `SELECT wing, hall, room, left(content, 300) as content
+        `SELECT wing, hall, room, left(content, 1500) as content
          FROM nexaas_memory.events
          WHERE ${conditions.join(" AND ")} AND wing IS NOT NULL
-         ORDER BY created_at DESC LIMIT 5`,
+         ORDER BY created_at DESC LIMIT 8`,
         params,
       );
       return JSON.stringify(results);
