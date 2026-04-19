@@ -14,6 +14,9 @@
 import http from "http";
 import express from "express";
 import { Queue } from "bullmq";
+import { readdirSync, readFileSync, existsSync, statSync } from "fs";
+import { join } from "path";
+import { load as yamlLoad } from "js-yaml";
 import { startWorker } from "./bullmq/worker.js";
 import { startOutboxRelay } from "./bullmq/outbox-relay.js";
 import { createDashboard } from "./bullmq/dashboard.js";
@@ -64,46 +67,128 @@ async function reconcileOrphanedRuns(workspace: string): Promise<number> {
   return parseInt(result[0]?.count ?? "0", 10);
 }
 
-async function reconcileStaleRepeatables(workspace: string): Promise<number> {
+/**
+ * Self-heal all cron schedulers by walking every skill.yaml under the
+ * workspace's `nexaas-skills/` tree and re-`upsertJobScheduler`'ing each
+ * cron trigger. Idempotent — upsertJobScheduler is a no-op when the
+ * scheduler already matches.
+ *
+ * Replaces the older `reconcileStaleRepeatables` which was destructive
+ * against modern `upsertJobScheduler` entries (see #31): it called
+ * `removeRepeatableByKey` then tried to re-add via the legacy
+ * `queue.add(name, {}, { repeat })` API — which silently no-op'd when
+ * `job.pattern` was undefined (the common case for modern entries),
+ * wiping the scheduler entirely.
+ *
+ * Also supersedes the intent of #22 (duplicate removal — upsertJobScheduler
+ * is keyed by name, so duplicates can't form via this path) and #23
+ * (stale catch-up — BullMQ's scheduler handles post-downtime next-fire
+ * on its own; no manual re-add needed).
+ */
+interface SkillManifestForSchedule {
+  id: string;
+  version?: string;
+  timezone?: string;
+  triggers?: Array<{ type: string; schedule?: string; timezone?: string }>;
+  execution?: { type?: string };
+}
+
+function findSkillManifests(skillsRoot: string): string[] {
+  if (!existsSync(skillsRoot)) return [];
+  const out: string[] = [];
+
+  // Structure: nexaas-skills/{category}/{name}/skill.yaml
+  // Walk two levels deep; ignore non-directories and anything deeper.
+  for (const category of readdirSync(skillsRoot)) {
+    const catPath = join(skillsRoot, category);
+    try { if (!statSync(catPath).isDirectory()) continue; } catch { continue; }
+    for (const name of readdirSync(catPath)) {
+      const skillPath = join(catPath, name);
+      try { if (!statSync(skillPath).isDirectory()) continue; } catch { continue; }
+      const manifestPath = join(skillPath, "skill.yaml");
+      if (existsSync(manifestPath)) out.push(manifestPath);
+    }
+  }
+  return out;
+}
+
+async function reconcileSkillSchedulers(workspace: string): Promise<{
+  registered: number;
+  skipped: number;
+  errors: number;
+}> {
+  const workspaceRoot = process.env.NEXAAS_WORKSPACE_ROOT;
+  if (!workspaceRoot) return { registered: 0, skipped: 0, errors: 0 };
+  const skillsRoot = join(workspaceRoot, "nexaas-skills");
+
+  // Resolve workspace default timezone once (trigger → manifest → workspace_config → UTC)
+  let workspaceTz = "UTC";
+  try {
+    const rows = await sql<{ timezone: string }>(
+      `SELECT timezone FROM nexaas_memory.workspace_config WHERE workspace = $1`,
+      [workspace],
+    );
+    if (rows[0]?.timezone) workspaceTz = rows[0].timezone;
+  } catch { /* workspace_config table missing on pre-013 installs — stay UTC */ }
+
   const redisOpts = REDIS_URL.startsWith("redis://")
     ? { connection: { url: REDIS_URL } }
     : { connection: { host: "localhost", port: 6379 } };
-
   const queue = new Queue(`nexaas-skills-${workspace}`, redisOpts);
-  let fixed = 0;
+
+  let registered = 0;
+  let skipped = 0;
+  let errors = 0;
 
   try {
-    const jobs = await queue.getRepeatableJobs();
-    const now = Date.now();
-    const seen = new Map<string, typeof jobs[0]>();
+    const manifestPaths = findSkillManifests(skillsRoot);
 
-    for (const job of jobs) {
-      const baseKey = job.name;
-
-      if (seen.has(baseKey)) {
-        // Duplicate — remove the older one (#22)
-        await queue.removeRepeatableByKey(job.key);
-        fixed++;
+    for (const manifestPath of manifestPaths) {
+      let manifest: SkillManifestForSchedule;
+      try {
+        manifest = yamlLoad(readFileSync(manifestPath, "utf-8")) as SkillManifestForSchedule;
+      } catch (err) {
+        console.warn(`[nexaas] skipping malformed manifest ${manifestPath}: ${(err as Error).message}`);
+        errors++;
         continue;
       }
-      seen.set(baseKey, job);
 
-      // Stale schedule — next tick is in the past (#23)
-      if (job.next && job.next < now) {
-        await queue.removeRepeatableByKey(job.key);
-        if (job.pattern) {
-          await queue.add(job.name, {}, {
-            repeat: { pattern: job.pattern, tz: job.tz ?? undefined },
-          });
+      const cronTriggers = (manifest.triggers ?? []).filter((t) => t.type === "cron" && t.schedule);
+      if (cronTriggers.length === 0) { skipped++; continue; }
+
+      for (const trigger of cronTriggers) {
+        const jobName = `cron-${manifest.id.replace(/\//g, "-")}`;
+        const tz = trigger.timezone ?? manifest.timezone ?? workspaceTz;
+        const stepId = manifest.execution?.type === "ai-skill" ? "ai-exec" : "shell-exec";
+
+        try {
+          await queue.upsertJobScheduler(
+            jobName,
+            { pattern: trigger.schedule!, tz },
+            {
+              name: "skill-step",
+              data: {
+                workspace,
+                skillId: manifest.id,
+                skillVersion: manifest.version,
+                stepId,
+                triggerType: "cron",
+                manifestPath,
+              },
+            },
+          );
+          registered++;
+        } catch (err) {
+          console.warn(`[nexaas] failed to upsert scheduler for ${manifest.id}: ${(err as Error).message}`);
+          errors++;
         }
-        fixed++;
       }
     }
   } finally {
     await queue.close();
   }
 
-  return fixed;
+  return { registered, skipped, errors };
 }
 
 async function main() {
@@ -132,14 +217,21 @@ async function main() {
     console.warn("[nexaas] Orphan reconciliation failed (non-fatal):", (err as Error).message);
   }
 
-  // Fix stale/duplicate BullMQ repeatables (#22, #23)
+  // Self-heal cron schedulers on every startup (#31 — replaces the
+  // destructive stale-reconcile that wiped upsertJobScheduler entries).
   try {
-    const fixed = await reconcileStaleRepeatables(WORKSPACE!);
-    if (fixed > 0) {
-      console.log(`[nexaas] Fixed ${fixed} stale/duplicate BullMQ repeatable schedules`);
+    const result = await reconcileSkillSchedulers(WORKSPACE!);
+    if (result.registered > 0) {
+      console.log(
+        `[nexaas] Scheduler self-heal: ${result.registered} cron trigger(s) upserted` +
+        (result.skipped > 0 ? `, ${result.skipped} manifest(s) without cron skipped` : "") +
+        (result.errors > 0 ? `, ${result.errors} error(s)` : ""),
+      );
+    } else if (result.errors > 0) {
+      console.warn(`[nexaas] Scheduler self-heal encountered ${result.errors} error(s) and registered 0 schedulers`);
     }
   } catch (err) {
-    console.warn("[nexaas] Repeatable reconciliation failed (non-fatal):", (err as Error).message);
+    console.warn("[nexaas] Scheduler self-heal failed (non-fatal):", (err as Error).message);
   }
 
   // Start the BullMQ worker
