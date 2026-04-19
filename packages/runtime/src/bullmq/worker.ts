@@ -14,6 +14,7 @@ import { runAiSkill, type AiSkillManifest } from "../ai-skill.js";
 import { runTracker } from "../run-tracker.js";
 import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
+import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
 import { readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { randomUUID } from "crypto";
@@ -54,7 +55,19 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         }
 
         if (execType === "ai-skill") {
-          await runAiSkill(data.workspace, manifest as unknown as AiSkillManifest, jobData.manifestPath);
+          try {
+            await runAiSkill(data.workspace, manifest as unknown as AiSkillManifest, jobData.manifestPath);
+          } catch (err) {
+            if (isRateLimitError(err)) {
+              const cooldownMs = extractCooldownMs(err);
+              await pauseQueueFor(
+                data.workspace,
+                cooldownMs,
+                `anthropic-429 on skill ${data.skillId}`,
+              );
+            }
+            throw err;
+          }
           return;
         }
       }

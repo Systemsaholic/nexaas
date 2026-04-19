@@ -374,15 +374,28 @@ export async function runAiSkill(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const status = (err as { status?: number }).status;
 
     await appendWal({
       workspace,
-      op: "ai_skill_failed",
+      op: status === 429 ? "ai_skill_rate_limited" : "ai_skill_failed",
       actor: `skill:${manifest.id}`,
-      payload: { run_id: runId, error: message },
+      payload: { run_id: runId, error: message, status },
     });
 
     await runTracker.markStepFailed(runId, stepId, err);
+
+    // Rethrow 429s so the worker layer can pause the workspace queue for
+    // the cooldown window declared in the response headers (see #27).
+    // Other errors stay non-throwing — callers see `success: false`.
+    if (status === 429) {
+      console.warn(`[nexaas] AI skill '${manifest.id}' hit rate limit — rethrowing for queue backoff`);
+      for (const client of mcpClients) {
+        try { await client.disconnect(); } catch { /* ignore */ }
+      }
+      mcpClients.length = 0;
+      throw err;
+    }
 
     console.error(`[nexaas] AI skill '${manifest.id}' failed:`, message);
 
