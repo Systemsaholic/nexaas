@@ -41,6 +41,7 @@ import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
 import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
+import { startApprovalResolver } from "./tasks/approval-resolver.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -757,6 +758,14 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     // drawers and enqueues a BullMQ job per subscribed skill. No-op when
     // no skills declare inbound-message triggers.
     startInboundDispatcher(WORKSPACE!);
+
+    // Approval-callback resolver — companion to #39 + #40 + #45 Stage 1a.
+    // Watches inbox.messaging.* drawers containing action_button_click
+    // that correspond to a TAG-emitted approval-request, resolves the
+    // waitpoint, enqueues skill resumption. Coexists with the inbound
+    // dispatcher (skills can subscribe to the same drawer and also see
+    // the button click).
+    startApprovalResolver(WORKSPACE!);
 
     serverState = "ready";
     console.log("[nexaas] Worker ready.");
