@@ -18,6 +18,19 @@ export type RoutingDecision =
   | "flag"
   | "defer";
 
+/**
+ * Output kind classification per #45 spec — TAG evaluates routing based
+ * on the kind, not the output id. Framework-canonical set; workspaces
+ * can add custom kinds via schema_extensions (architecture.md §14).
+ */
+export type OutputKind =
+  | "notification"          // channel send: Telegram, email, Slack
+  | "external_send"         // email to customer, third-party API, payment
+  | "palace_write"          // drawer write (committing a decision)
+  | "subagent_invocation"   // spawning a sub-agent run
+  | "mcp_tool_call"         // arbitrary MCP tool dispatch
+  | (string & {});           // allow custom kinds without narrowing
+
 export interface ManifestNotifyConfig {
   channel_role: string;
   timeout?: string;
@@ -27,12 +40,33 @@ export interface ManifestNotifyConfig {
   keywords?: Record<string, string[]>;
 }
 
+/**
+ * Approval sub-block per #45 spec. When `routing_default: approval_required`,
+ * this block declares who approves (channel_role), what decisions the
+ * approver sees (buttons/keyword list), and how to handle no-response.
+ */
+export interface ManifestApproval {
+  channel_role: string;                              // may contain {persona_id} template — resolved at route time
+  decisions?: string[];                              // default: ["approve", "reject"]
+  timeout_seconds?: number;                          // default 3600 (1h)
+  on_timeout?: "deny" | "approve" | "escalate";      // default "deny"
+}
+
 export interface ManifestOutput {
   id: string;
+  kind?: OutputKind;                                 // classification per #45; missing = framework infers from action
   routing_default: RoutingDecision;
+  approval?: ManifestApproval;
   overridable?: boolean;
   overridable_to?: RoutingDecision[];
-  notify?: ManifestNotifyConfig;
+  notify?: ManifestNotifyConfig;                     // legacy field; prefer `approval.channel_role` for approval flows
+  conditions?: Array<{                               // reserved for future stages; evaluator stub
+    if: string;
+    route?: RoutingDecision;
+    escalate_to?: string;
+    reason?: string;
+  }>;
+  flag?: { room: string };                           // for routing_default: flag
 }
 
 export interface ContractOverride {
@@ -220,6 +254,25 @@ export async function route(params: {
       authorized_at: authorizedAt,
       reason,
       override_denied: overrideDenied,
+    });
+
+    // Per #45 spec — every routing decision gets a canonical WAL entry.
+    // Sits alongside the more specific ops (tag_override_accepted, etc.)
+    // so operators can query "everything TAG decided on this skill" with
+    // a single op filter.
+    await appendWal({
+      workspace,
+      op: "tag_routed",
+      actor: "tag",
+      payload: {
+        skill: skillId,
+        output: action.kind,
+        output_kind: manifestRule.kind,
+        routing: effectiveRouting,
+        source,
+        override_denied: !!overrideDenied,
+        authorized_by: authorizedBy,
+      },
     });
   }
 

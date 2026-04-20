@@ -12,13 +12,36 @@
 import type { PalaceSession } from "@nexaas/palace";
 import { appendWal } from "@nexaas/palace";
 import { sql } from "@nexaas/palace";
-import type { RoutedAction } from "../tag/route.js";
+import type { RoutedAction, ManifestApproval } from "../tag/route.js";
 import { runTracker } from "../run-tracker.js";
+import type { WorkspaceManifest } from "../schemas/workspace-manifest.js";
 
 export interface ApplyContext {
   session: PalaceSession;
   runId: string;
   stepId: string;
+  // Workspace manifest from #41 — used to resolve channel_role templates
+  // against channel_bindings. Optional because the pillar pipeline may
+  // invoke apply() before the manifest is loaded; the engine then falls
+  // back to the raw channel_role string.
+  workspaceManifest?: WorkspaceManifest | null;
+}
+
+/**
+ * Resolve a channel_role template against the workspace manifest.
+ * Templates use `{var}` substitution. Returns the resolved role plus the
+ * binding entry (kind/mcp/config) if one exists in the manifest.
+ * Missing bindings return `{ role, binding: undefined }` — the caller
+ * decides how strict to be.
+ */
+function resolveChannelBinding(
+  roleTemplate: string,
+  ctx: ApplyContext,
+  templateVars: Record<string, string> = {},
+): { role: string; binding?: { kind: string; mcp: string; config: Record<string, unknown> } } {
+  const role = roleTemplate.replace(/\{(\w+)\}/g, (_, v) => templateVars[v] ?? `{${v}}`);
+  const binding = ctx.workspaceManifest?.channel_bindings?.[role];
+  return binding ? { role, binding } : { role };
 }
 
 export async function apply(
@@ -61,6 +84,16 @@ export async function apply(
       const signal = `approval:${runId}:${action.action.kind}:${Date.now()}`;
       const timeout = action.notify?.timeout ?? "7d";
 
+      // Resolve channel_role → workspace binding if the manifest is loaded.
+      // Template variables (e.g., {persona_id}) not yet wired in Stage 1a;
+      // future stages populate them from skill + run context.
+      const approvalRoleRaw = (action as RoutedAction & { approval?: ManifestApproval }).approval?.channel_role
+        ?? action.notify?.channel_role;
+      const resolved = approvalRoleRaw
+        ? resolveChannelBinding(approvalRoleRaw, ctx)
+        : undefined;
+
+      // Waitpoint drawer — dormant until approval callback resolves it.
       await session.createWaitpoint({
         signal,
         room: { wing: "events", hall: "skill", room: "pending-approval" },
@@ -69,13 +102,68 @@ export async function apply(
           payload: action.action.payload,
           source: action.source,
           notify: action.notify,
+          channel_role: resolved?.role,
         },
         timeout,
       });
 
       await runTracker.markWaiting(runId);
 
+      // Approval-request drawer to notifications.pending.waitpoints.<run_id>
+      // per #45 spec. The outbound subscriber (#40) reads these and
+      // dispatches via the bound channel. Adapter writes a callback that
+      // calls palace.resolveWaitpoint(signal, ...) when the approver acts.
+      if (resolved) {
+        const decisions = (action as RoutedAction & { approval?: ManifestApproval }).approval?.decisions
+          ?? ["approve", "reject"];
+        const onTimeout = (action as RoutedAction & { approval?: ManifestApproval }).approval?.on_timeout ?? "deny";
+        const payloadJson = JSON.stringify(action.action.payload ?? {});
+        const payloadPreview = payloadJson.length > 500 ? payloadJson.slice(0, 500) + "…" : payloadJson;
+
+        await session.writeDrawer(
+          { wing: "notifications", hall: "pending", room: `waitpoints.${runId}` },
+          JSON.stringify({
+            kind: "approval_request",
+            run_id: runId,
+            step_id: stepId,
+            waitpoint_signal: signal,
+            output_id: action.action.kind,
+            summary: `Approval required: ${action.action.kind}`,
+            payload_preview: payloadPreview,
+            decisions: decisions.map((id) => ({ id, label: id })),
+            channel_role: resolved.role,
+            channel_kind: resolved.binding?.kind,
+            channel_mcp: resolved.binding?.mcp,
+            channel_config: resolved.binding?.config,
+            on_timeout: onTimeout,
+            idempotency_key: `approval:${signal}`,
+          }),
+          {
+            run_id: runId,
+            step_id: stepId,
+          },
+        );
+
+        await appendWal({
+          workspace,
+          op: "approval_requested",
+          actor: `skill:${session.ctx.skillId}`,
+          payload: {
+            run_id: runId,
+            step_id: stepId,
+            output: action.action.kind,
+            channel_role: resolved.role,
+            channel_kind: resolved.binding?.kind,
+            binding_resolved: !!resolved.binding,
+            signal,
+            decisions,
+            on_timeout: onTimeout,
+          },
+        });
+      }
+
       // Write to pending_approvals projection for the client dashboard
+      // (legacy path — still consumed by Nexmatic client-dashboard).
       await sql(
         `INSERT INTO pending_approvals
           (workspace_id, skill_id, action_type, summary, details, status, expires_at)
@@ -101,7 +189,7 @@ export async function apply(
           signal,
           action_kind: action.action.kind,
           timeout,
-          channel_role: action.notify?.channel_role,
+          channel_role: resolved?.role ?? action.notify?.channel_role,
         },
       });
       break;

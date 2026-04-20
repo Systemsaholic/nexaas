@@ -14,6 +14,7 @@ import { ModelGateway } from "./models/gateway.js";
 import { route, type SkillManifest, type BehavioralContract } from "./tag/route.js";
 import { apply } from "./engine/apply.js";
 import { runTracker } from "./run-tracker.js";
+import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 
 export interface SkillStepParams {
   workspace: string;
@@ -88,12 +89,17 @@ export async function runSkillStep(params: SkillStepParams): Promise<void> {
       contract,
     });
 
-    // 5. Engine — apply each routing decision
+    // 5. Engine — apply each routing decision. Loads workspace manifest
+    // once per step so engine can resolve channel_role templates against
+    // channel_bindings (#41). Missing manifest is non-fatal; engine falls
+    // back to the raw role string.
+    const { manifest: workspaceManifest } = await loadWorkspaceManifest(workspace);
     for (const action of routing.actions) {
       await apply(action, {
         session,
         runId,
         stepId,
+        workspaceManifest,
       });
     }
 
