@@ -16,6 +16,8 @@ import express from "express";
 import { Queue } from "bullmq";
 import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
+import { promisify } from "util";
+import { exec as execCallback } from "child_process";
 import { load as yamlLoad } from "js-yaml";
 import { startWorker } from "./bullmq/worker.js";
 import { startOutboxRelay } from "./bullmq/outbox-relay.js";
@@ -24,6 +26,12 @@ import { createPool, sql } from "@nexaas/palace";
 import { runCompaction } from "./tasks/closet-compaction.js";
 import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
 import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
+
+// Async exec for use inside HTTP handlers. Never use execSync in a route
+// handler — it blocks the Node event loop, which wedges /health, /queues,
+// /api/pa/message, and any other consumer of this port for the duration
+// (up to 2 minutes for the wget mirror below). See #33.
+const execAsync = promisify(execCallback);
 
 const WORKSPACE = process.env.NEXAAS_WORKSPACE;
 const CONCURRENCY = parseInt(process.env.NEXAAS_WORKER_CONCURRENCY ?? "5", 10);
@@ -245,6 +253,21 @@ async function main() {
   // Express app for Bull Board + health check
   const app = express();
 
+  // Health check — registered FIRST, ahead of Bull Board, body-parser,
+  // and every other route. A health probe should never depend on any
+  // other middleware being happy. The handler is synchronous so even
+  // when a heavy handler is mid-flight, this path is only blocked by
+  // the event loop being busy — not by middleware chain ordering (#33).
+  app.get("/health", (_req, res) => {
+    const isRunning = worker.isRunning();
+    res.status(isRunning ? 200 : 503).json({
+      status: isRunning ? "healthy" : "unhealthy",
+      workspace: WORKSPACE,
+      concurrency: CONCURRENCY,
+      uptime: process.uptime(),
+    });
+  });
+
   // Bull Board dashboard — framework-level visibility
   const dashboard = createDashboard(WORKSPACE!);
   app.use("/queues", dashboard.getRouter());
@@ -308,17 +331,17 @@ async function main() {
       const { url, method } = req.body;
       if (!url) { res.status(400).json({ error: "url required" }); return; }
 
-      const { execSync } = await import("child_process");
       const { mkdirSync, readdirSync } = await import("fs");
 
       mkdirSync(WS_SITE_DIR, { recursive: true });
 
       if (method === "scrape" || !method) {
-        // Download site with wget mirror
+        // Download site with wget mirror — async so we don't wedge the
+        // whole HTTP server for up to 2 minutes while wget runs (#33).
         try {
-          execSync(
+          await execAsync(
             `wget --mirror --convert-links --adjust-extension --page-requisites --no-parent --timeout=30 --tries=2 -q -P "${WS_SITE_DIR}" "${url}" 2>&1 || true`,
-            { timeout: 120000, stdio: "pipe" },
+            { timeout: 120000 },
           );
         } catch {
           // wget may exit non-zero but still download files
@@ -338,7 +361,7 @@ async function main() {
 
         // Start or restart the static file server
         try {
-          execSync(`fuser -k ${WS_PORT}/tcp 2>/dev/null || true`, { stdio: "pipe" });
+          await execAsync(`fuser -k ${WS_PORT}/tcp 2>/dev/null || true`);
         } catch {}
 
         // Find the actual site directory (wget creates hostname subdirectory)
@@ -562,16 +585,15 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
               writeFileSync(join(skillDir, filename), fileContent as string);
             }
 
-            // Register with BullMQ scheduler
+            // Register with BullMQ scheduler — async exec so activation
+            // doesn't block /health and /queues for 30s (#33).
             const manifestPath = join(skillDir, "skill.yaml");
             if (existsSync(manifestPath)) {
               try {
-                const { execSync } = await import("child_process");
-                execSync(`npx tsx ${nexaasRoot}/packages/cli/src/index.ts register-skill "${manifestPath}"`, {
-                  env: { ...process.env },
-                  stdio: "pipe",
-                  timeout: 30000,
-                });
+                await execAsync(
+                  `npx tsx ${nexaasRoot}/packages/cli/src/index.ts register-skill "${manifestPath}"`,
+                  { env: { ...process.env } as NodeJS.ProcessEnv, timeout: 30000 },
+                );
                 results.push(`installed: ${skillId}`);
               } catch (e) {
                 results.push(`installed but failed to register: ${skillId}`);
@@ -616,23 +638,18 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     }
   });
 
-  // Health check
-  app.get("/health", (_req, res) => {
-    const isRunning = worker.isRunning();
-    res.status(isRunning ? 200 : 503).json({
-      status: isRunning ? "healthy" : "unhealthy",
-      workspace: WORKSPACE,
-      concurrency: CONCURRENCY,
-      uptime: process.uptime(),
-    });
-  });
-
   // Start the HTTP server with proper error handling (#19)
   const server = app.listen(PORT, () => {
     console.log(`[nexaas] Dashboard + health on :${PORT}`);
     console.log(`[nexaas]   /queues  — Bull Board (queue visibility)`);
     console.log(`[nexaas]   /health  — health check`);
   });
+
+  // Cap connection lifetime so slow or abandoned clients don't
+  // accumulate CLOSE-WAIT sockets on port 9090 (#33).
+  server.headersTimeout = 60_000;
+  server.requestTimeout = 120_000;
+  server.keepAliveTimeout = 5_000;
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     console.error(`[nexaas] FATAL: HTTP server error: ${err.message}`);
