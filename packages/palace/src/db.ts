@@ -8,6 +8,12 @@ export function createPool(connectionString?: string): pg.Pool {
       connectionString: connectionString ?? process.env.DATABASE_URL,
       max: 10,
       idleTimeoutMillis: 30_000,
+      // TCP keepalives reduce NAT / middlebox-induced idle drops. Without
+      // these, a 30-60min-idle connection can be silently terminated by
+      // an intermediate firewall without either endpoint noticing until
+      // the next query. See #34 nice-to-haves.
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
     });
     // Without this handler, an 'error' event on an idle client (kernel TCP
     // timeout, PG idle_in_transaction_session_timeout, DB restart, network
