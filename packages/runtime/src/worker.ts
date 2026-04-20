@@ -741,6 +741,47 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     }
   }, 5 * 60 * 1000);
 
+  // WAL retention — opt-in. Set NEXAAS_WAL_RETENTION_DAYS to a positive
+  // integer to delete WAL entries older than that many days. Runs every
+  // 6 hours, deletes in 10k-row batches to avoid long locks. Safe to
+  // enable/disable at runtime: unset the env var + restart to turn off.
+  //
+  // Chain integrity: the WAL uses prev_hash linking. Deleting old rows
+  // breaks the chain from the start but verification from the oldest
+  // remaining entry forward still works. Run `nexaas verify-wal --full`
+  // before enabling if chain-from-genesis verifiability matters for the
+  // workspace.
+  const walRetentionDays = parseInt(process.env.NEXAAS_WAL_RETENTION_DAYS ?? "0", 10);
+  if (walRetentionDays > 0) {
+    setInterval(async () => {
+      try {
+        let totalDeleted = 0;
+        while (true) {
+          const rows = await sql<{ id: number }>(
+            `DELETE FROM nexaas_memory.wal
+              WHERE id IN (
+                SELECT id FROM nexaas_memory.wal
+                 WHERE workspace = $1
+                   AND created_at < now() - ($2 || ' days')::interval
+                 ORDER BY id ASC
+                 LIMIT 10000
+              )
+            RETURNING id`,
+            [WORKSPACE!, walRetentionDays.toString()],
+          );
+          totalDeleted += rows.length;
+          if (rows.length < 10000) break;
+        }
+        if (totalDeleted > 0) {
+          console.log(`[nexaas] WAL retention: deleted ${totalDeleted} entries older than ${walRetentionDays} days`);
+        }
+      } catch (err) {
+        console.error("[nexaas] WAL retention error:", err);
+      }
+    }, 6 * 60 * 60 * 1000);
+    console.log(`[nexaas] WAL retention: enabled (delete entries older than ${walRetentionDays} days)`);
+  }
+
   setInterval(async () => {
     try {
       const reaped = await reapExpiredWaitpoints();
