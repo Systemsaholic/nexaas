@@ -133,16 +133,46 @@ export class McpClient {
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
     const result = await this.send("tools/call", { name, arguments: args }) as {
       content: Array<{ type: string; text?: string }>;
+      isError?: boolean;
     };
 
-    if (result.content && Array.isArray(result.content)) {
-      return result.content
-        .filter((c) => c.type === "text" && c.text)
-        .map((c) => c.text!)
-        .join("\n");
+    const text = (result.content && Array.isArray(result.content))
+      ? result.content.filter((c) => c.type === "text" && c.text).map((c) => c.text!).join("\n")
+      : JSON.stringify(result);
+
+    // MCP protocol: `isError: true` at the tool-result level signals the
+    // tool itself failed (Pydantic validation, runtime error, etc.). Before
+    // #48 we returned the error text as if it were normal output, which
+    // let notification-dispatcher mark failed sends as `delivered`. Throw
+    // so every caller's existing try/catch treats it as an error — matches
+    // Node convention (throw, don't silently return the error text).
+    if (result.isError === true) {
+      const err = new Error(`MCP tool '${name}' returned isError: ${text || "(no message)"}`);
+      (err as Error & { mcpIsError?: boolean }).mcpIsError = true;
+      throw err;
     }
 
-    return JSON.stringify(result);
+    return text;
+  }
+
+  /**
+   * Raw tool invocation that returns the full structured result (including
+   * `isError`) without throwing. Use when you need to inspect the error
+   * text for branching logic. The regular `callTool` is the right default.
+   */
+  async callToolRaw(name: string, args: Record<string, unknown>): Promise<{
+    content: Array<{ type: string; text?: string }>;
+    isError: boolean;
+    text: string;
+  }> {
+    const result = await this.send("tools/call", { name, arguments: args }) as {
+      content: Array<{ type: string; text?: string }>;
+      isError?: boolean;
+    };
+    const text = (result.content && Array.isArray(result.content))
+      ? result.content.filter((c) => c.type === "text" && c.text).map((c) => c.text!).join("\n")
+      : JSON.stringify(result);
+    return { content: result.content ?? [], isError: result.isError === true, text };
   }
 
   async disconnect(): Promise<void> {
