@@ -19,14 +19,71 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { appendWal } from "@nexaas/palace";
 import type { ModelAction } from "./gateway.js";
+import { isRetryable as isRetryableAnthropicError } from "./providers/anthropic.js";
 
 let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
   if (!_client) {
-    _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    // maxRetries: 0 — the SDK's built-in retry would hide 429s from our
+    // queue-pause path (#27). Our own retryWithBackoff below handles the
+    // retryable-but-not-429 cases; 429s propagate unretried so the worker
+    // layer can pause the queue for the cooldown window.
+    // timeout: 60s — fail fast on network hangs; #32 showed the default
+    // 10min timeout leaves stalled requests hanging skill runs for minutes.
+    _client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      maxRetries: 0,
+      timeout: 60_000,
+    });
   }
   return _client;
+}
+
+/**
+ * Retry wrapper for the single `client.messages.create` call.
+ *
+ * Retries on connection errors and 5xx (incl. 529 overloaded) with
+ * exponential backoff + jitter. 429s are NEVER retried here — they
+ * propagate unretried so the worker's queue-pause path (#27) can
+ * react to the rate-limit headers. All other errors bubble immediately.
+ *
+ * Addresses #32: transient network blips (~1-3/hr at baseline) were
+ * killing runs outright because the call wasn't wrapped.
+ */
+async function retryMessagesCreate(
+  fn: () => Promise<Anthropic.Message>,
+  opts: { maxAttempts?: number; baseMs?: number; maxMs?: number } = {},
+): Promise<Anthropic.Message> {
+  const maxAttempts = opts.maxAttempts ?? 5;
+  const baseMs = opts.baseMs ?? 500;
+  const maxMs = opts.maxMs ?? 8000;
+
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const status = (err as { status?: number }).status;
+
+      // 429 → propagate immediately so the worker can pause the queue.
+      if (status === 429) throw err;
+
+      // Non-retryable errors bubble immediately.
+      if (!isRetryableAnthropicError(err)) throw err;
+
+      // Last attempt — out of budget, surface the error.
+      if (attempt === maxAttempts) throw err;
+
+      // Exponential backoff with ±25% jitter, capped at maxMs.
+      const base = Math.min(maxMs, baseMs * Math.pow(2, attempt - 1));
+      const jitter = base * 0.25 * (Math.random() * 2 - 1);
+      const delay = Math.max(100, Math.round(base + jitter));
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 export interface McpTool {
@@ -163,13 +220,13 @@ export async function runAgenticLoop(params: {
   while (turns < maxTurns) {
     turns++;
 
-    const response = await client.messages.create({
+    const response = await retryMessagesCreate(() => client.messages.create({
       model,
       max_tokens: maxTokensPerTurn,
       system,
       messages,
       tools: anthropicTools,
-    });
+    }));
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;

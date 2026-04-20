@@ -107,9 +107,17 @@ export function isRetryable(error: unknown): boolean {
     if (error.status === 500) return true;
     if (error.status === 502) return true;
     if (error.status === 503) return true;
+    if (error.status === 504) return true;
     if (error.status === 529) return true; // overloaded
   }
-  if (error instanceof Error && error.message.includes("ECONNRESET")) return true;
-  if (error instanceof Error && error.message.includes("ETIMEDOUT")) return true;
+  // SDK-native connection error classes — these don't always surface an
+  // ECONNRESET/ETIMEDOUT substring in `.message`, so match by class.
+  if (error instanceof Anthropic.APIConnectionError) return true;
+  if (error instanceof Anthropic.APIConnectionTimeoutError) return true;
+  if (error instanceof Error) {
+    if (/ECONNRESET|ETIMEDOUT|ENETUNREACH|EAI_AGAIN|socket hang up|Connection terminated/i.test(error.message)) {
+      return true;
+    }
+  }
   return false;
 }

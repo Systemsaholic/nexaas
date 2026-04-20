@@ -159,9 +159,19 @@ export async function pushHeartbeat(): Promise<void> {
   const identity = getFrameworkIdentity();
   const push = await pushRemote(identity);
   await upsertLocalState(identity, push);
+
+  // WAL op: distinguish success, genuine failure, and "fleet dashboard not
+  // configured on this install" (no-op, not a failure). The third case is
+  // the common state for installs not yet wired to a central ops dashboard;
+  // logging it as a failure creates false-positive noise in alerts.
+  let op = "framework_heartbeat_sent";
+  if (push.status === "ok") op = "framework_heartbeat_sent";
+  else if (push.status.startsWith("skipped:")) op = "framework_heartbeat_skipped";
+  else op = "framework_heartbeat_failed";
+
   await appendWal({
     workspace: identity.workspace,
-    op: push.status === "ok" ? "framework_heartbeat_sent" : "framework_heartbeat_failed",
+    op,
     actor: "fleet-heartbeat",
     payload: {
       version: identity.version,
