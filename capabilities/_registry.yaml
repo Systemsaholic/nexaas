@@ -59,7 +59,7 @@ capabilities:
         input: { amount: number, date: string, counterparty_hint: string? }
         output: { matches: [{ entry_id: string, confidence: number, account_path: string }] }
       - name: create_entry
-        input: { date: string, amount: number, account_path: string, memo: string?, attachments: string[]? }
+        input: { date: "string", amount: "number", account_path: "string", memo: "string?", attachments: "string[]?" }
         output: { entry_id: string }
       - name: attach_document
         input: { entry_id: string, document_id: string }
@@ -75,7 +75,10 @@ capabilities:
         input: { content_base64: string, filename: string, metadata: object? }
         output: { document_id: string }
       - name: search_documents
-        input: { date_range: { from: string, to: string }?, amount_range: { min: number, max: number }?, text_query: string? }
+        input:
+          date_range: "{ from: string, to: string }?"
+          amount_range: "{ min: number, max: number }?"
+          text_query: "string?"
         output: { documents: [{ id: string, filename: string, metadata: object }] }
       - name: get_content
         input: { document_id: string }
@@ -97,7 +100,7 @@ capabilities:
         input: { thread_id: string, body: string, html: boolean? }
         output: { message_id: string }
       - name: mark_read
-        input: { message_ids: string[] }
+        input: { message_ids: "string[]" }
         output: { success: boolean }
 
   email-outbound:
@@ -107,8 +110,14 @@ capabilities:
     implementations: []
     tools:
       - name: send
-        input: { to: string, from: string, subject: string, html: string?, text: string?, attachments: [{ filename: string, content_base64: string }]? }
-        output: { message_id: string, status: string }
+        input:
+          to: "string"
+          from: "string"
+          subject: "string"
+          html: "string?"
+          text: "string?"
+          attachments: "attachment[]?"   # attachment := { filename: string, content_base64: string }
+        output: { message_id: "string", status: "string" }
 
   messaging-inbound:
     stage: experimental
@@ -141,7 +150,7 @@ capabilities:
               thread_id: string?
               reply_to: string?
               edited: boolean?             # true if this is an edit of a prior message
-              attachments: attachment[]?
+              attachments: "attachment[]?"
               action_button_click: action_button_click?
       - name: read_message
         input: { message_id: string }
@@ -153,10 +162,10 @@ capabilities:
           thread_id: string?
           reply_to: string?
           edited: boolean?
-          attachments: attachment[]?
+          attachments: "attachment[]?"
           action_button_click: action_button_click?
       - name: mark_read
-        input: { message_ids: string[] }
+        input: { message_ids: "string[]" }
         output: { success: boolean }
       - name: intercept_code
         # Waitpoint primitive for OAuth / 2FA code delivery via the channel.
@@ -192,7 +201,7 @@ capabilities:
           to: string
           content: string
           parse_mode: parse_mode?           # default "plain"
-          inline_buttons: inline_button[]?
+          inline_buttons: "inline_button[]?"
           reply_to: string?                 # message_id to reply to
         output:
           message_id: string                # framework-level id
@@ -204,7 +213,7 @@ capabilities:
         input:
           message_id: string
           content: string
-          inline_buttons: inline_button[]?
+          inline_buttons: "inline_button[]?"
           parse_mode: parse_mode?
         output:
           status: string                    # "ok" | "unsupported" | "not_found"
@@ -240,12 +249,12 @@ capabilities:
     tools:
       - name: list_events
         input: { from: string, to: string, calendar_id: string? }
-        output: { events: [{ id: string, title: string, start: string, end: string, attendees: string[]? }] }
+        output: { events: [{ id: string, title: string, start: string, end: string, attendees: "string[]?" }] }
       - name: create_event
-        input: { title: string, start: string, end: string, attendees: string[]?, description: string?, calendar_id: string? }
+        input: { title: string, start: string, end: string, attendees: "string[]?", description: string?, calendar_id: string? }
         output: { event_id: string }
       - name: check_availability
-        input: { attendees: string[], from: string, to: string, duration_minutes: number }
+        input: { attendees: "string[]", from: string, to: string, duration_minutes: number }
         output: { slots: [{ start: string, end: string }] }
 
   vector-retrieval:
