@@ -12,6 +12,7 @@ Canonical documentation for the Nexaas framework — context-aware AI execution 
 | [`deployment-ops.md`](./deployment-ops.md) | Deploying & operating — systemd config, legacy cleanup, worker startup, monitoring, backups, upgrading. Lessons from Phoenix production. | When deploying or troubleshooting. |
 | [`fleet-protocol.md`](./fleet-protocol.md) | Wire contract between a client VPS worker and an operator-managed fleet dashboard (heartbeat + bootstrap registration). | When wiring operator-managed deployments. |
 | [`migration-guide.md`](./migration-guide.md) | Moving from Trigger.dev, n8n, or any automation system to Nexaas — parallel operation, per-flow revert, risk tiers | When migrating existing systems. |
+| [`adoption-patterns/`](./adoption-patterns/README.md) | Framework-agnostic patterns distilled from canary adoption — telegram channel, 2FA intercept, approval-gated outputs, etc. | When implementing a specific flow for the first time. |
 | [`glossary.md`](./glossary.md) | Terminology cheat sheet — every named concept in the system | As needed. |
 | [`STATUS.md`](./STATUS.md) | Current build status — what's done, what's in progress | To understand project state. |
 
