@@ -39,6 +39,7 @@ import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
 import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
+import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -745,6 +746,11 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     const dashboard = createDashboard(WORKSPACE!);
     app.use("/queues", dashboard.getRouter());
     console.log("[nexaas] Bull Board dashboard at /queues");
+
+    // Outbound notification dispatcher (#40) — watches notifications.pending.*
+    // drawers and dispatches via bound channel MCPs. No-op when no
+    // manifest / no bindings, so safe to start unconditionally.
+    startNotificationDispatcher(WORKSPACE!);
 
     serverState = "ready";
     console.log("[nexaas] Worker ready.");
