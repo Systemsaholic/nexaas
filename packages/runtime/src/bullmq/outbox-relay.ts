@@ -100,16 +100,38 @@ export async function pollOutbox(): Promise<number> {
 
 let _running = false;
 let _interval: ReturnType<typeof setInterval> | null = null;
+let _polling = false;        // reentrance guard
+let _backoffUntil = 0;       // ms since epoch; skip polls while in backoff
+let _consecutiveFailures = 0;
+const MAX_BACKOFF_MS = 60_000;
 
 export function startOutboxRelay(pollIntervalMs: number = 1000): void {
   if (_running) return;
   _running = true;
 
   _interval = setInterval(async () => {
+    // Reentrance guard — if a previous poll is still running (slow DB,
+    // big batch), don't start a second one. Prevents concurrent DB
+    // pressure and overlapping UPDATEs on the same rows.
+    if (_polling) return;
+    // Exponential backoff after repeated failures so we don't spam
+    // errors every second when PG/Redis is down. Reset on first success.
+    if (Date.now() < _backoffUntil) return;
+
+    _polling = true;
     try {
       await pollOutbox();
+      _consecutiveFailures = 0;
     } catch (err) {
-      console.error("Outbox relay error:", err);
+      _consecutiveFailures++;
+      const backoff = Math.min(MAX_BACKOFF_MS, pollIntervalMs * Math.pow(2, _consecutiveFailures));
+      _backoffUntil = Date.now() + backoff;
+      console.error(
+        `Outbox relay error (${_consecutiveFailures} in a row, next poll in ${Math.round(backoff / 1000)}s):`,
+        err instanceof Error ? err.message : err,
+      );
+    } finally {
+      _polling = false;
     }
   }, pollIntervalMs);
 
