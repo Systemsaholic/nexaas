@@ -282,17 +282,29 @@ The user has uploaded documents specifically so you can reference them. Ignoring
 Be helpful, context-aware, and follow the brand voice.`;
 
   try {
-    const result = await runAgenticLoop({
-      model,
-      system: systemPrompt,
-      messages: [{ role: "user", content: message.content }],
-      tools: allTools,
-      executeTool,
-      maxTurns: persona.maxTurns ?? 15,
-      workspace,
-      runId,
-      skillId: `pa/${persona.id}`,
-    });
+    // Overall request timeout — prevents a wedged tool call or slow
+    // Anthropic response from holding the HTTP handler indefinitely.
+    // Default 2 min; override via NEXAAS_PA_TIMEOUT_MS.
+    const paTimeoutMs = parseInt(process.env.NEXAAS_PA_TIMEOUT_MS ?? "120000", 10);
+    const result = await Promise.race([
+      runAgenticLoop({
+        model,
+        system: systemPrompt,
+        messages: [{ role: "user", content: message.content }],
+        tools: allTools,
+        executeTool,
+        maxTurns: persona.maxTurns ?? 15,
+        workspace,
+        runId,
+        skillId: `pa/${persona.id}`,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`pa handler timed out after ${Math.round(paTimeoutMs / 1000)}s`)),
+          paTimeoutMs,
+        ),
+      ),
+    ]);
 
     // Record the response as a drawer
     await session.writeDrawer(
