@@ -254,6 +254,8 @@ export async function route(params: {
       routing: effectiveRouting,
       source,
       notify: manifestRule.notify,
+      approval: (manifestRule as ManifestOutput).approval,  // forward for engine
+      output_kind: manifestRule.kind,                       // #58 — kind-aware routing
       authorized_by: authorizedBy,
       authorized_at: authorizedAt,
       reason,

@@ -318,7 +318,16 @@ export async function matchDrawerAgainstWaitpoints(
   let drawerPayload: Record<string, unknown>;
   try { drawerPayload = JSON.parse(drawer.content); } catch { drawerPayload = {}; }
   const drawerText = typeof drawerPayload.content === "string" ? drawerPayload.content : drawer.content;
-  const drawerFrom = typeof drawerPayload.from === "string" ? drawerPayload.from : undefined;
+  // `from` per messaging-inbound v0.2 is an object { id, name?, username? }.
+  // Some adapters may write a flat string for simpler channels (SMS, email).
+  // Accept both shapes — extract .id when object, use directly when string.
+  const drawerFromRaw = drawerPayload.from as unknown;
+  const drawerFrom =
+    typeof drawerFromRaw === "string"
+      ? drawerFromRaw
+      : (drawerFromRaw && typeof drawerFromRaw === "object" && typeof (drawerFromRaw as { id?: unknown }).id === "string")
+        ? (drawerFromRaw as { id: string }).id
+        : undefined;
 
   for (const wp of openWaitpoints) {
     let state: Record<string, unknown>;

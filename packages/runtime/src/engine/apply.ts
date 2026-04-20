@@ -53,6 +53,87 @@ export async function apply(
 
   switch (action.routing) {
     case "auto_execute": {
+      // Kind-aware routing (#58) — `kind: notification` outputs get written
+      // to `notifications.pending.<channel_kind>` with the v0.2 dispatch
+      // envelope shape so the outbound dispatcher (#40) picks them up.
+      // All other kinds land in `events.skill.executed` as before.
+      if (action.output_kind === "notification") {
+        const roleRaw = action.notify?.channel_role ?? action.approval?.channel_role;
+        if (!roleRaw) {
+          // Misconfigured — no channel role declared. Log, write the
+          // execution drawer as best-effort (operator will see the gap),
+          // emit a specific WAL op so it's not silently absorbed.
+          await session.writeDrawer(
+            { wing: "events", hall: "skill", room: "executed" },
+            JSON.stringify({
+              action_kind: action.action.kind,
+              payload: action.action.payload,
+              source: action.source,
+              error: "notification kind without channel_role — dispatch skipped",
+            }),
+            { run_id: runId, step_id: stepId },
+          );
+          await appendWal({
+            workspace,
+            op: "notification_misconfigured",
+            actor: `skill:${session.ctx.skillId}`,
+            payload: { run_id: runId, step_id: stepId, action_kind: action.action.kind },
+          });
+          break;
+        }
+        const resolved = resolveChannelBinding(roleRaw, ctx);
+        const channelKind = resolved.binding?.kind ?? "unknown";
+
+        // Extract notification fields from the action payload. The ai-skill
+        // primary_output bridge packs the agentic loop's final text at
+        // payload.content; channel adapters may also surface parse_mode /
+        // inline_buttons / reply_to when the skill author supplies them.
+        const payload = (action.action.payload ?? {}) as Record<string, unknown>;
+        const content =
+          typeof payload.content === "string" ? payload.content :
+          typeof payload.content_preview === "string" ? payload.content_preview :
+          JSON.stringify(payload);
+        const parseMode = typeof payload.parse_mode === "string" ? payload.parse_mode : undefined;
+        const inlineButtons = Array.isArray(payload.inline_buttons) ? payload.inline_buttons : undefined;
+        const replyTo = typeof payload.reply_to === "string" ? payload.reply_to : undefined;
+
+        const idempotencyKey = `auto_execute:${runId}:${stepId}:${action.action.kind}`;
+
+        await session.writeDrawer(
+          { wing: "notifications", hall: "pending", room: channelKind },
+          JSON.stringify({
+            idempotency_key: idempotencyKey,
+            channel_role: resolved.role,
+            content,
+            ...(parseMode ? { parse_mode: parseMode } : {}),
+            ...(inlineButtons ? { inline_buttons: inlineButtons } : {}),
+            ...(replyTo ? { reply_to: replyTo } : {}),
+          }),
+          { run_id: runId, step_id: stepId },
+        );
+
+        await appendWal({
+          workspace,
+          op: "action_auto_executed",
+          actor: `skill:${session.ctx.skillId}`,
+          payload: {
+            run_id: runId,
+            step_id: stepId,
+            action_kind: action.action.kind,
+            output_kind: "notification",
+            channel_role: resolved.role,
+            channel_kind: resolved.binding?.kind,
+            binding_resolved: !!resolved.binding,
+            source: action.source,
+          },
+        });
+        break;
+      }
+
+      // Default path — non-notification kinds write to events.skill.executed
+      // as before. Palace_write / external_send / mcp_tool_call / etc. go
+      // through this branch; future stages add their own kind-specific
+      // routing if needed.
       await session.writeDrawer(
         { wing: "events", hall: "skill", room: "executed" },
         JSON.stringify({
@@ -74,6 +155,7 @@ export async function apply(
           run_id: runId,
           step_id: stepId,
           action_kind: action.action.kind,
+          output_kind: action.output_kind,
           source: action.source,
         },
       });
