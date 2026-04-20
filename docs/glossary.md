@@ -194,6 +194,6 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 
 **Workspace** — One client's complete, self-contained Nexaas install, deployed on its own VPS. Has its own Postgres (with pgvector), Redis (for BullMQ), MCPs, Claude SDK, palace, dashboard, manifest, behavioral contract, installed agents. Per-VPS isolation is absolute.
 
-**Workspace manifest** — The JSON file (`workspaces/<id>.workspace.json`) that is the source of truth for a client's Nexaas install. Contains capability bindings, channel bindings, installed agents, behavioral contract overrides, custom domain configuration, trigger setup.
+**Workspace manifest** — Tenant registry file that is the source of truth for a client's Nexaas deployment. Contains capability bindings, channel bindings, installed agents, behavioral contract overrides, custom domain configuration. Lives in the Nexmatic business-layer repo (`/opt/nexmatic/workspaces/<id>.workspace.json`), not in the Nexaas framework repo — the framework itself is tenant-agnostic.
 
 **Workspace schema extensions** — Per-workspace field additions to canonical skills, declared in the behavioral contract. Example: a client wants an optional Job ID field on all receipts. Lives in the workspace contract, not in the canonical skill. Allows per-client customization without contaminating the library.

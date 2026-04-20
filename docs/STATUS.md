@@ -285,7 +285,6 @@ All decisions are documented in `nexmatic/docs/v1-refactor-plan.md` Part XII. Ke
 │   ├── factory/src/                  EMPTY — authoring primitives (later)
 │   ├── ops-console-core/src/         EMPTY — console widgets (later)
 │   └── cli/src/                      EMPTY — nexaas init, verify-wal, etc. (later)
-├── orchestrator/                     Existing framework code (bootstrap, context, etc.)
 ├── mcp/servers/memory/               Framework memory MCP (629 LOC)
 ├── scripts/                          Health check scripts
 └── docs/

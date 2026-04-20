@@ -183,7 +183,6 @@ Set in `.env` (never committed):
 ├── database/
 │   └── migrations/                     000-013 (palace substrate, workspace config)
 ├── mcp/servers/palace/                 Palace MCP server (8 tools)
-├── orchestrator/                       Bootstrap, context, feedback, sanitizer
 ├── docs/                               Architecture, glossary, migration guide, skill authoring, status
 └── scripts/                            Health checks, deployment helpers
 ```

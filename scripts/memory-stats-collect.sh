@@ -1,5 +1,5 @@
 #!/bin/bash
-# Memory stats collection — run by orchestrator via SSH on client VPS.
+# Memory stats collection — run by the Nexmatic ops-console via SSH on client VPS.
 # Queries nexaas_memory.* tables and outputs sections separated by "---".
 #
 # Output order:

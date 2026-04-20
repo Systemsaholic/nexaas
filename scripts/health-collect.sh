@@ -1,5 +1,5 @@
 #!/bin/bash
-# Instance health collection script — run by orchestrator via SSH
+# Instance health collection script — run by the Nexmatic ops-console via SSH
 # Output: 5 sections separated by "---"
 free -m | awk '/^Mem:/ {print $2,$3}'
 echo "---"
