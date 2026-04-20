@@ -41,6 +41,7 @@ import { randomUUID } from "crypto";
 import { load as yamlLoad } from "js-yaml";
 import { sql, appendWal } from "@nexaas/palace";
 import { enqueueSkillStep, type SkillJobData } from "../bullmq/queues.js";
+import { matchDrawerAgainstWaitpoints } from "./inbound-match-waitpoint.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const POLL_BATCH_SIZE = 50;
@@ -128,12 +129,13 @@ interface PendingInbound {
   wing: string;
   hall: string;
   room: string;
+  content: string;
   created_at: string;
 }
 
 async function selectPending(workspace: string): Promise<PendingInbound[]> {
   return await sql<PendingInbound>(
-    `SELECT e.id, e.wing, e.hall, e.room, e.created_at
+    `SELECT e.id, e.wing, e.hall, e.room, e.content, e.created_at
        FROM nexaas_memory.events e
       WHERE e.workspace = $1
         AND e.wing = 'inbox'
@@ -182,6 +184,23 @@ export async function dispatchPendingInbound(workspace: string): Promise<{
     // Room = channel_role. Adapters MUST use this convention so the
     // dispatcher can route without scanning drawer content.
     const channelRole = drawer.room;
+
+    // #49 — check inbound-match waitpoints first (first-match-wins).
+    // Match does NOT short-circuit skill fanout; drawer is observable
+    // by both paths. Errors here don't block skill firing either.
+    try {
+      await matchDrawerAgainstWaitpoints(workspace, {
+        id: drawer.id,
+        room: drawer.room,
+        content: drawer.content,
+        created_at: drawer.created_at,
+      });
+    } catch (err) {
+      console.warn(
+        `[nexaas] inbound-match check failed for drawer ${drawer.id}: ${(err as Error).message}`,
+      );
+    }
+
     const subscribers = index.get(channelRole);
 
     if (!subscribers || subscribers.length === 0) {

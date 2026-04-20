@@ -42,6 +42,12 @@ import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
 import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
 import { startApprovalResolver } from "./tasks/approval-resolver.js";
+import {
+  registerWaitpoint as registerInboundMatch,
+  getWaitpointStatus as getInboundMatchStatus,
+  cancelWaitpoint as cancelInboundMatch,
+  listNamedPatterns,
+} from "./tasks/inbound-match-waitpoint.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -313,6 +319,74 @@ async function main() {
 
   // PA HTTP adapter — enables client dashboard to use the full PA service
   app.use(express.json());
+
+  // ─── Inbound-match waitpoint API (#49) ──────────────────────────────
+  // HTTP-accessible channel-agnostic pattern-matched message capture for
+  // non-skill callers (Python scripts, shell tools, external CLIs). See
+  // packages/runtime/src/tasks/inbound-match-waitpoint.ts for semantics.
+
+  app.post("/api/waitpoints/inbound-match", async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      if (typeof body.workspace !== "string" || !body.match) {
+        res.status(400).json({ error: "workspace and match are required" });
+        return;
+      }
+      const result = await registerInboundMatch({
+        workspace: body.workspace,
+        match: body.match,
+        timeout_seconds: body.timeout_seconds,
+        extract: body.extract,
+      });
+      if ("error" in result) {
+        res.status(400).json({ error: result.error });
+        return;
+      }
+      res.status(201).json(result);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/waitpoints/inbound-match/patterns", (_req, res) => {
+    res.json({ named_patterns: listNamedPatterns() });
+  });
+
+  app.get("/api/waitpoints/:id", async (req, res) => {
+    try {
+      const workspace = (req.query.workspace as string | undefined) ?? WORKSPACE;
+      if (!workspace) {
+        res.status(400).json({ error: "workspace query param required" });
+        return;
+      }
+      const status = await getInboundMatchStatus(workspace, req.params.id);
+      if (!status) {
+        res.status(404).json({ error: "waitpoint not found" });
+        return;
+      }
+      res.json(status);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.delete("/api/waitpoints/:id", async (req, res) => {
+    try {
+      const workspace = (req.query.workspace as string | undefined) ?? WORKSPACE;
+      if (!workspace) {
+        res.status(400).json({ error: "workspace query param required" });
+        return;
+      }
+      const ok = await cancelInboundMatch(workspace, req.params.id);
+      if (!ok) {
+        res.status(404).json({ error: "waitpoint not found or already resolved" });
+        return;
+      }
+      res.status(204).end();
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
 
   app.post("/api/pa/message", async (req, res) => {
     try {
