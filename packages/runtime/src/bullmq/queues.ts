@@ -55,7 +55,10 @@ export async function enqueueSkillStep(data: SkillJobData): Promise<string> {
   const queue = getSkillQueue(data.workspace);
 
   const job = await queue.add("skill-step", data, {
-    jobId: `${data.runId}:${data.stepId}`,
+    // BullMQ 5.74+ reserves `:` for internal Redis key construction and
+    // rejects it in custom job IDs. Underscore separator keeps the id
+    // human-readable in Bull Board without tripping the invariant (#46).
+    jobId: `${data.runId}__${data.stepId}`,
   });
 
   return job.id!;
@@ -68,7 +71,10 @@ export async function enqueueDelayedSkillStep(
   const queue = getSkillQueue(data.workspace);
 
   const job = await queue.add("skill-step", data, {
-    jobId: `${data.runId}:${data.stepId}`,
+    // BullMQ 5.74+ reserves `:` for internal Redis key construction and
+    // rejects it in custom job IDs. Underscore separator keeps the id
+    // human-readable in Bull Board without tripping the invariant (#46).
+    jobId: `${data.runId}__${data.stepId}`,
     delay: delayMs,
   });
 
