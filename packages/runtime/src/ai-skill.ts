@@ -73,6 +73,17 @@ export interface AiSkillManifest {
     approval?: ManifestApproval;
     notify?: { channel_role: string; timeout?: string };
     verify?: OutputVerification;
+    /**
+     * Per-output format hint for `kind: notification` outputs routed via
+     * the primary_output auto-map (#61). Values: "plain" | "markdown"
+     * | "html" — framework-canonical per messaging-outbound v0.2 (#38).
+     * Channel adapters map to native dialects (Telegram MarkdownV2 /
+     * HTML, Slack mrkdwn, etc.). Missing defaults to "plain".
+     *
+     * Not needed on produce_output calls — AI declares parse_mode at
+     * call time in the tool payload.
+     */
+    parse_mode?: "plain" | "markdown" | "html";
   }>;
   self_reflection?: boolean;
   limits?: {
@@ -414,6 +425,11 @@ export async function runAiSkill(
             payload: {
               ...primaryDrawerPayload,
               content: result.content,
+              // #61 — manifest-declared parse_mode flows through the
+              // notification envelope. engine.apply reads payload.parse_mode
+              // for kind: notification auto_execute; #40 dispatcher forwards
+              // to the MCP send tool.
+              ...(primaryOutput.parse_mode ? { parse_mode: primaryOutput.parse_mode } : {}),
               tool_calls_detail: result.toolCalls.map((tc) => ({
                 name: tc.name,
                 // Truncate input; full input is already in the WAL per-turn entries.
