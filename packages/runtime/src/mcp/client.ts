@@ -40,6 +40,7 @@ export class McpClient {
     reject: (reason: Error) => void;
   }>();
   private tools: McpTool[] = [];
+  private disposed = false;
 
   constructor(
     private serverName: string,
@@ -62,47 +63,67 @@ export class McpClient {
       },
     );
 
+    // Without a listener, spawn failures (ENOENT, EACCES, etc.) emit
+    // 'error' asynchronously and crash the worker via uncaughtException.
+    this.process.on("error", (err) => {
+      this.disposed = true;
+      console.warn(`[nexaas] MCP spawn error for ${this.serverName}: ${err.message}`);
+      this.rejectAllPending(new Error(`MCP spawn error: ${err.message}`));
+    });
+
     this.process.stdout!.on("data", (data: Buffer) => {
       this.buffer += data.toString();
       this.processBuffer();
     });
 
-    this.process.stderr!.on("data", (data: Buffer) => {
+    this.process.stderr!.on("data", (_data: Buffer) => {
       // MCP servers may log to stderr — ignore for now
     });
 
-    this.process.on("exit", (code) => {
-      for (const [, pending] of this.pendingRequests) {
-        pending.reject(new Error(`MCP server ${this.serverName} exited with code ${code}`));
-      }
-      this.pendingRequests.clear();
+    this.process.on("exit", (code, signal) => {
+      this.disposed = true;
+      const reason = signal ? `signal=${signal}` : `code=${code}`;
+      this.rejectAllPending(new Error(`MCP server ${this.serverName} exited (${reason})`));
     });
 
-    // Initialize the MCP connection
-    await this.send("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
-      clientInfo: { name: "nexaas-runtime", version: "0.1.0" },
-    });
+    try {
+      // Initialize the MCP connection
+      await this.send("initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "nexaas-runtime", version: "0.1.0" },
+      });
 
-    // Send initialized notification
-    this.sendNotification("notifications/initialized", {});
+      // Send initialized notification
+      this.sendNotification("notifications/initialized", {});
 
-    // List available tools and normalize schema field names
-    const toolsResult = await this.send("tools/list", {}) as {
-      tools: Array<{
-        name: string;
-        description: string;
-        inputSchema?: Record<string, unknown>;
-        input_schema?: Record<string, unknown>;
-      }>;
-    };
+      // List available tools and normalize schema field names
+      const toolsResult = await this.send("tools/list", {}) as {
+        tools: Array<{
+          name: string;
+          description: string;
+          inputSchema?: Record<string, unknown>;
+          input_schema?: Record<string, unknown>;
+        }>;
+      };
 
-    this.tools = (toolsResult.tools ?? []).map((t) => ({
-      name: t.name,
-      description: t.description ?? "",
-      input_schema: t.inputSchema ?? t.input_schema ?? { type: "object", properties: {} },
-    }));
+      this.tools = (toolsResult.tools ?? []).map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        input_schema: t.inputSchema ?? t.input_schema ?? { type: "object", properties: {} },
+      }));
+    } catch (err) {
+      // Abort the partial connection so we don't leave a child running.
+      await this.disconnect().catch(() => { /* best effort */ });
+      throw err;
+    }
+  }
+
+  private rejectAllPending(err: Error): void {
+    for (const [, pending] of this.pendingRequests) {
+      try { pending.reject(err); } catch { /* ignore */ }
+    }
+    this.pendingRequests.clear();
   }
 
   getTools(): McpTool[] {
@@ -125,13 +146,35 @@ export class McpClient {
   }
 
   async disconnect(): Promise<void> {
-    if (this.process) {
-      this.process.kill("SIGTERM");
-      this.process = null;
-    }
+    this.disposed = true;
+    const proc = this.process;
+    this.process = null;
+    if (!proc || proc.killed || proc.exitCode !== null) return;
+
+    // SIGTERM, wait up to 3s, then SIGKILL if still alive. Prevents
+    // zombie MCP servers from piling up when a worker shuts down while
+    // children are misbehaving.
+    try { proc.kill("SIGTERM"); } catch { /* already gone */ }
+
+    await new Promise<void>((resolve) => {
+      const onExit = () => { clearTimeout(timer); resolve(); };
+      proc.once("exit", onExit);
+      const timer = setTimeout(() => {
+        proc.removeListener("exit", onExit);
+        try { proc.kill("SIGKILL"); } catch { /* already gone */ }
+        resolve();
+      }, 3_000);
+    });
+
+    // Reject any lingering pending requests so callers unblock instead
+    // of waiting for 30s MCP request timeout.
+    this.rejectAllPending(new Error(`MCP client ${this.serverName} disconnected`));
   }
 
   private async send(method: string, params: Record<string, unknown>): Promise<unknown> {
+    if (this.disposed || !this.process || this.process.exitCode !== null) {
+      throw new Error(`MCP client ${this.serverName} is not connected`);
+    }
     return new Promise((resolve, reject) => {
       const id = randomUUID();
       const request: JsonRpcRequest = {
@@ -140,8 +183,6 @@ export class McpClient {
         method,
         params,
       };
-
-      this.pendingRequests.set(id, { resolve, reject });
 
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
@@ -154,17 +195,24 @@ export class McpClient {
       });
 
       const message = JSON.stringify(request) + "\n";
-      this.process!.stdin!.write(message);
+      try {
+        this.process!.stdin!.write(message);
+      } catch (err) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(id);
+        reject(new Error(`MCP stdin write failed: ${(err as Error).message}`));
+      }
     });
   }
 
   private sendNotification(method: string, params: Record<string, unknown>): void {
+    if (this.disposed || !this.process || this.process.exitCode !== null) return;
     const notification = {
       jsonrpc: "2.0",
       method,
       params,
     };
-    this.process!.stdin!.write(JSON.stringify(notification) + "\n");
+    try { this.process.stdin!.write(JSON.stringify(notification) + "\n"); } catch { /* ignore */ }
   }
 
   private processBuffer(): void {
