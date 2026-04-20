@@ -21,6 +21,9 @@ import { McpClient, loadMcpConfigs } from "./mcp/client.js";
 import { runAgenticLoop, type McpTool, type AgenticLimits } from "./models/agentic-loop.js";
 import { resolveTier, estimateCost, type ModelEntry } from "./models/registry.js";
 import { verifyOutputs, summarizeFailures, type OutputVerification } from "./ai-skill-verify.js";
+import type { OutputKind, ManifestApproval, RoutingDecision } from "./tag/route.js";
+import { apply as applyRoutedAction } from "./engine/apply.js";
+import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 
 export interface AiSkillManifest {
   id: string;
@@ -39,6 +42,18 @@ export interface AiSkillManifest {
       timeout?: number;
       working_directory?: string;
     };
+    /**
+     * Optional TAG bridge (#45 Stage 1b). When set, the agentic loop's
+     * result is routed through TAG as if it were an output payload — if
+     * the matching output has `routing_default: approval_required`,
+     * engine.apply creates a waitpoint + approval-request drawer.
+     * `auto_execute` writes the primary drawer (existing behavior).
+     *
+     * For skills that don't declare primary_output, behavior is
+     * unchanged from before Stage 1b — the primary drawer is written
+     * directly without TAG routing.
+     */
+    primary_output?: string;
   };
   mcp_servers?: string[];
   rooms?: {
@@ -47,7 +62,10 @@ export interface AiSkillManifest {
   };
   outputs?: Array<{
     id: string;
+    kind?: OutputKind;
     routing_default: string;
+    approval?: ManifestApproval;
+    notify?: { channel_role: string; timeout?: string };
     verify?: OutputVerification;
   }>;
   self_reflection?: boolean;
@@ -318,7 +336,7 @@ export async function runAiSkill(
 
     // Record the result as a palace drawer
     const primaryRoom = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
-    await session.writeDrawer(primaryRoom, JSON.stringify({
+    const primaryDrawerPayload = {
       skill: manifest.id,
       success: !result.aborted,
       stop_reason: result.stopReason,
@@ -329,7 +347,60 @@ export async function runAiSkill(
       input_tokens: result.inputTokens,
       output_tokens: result.outputTokens,
       cost_usd: result.costUsd,
-    }));
+    };
+
+    // #45 Stage 1b — TAG bridge. If the manifest declares a
+    // primary_output pointing at an outputs[] entry, route the agentic
+    // loop's result through engine.apply() per the declared routing.
+    // Without primary_output, behavior is unchanged (direct drawer write).
+    const primaryOutputId = manifest.execution.primary_output;
+    const primaryOutput = primaryOutputId
+      ? (manifest.outputs ?? []).find((o) => o.id === primaryOutputId)
+      : undefined;
+
+    if (!result.aborted && primaryOutput) {
+      const routing = (primaryOutput.routing_default as RoutingDecision) ?? "auto_execute";
+      const { manifest: workspaceManifest } = await loadWorkspaceManifest(workspace);
+      await applyRoutedAction(
+        {
+          action: {
+            kind: primaryOutput.id,
+            payload: {
+              ...primaryDrawerPayload,
+              content: result.content,
+              tool_calls_detail: result.toolCalls.map((tc) => ({
+                name: tc.name,
+                // Truncate input; full input is already in the WAL per-turn entries.
+                input_keys: Object.keys(tc.input),
+              })),
+            },
+          },
+          routing,
+          source: `ai-skill-primary-output:${primaryOutput.id}`,
+          approval: primaryOutput.approval,
+          notify: primaryOutput.notify as { channel_role: string; timeout?: string } | undefined,
+          output_kind: primaryOutput.kind,
+        },
+        {
+          session,
+          runId,
+          stepId,
+          workspaceManifest,
+        },
+      );
+
+      // auto_execute writes a drawer via engine.apply already (to
+      // events.skill.executed). For ai-skill we still want the canonical
+      // per-skill primary drawer so dashboards keep finding skill output
+      // at manifest.rooms.primary. Write it alongside.
+      if (routing === "auto_execute") {
+        await session.writeDrawer(primaryRoom, JSON.stringify(primaryDrawerPayload));
+      }
+    } else {
+      // Fallback (no primary_output declared, or run aborted): write the
+      // primary drawer directly as before. TAG is opt-in per skill.
+      await session.writeDrawer(primaryRoom, JSON.stringify(primaryDrawerPayload));
+    }
 
     // Update token usage — prefer registry-sourced pricing, fall back to previous guess.
     const cost = pricedModelEntry

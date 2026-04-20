@@ -12,7 +12,7 @@
 import type { PalaceSession } from "@nexaas/palace";
 import { appendWal } from "@nexaas/palace";
 import { sql } from "@nexaas/palace";
-import type { RoutedAction, ManifestApproval } from "../tag/route.js";
+import type { RoutedAction } from "../tag/route.js";
 import { runTracker } from "../run-tracker.js";
 import type { WorkspaceManifest } from "../schemas/workspace-manifest.js";
 
@@ -87,8 +87,7 @@ export async function apply(
       // Resolve channel_role → workspace binding if the manifest is loaded.
       // Template variables (e.g., {persona_id}) not yet wired in Stage 1a;
       // future stages populate them from skill + run context.
-      const approvalRoleRaw = (action as RoutedAction & { approval?: ManifestApproval }).approval?.channel_role
-        ?? action.notify?.channel_role;
+      const approvalRoleRaw = action.approval?.channel_role ?? action.notify?.channel_role;
       const resolved = approvalRoleRaw
         ? resolveChannelBinding(approvalRoleRaw, ctx)
         : undefined;
@@ -114,9 +113,8 @@ export async function apply(
       // dispatches via the bound channel. Adapter writes a callback that
       // calls palace.resolveWaitpoint(signal, ...) when the approver acts.
       if (resolved) {
-        const decisions = (action as RoutedAction & { approval?: ManifestApproval }).approval?.decisions
-          ?? ["approve", "reject"];
-        const onTimeout = (action as RoutedAction & { approval?: ManifestApproval }).approval?.on_timeout ?? "deny";
+        const decisions = action.approval?.decisions ?? ["approve", "reject"];
+        const onTimeout = action.approval?.on_timeout ?? "deny";
         const payloadJson = JSON.stringify(action.action.payload ?? {});
         const payloadPreview = payloadJson.length > 500 ? payloadJson.slice(0, 500) + "…" : payloadJson;
 

@@ -93,6 +93,10 @@ export interface RoutedAction {
   routing: RoutingDecision;
   source: string;
   notify?: ManifestNotifyConfig;
+  /** From ManifestOutput.approval — used by engine.apply for approval_required. */
+  approval?: ManifestApproval;
+  /** Declared output kind from ManifestOutput.kind (notification, external_send, …). */
+  output_kind?: OutputKind;
   authorized_by?: string;
   authorized_at?: string;
   reason?: string;
