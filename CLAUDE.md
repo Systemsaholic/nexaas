@@ -153,6 +153,7 @@ Set in `.env` (never committed):
 - `NEXAAS_FLEET_ENDPOINT` + `NEXAAS_FLEET_TOKEN` — fleet-heartbeat target (operator-managed only; leave unset for direct adopters — sender becomes a silent no-op)
 - `NEXAAS_PA_TIMEOUT_MS` — per-request PA handler timeout (default: 120000 = 2 min)
 - `NEXAAS_WAL_RETENTION_DAYS` — enable WAL retention policy (default: unset = keep forever)
+- `NEXAAS_CROSS_VPS_BEARER_TOKEN` — bearer token for cross-VPS framework HTTP endpoints (`/api/waitpoints/inbound-match`, `/api/drawers/inbound`). Set in operator-managed mode where an ops-VPS relay writes into client VPSes. Leave unset in direct-adopter mode — endpoints remain open. See `docs/adoption-patterns/multi-vps-channel-relay.md`.
 
 ## Separation of Concerns — Nexaas vs Nexmatic
 

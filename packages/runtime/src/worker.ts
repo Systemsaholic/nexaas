@@ -31,7 +31,9 @@ import { startWorker } from "./bullmq/worker.js";
 import { startOutboxRelay } from "./bullmq/outbox-relay.js";
 import { createDashboard } from "./bullmq/dashboard.js";
 import { getRedisConnectionOpts } from "./bullmq/connection.js";
-import { createPool, sql, appendWal } from "@nexaas/palace";
+import { createPool, sql, appendWal, palace } from "@nexaas/palace";
+import { randomUUID } from "crypto";
+import { bearerAuth } from "./middleware/bearer-auth.js";
 import { runCompaction } from "./tasks/closet-compaction.js";
 import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
 import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
@@ -320,12 +322,19 @@ async function main() {
   // PA HTTP adapter — enables client dashboard to use the full PA service
   app.use(express.json());
 
+  // ─── Cross-VPS framework API (#53, #64) ──────────────────────────────
+  // Endpoints below accept writes from peer VPSes in operator-managed
+  // mode (e.g., a Nexmatic ops-VPS Telegram relay forwarding inbound
+  // drawers to a client VPS). Gated by bearerAuth() — when
+  // NEXAAS_CROSS_VPS_BEARER_TOKEN is set, requires matching bearer;
+  // when unset, passes through (direct-adopter backward compat).
+
   // ─── Inbound-match waitpoint API (#49) ──────────────────────────────
   // HTTP-accessible channel-agnostic pattern-matched message capture for
   // non-skill callers (Python scripts, shell tools, external CLIs). See
   // packages/runtime/src/tasks/inbound-match-waitpoint.ts for semantics.
 
-  app.post("/api/waitpoints/inbound-match", async (req, res) => {
+  app.post("/api/waitpoints/inbound-match", bearerAuth(), async (req, res) => {
     try {
       const body = req.body ?? {};
       if (typeof body.workspace !== "string" || !body.match) {
@@ -349,18 +358,18 @@ async function main() {
     }
   });
 
-  app.get("/api/waitpoints/inbound-match/patterns", (_req, res) => {
+  app.get("/api/waitpoints/inbound-match/patterns", bearerAuth(), (_req, res) => {
     res.json({ named_patterns: listNamedPatterns() });
   });
 
-  app.get("/api/waitpoints/:id", async (req, res) => {
+  app.get("/api/waitpoints/:id", bearerAuth(), async (req, res) => {
     try {
       const workspace = (req.query.workspace as string | undefined) ?? WORKSPACE;
       if (!workspace) {
         res.status(400).json({ error: "workspace query param required" });
         return;
       }
-      const status = await getInboundMatchStatus(workspace, req.params.id);
+      const status = await getInboundMatchStatus(workspace, req.params.id as string);
       if (!status) {
         res.status(404).json({ error: "waitpoint not found" });
         return;
@@ -371,19 +380,85 @@ async function main() {
     }
   });
 
-  app.delete("/api/waitpoints/:id", async (req, res) => {
+  app.delete("/api/waitpoints/:id", bearerAuth(), async (req, res) => {
     try {
       const workspace = (req.query.workspace as string | undefined) ?? WORKSPACE;
       if (!workspace) {
         res.status(400).json({ error: "workspace query param required" });
         return;
       }
-      const ok = await cancelInboundMatch(workspace, req.params.id);
+      const ok = await cancelInboundMatch(workspace, req.params.id as string);
       if (!ok) {
         res.status(404).json({ error: "waitpoint not found or already resolved" });
         return;
       }
       res.status(204).end();
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // ─── Generic cross-VPS inbound-drawer landing (#64) ─────────────────
+  // Accepts a canonical v0.2 messaging-inbound drawer from a peer VPS
+  // (ops-VPS channel relay) and writes it to inbox.messaging.<role>.
+  // Channel-agnostic — same endpoint serves Telegram relay, email
+  // forwarding, SMS gateway, etc. The caller's relay code owns the
+  // routing (chat_id/to-address/etc. → workspace + channel_role);
+  // framework owns the landing + WAL audit trail.
+  //
+  // Once the drawer lands, the inbound dispatcher's poll cycle picks
+  // it up and routes to subscribed skills (inbound-match waitpoints
+  // resolve within one dispatcher tick).
+
+  app.post("/api/drawers/inbound", bearerAuth(), async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      if (typeof body.workspace !== "string" || !body.workspace) {
+        res.status(400).json({ error: "workspace is required" });
+        return;
+      }
+      if (typeof body.channel_role !== "string" || !body.channel_role) {
+        res.status(400).json({ error: "channel_role is required" });
+        return;
+      }
+      if (!body.message || typeof body.message !== "object" || Array.isArray(body.message)) {
+        res.status(400).json({ error: "message is required and must be an object" });
+        return;
+      }
+      const msg = body.message as Record<string, unknown>;
+      if (typeof msg.content !== "string" && !msg.action_button_click && !Array.isArray(msg.attachments)) {
+        res.status(400).json({ error: "message must have content, attachments, or action_button_click" });
+        return;
+      }
+
+      const runId = randomUUID();
+      const session = palace.enter({
+        workspace: body.workspace,
+        runId,
+        skillId: "system:inbound-relay",
+        stepId: "relay-ingest",
+      });
+
+      const drawerId = await session.writeDrawer(
+        { wing: "inbox", hall: "messaging", room: body.channel_role },
+        JSON.stringify(msg),
+      );
+
+      await appendWal({
+        workspace: body.workspace,
+        op: "inbound_drawer_relayed",
+        actor: "inbound-relay",
+        payload: {
+          channel_role: body.channel_role,
+          drawer_id: drawerId,
+          message_id: typeof msg.id === "string" ? msg.id : undefined,
+          from: typeof msg.from === "string" ? msg.from : undefined,
+          has_attachments: Array.isArray(msg.attachments) && msg.attachments.length > 0,
+          has_action_button_click: Boolean(msg.action_button_click),
+        },
+      });
+
+      res.status(201).json({ ok: true, drawer_id: drawerId });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
