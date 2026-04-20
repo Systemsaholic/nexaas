@@ -37,20 +37,43 @@ export interface ShellSkillManifest {
   };
 }
 
+export interface SkillExecutionContext {
+  runId?: string;
+  stepId?: string;
+  triggerType?: string;
+  triggerPayload?: Record<string, unknown>;
+}
+
 export async function runShellSkill(
   workspace: string,
   manifest: ShellSkillManifest,
+  context?: SkillExecutionContext,
 ): Promise<{ success: boolean; exitCode: number; stdout: string; stderr: string; durationMs: number }> {
-  const runId = randomUUID();
-  const stepId = "shell-exec";
+  // Reuse the BullMQ job's runId / stepId / triggerType / triggerPayload
+  // when dispatched via the inbound dispatcher or outbox relay so a
+  // single logical skill invocation carries one run_id end-to-end (#47).
+  // Falls back to a fresh id for direct callers (tests, one-off CLI).
+  const runId = context?.runId ?? randomUUID();
+  const stepId = context?.stepId ?? "shell-exec";
+  const triggerType = context?.triggerType ?? "cron";
+  const triggerPayload = context?.triggerPayload;
 
-  await runTracker.createRun({
-    runId,
-    workspace,
-    skillId: manifest.id,
-    skillVersion: manifest.version,
-    triggerType: "cron",
-  });
+  // createRun is idempotent against duplicate PK (23505) — the dispatcher
+  // does NOT create a skill_runs row, but a future producer might. Guard
+  // rather than breaking downstream dispatches on a collision.
+  try {
+    await runTracker.createRun({
+      runId,
+      workspace,
+      skillId: manifest.id,
+      skillVersion: manifest.version,
+      triggerType,
+      triggerPayload,
+    });
+  } catch (err) {
+    const pgErr = err as { code?: string };
+    if (pgErr.code !== "23505") throw err;
+  }
 
   await runTracker.markStepStarted(runId, stepId);
 
@@ -64,7 +87,14 @@ export async function runShellSkill(
       encoding: "utf-8",
       timeout: timeoutMs,
       cwd: manifest.execution.working_directory,
-      env: { ...process.env, NEXAAS_RUN_ID: runId },
+      env: {
+        ...process.env,
+        NEXAAS_RUN_ID: runId,
+        NEXAAS_TRIGGER_TYPE: triggerType,
+        // Payload as JSON so shell skills can parse without a DB round trip.
+        // Empty string when no trigger payload — shell `test -n` semantics work.
+        NEXAAS_TRIGGER_PAYLOAD: triggerPayload ? JSON.stringify(triggerPayload) : "",
+      },
       // Bounded buffer so a runaway skill can't balloon memory inside
       // the worker process. 10 MB is generous for shell output; skills
       // producing more should write to a file and record a path.

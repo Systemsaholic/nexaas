@@ -54,14 +54,34 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         const manifest = yamlLoad(manifestContent) as Record<string, unknown>;
         const execType = (manifest.execution as Record<string, unknown>)?.type;
 
+        // Forward BullMQ job context so the executor reuses the
+        // dispatcher's runId and sees triggerType / triggerPayload (#47).
+        // For cron-triggered jobs, data.triggerType is "cron" and
+        // triggerPayload is undefined — behavior unchanged from pre-#47.
+        const executionContext = {
+          runId: data.runId,
+          stepId: data.stepId,
+          triggerType: data.triggerType,
+          triggerPayload: data.triggerPayload,
+        };
+
         if (execType === "shell") {
-          await runShellSkill(data.workspace, manifest as unknown as ShellSkillManifest);
+          await runShellSkill(
+            data.workspace,
+            manifest as unknown as ShellSkillManifest,
+            executionContext,
+          );
           return;
         }
 
         if (execType === "ai-skill") {
           try {
-            await runAiSkill(data.workspace, manifest as unknown as AiSkillManifest, jobData.manifestPath);
+            await runAiSkill(
+              data.workspace,
+              manifest as unknown as AiSkillManifest,
+              jobData.manifestPath,
+              executionContext,
+            );
           } catch (err) {
             if (isRateLimitError(err)) {
               const cooldownMs = extractCooldownMs(err);

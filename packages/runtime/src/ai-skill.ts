@@ -77,21 +77,40 @@ const TIER_MAP: Record<string, string> = {
   best: "claude-opus-4-6",
 };
 
+export interface AiSkillExecutionContext {
+  runId?: string;
+  stepId?: string;
+  triggerType?: string;
+  triggerPayload?: Record<string, unknown>;
+}
+
 export async function runAiSkill(
   workspace: string,
   manifest: AiSkillManifest,
   manifestPath: string,
+  context?: AiSkillExecutionContext,
 ): Promise<{ success: boolean; turns: number; toolCalls: number; content: string }> {
-  const runId = randomUUID();
-  const stepId = "ai-exec";
+  // Reuse BullMQ job context when the dispatcher supplied one so a single
+  // logical skill invocation carries one run_id end-to-end (#47). Falls
+  // back to a fresh id for direct callers (tests, CLI trigger-skill).
+  const runId = context?.runId ?? randomUUID();
+  const stepId = context?.stepId ?? "ai-exec";
+  const triggerType = context?.triggerType ?? "cron";
+  const triggerPayload = context?.triggerPayload;
 
-  await runTracker.createRun({
-    runId,
-    workspace,
-    skillId: manifest.id,
-    skillVersion: manifest.version,
-    triggerType: "cron",
-  });
+  try {
+    await runTracker.createRun({
+      runId,
+      workspace,
+      skillId: manifest.id,
+      skillVersion: manifest.version,
+      triggerType,
+      triggerPayload,
+    });
+  } catch (err) {
+    const pgErr = err as { code?: string };
+    if (pgErr.code !== "23505") throw err;
+  }
 
   await runTracker.markStepStarted(runId, stepId);
 
