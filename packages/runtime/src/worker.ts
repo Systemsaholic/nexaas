@@ -692,6 +692,37 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     }
   }, 5 * 60 * 1000);
 
+  // Periodic orphan-run reaper (#36) — catches skill_runs that got stuck
+  // in `running` while the worker was alive (executor threw before the
+  // try/catch fired, or some other rare path escaped status updates).
+  // The startup reaper only runs once; this one keeps the table honest
+  // over long-lived worker processes. Threshold 20 min — well past the
+  // legitimate completion time of any single-turn ai-skill under the
+  // current guardrails (max 10 turns × 60s timeout = 10 min).
+  setInterval(async () => {
+    try {
+      const reaped = await sql<{ run_id: string }>(
+        `UPDATE nexaas_memory.skill_runs
+            SET status = 'cancelled',
+                completed_at = COALESCE(completed_at, now()),
+                error_summary = COALESCE(error_summary,
+                  'reaped: status=running and last_activity stale for 20m+')
+          WHERE workspace = $1
+            AND status = 'running'
+            AND last_activity < now() - interval '20 minutes'
+          RETURNING run_id`,
+        [WORKSPACE!],
+      );
+      if (reaped.length > 0) {
+        console.warn(
+          `[nexaas] Reaped ${reaped.length} orphaned skill_runs (last_activity stale for 20m+)`,
+        );
+      }
+    } catch (err) {
+      console.error("[nexaas] Orphan-run reaper error:", err);
+    }
+  }, 5 * 60 * 1000);
+
   // Delay initial health check
   setTimeout(async () => {
     try {
