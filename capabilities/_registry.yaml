@@ -86,29 +86,109 @@ capabilities:
 
   messaging-inbound:
     stage: experimental
-    interface_version: "0.1"
-    description: Receive messages from users (Telegram, WhatsApp, SMS, Slack)
+    interface_version: "0.2"
+    description: >
+      Receive human messages from a channel (Telegram, WhatsApp, SMS, Slack, etc).
+      Channel-agnostic by contract — framework primitives only; channel-native
+      fields (Telegram's callback_query, Slack's action_id, WhatsApp's button_reply)
+      are translated by adapters before the drawer is written.
     implementations: []
+    # Canonical field shapes used across tools:
+    #   attachment := { type: "image" | "document" | "audio" | "video" | "location",
+    #                   url: string,
+    #                   filename: string?,
+    #                   mime_type: string?,
+    #                   size_bytes: number? }
+    #   action_button_click := { button_id: string, message_id: string }
+    #     # fired when a user taps an inline button. `button_id` is the canonical
+    #     # framework identifier (adapter maps Telegram callback_data, Slack
+    #     # action_id, WhatsApp button_reply.id, etc. into this field).
     tools:
       - name: list_unread
         input: { channel_id: string?, limit: number? }
-        output: { messages: [{ id: string, from: string, content: string, timestamp: string, attachments: [{ type: string, url: string }]? }] }
+        output:
+          messages:
+            - id: string
+              from: string
+              content: string
+              timestamp: string
+              thread_id: string?
+              reply_to: string?
+              edited: boolean?             # true if this is an edit of a prior message
+              attachments: attachment[]?
+              action_button_click: action_button_click?
       - name: read_message
         input: { message_id: string }
-        output: { id: string, from: string, content: string, timestamp: string, thread_id: string?, attachments: [{ type: string, url: string, filename: string? }]? }
+        output:
+          id: string
+          from: string
+          content: string
+          timestamp: string
+          thread_id: string?
+          reply_to: string?
+          edited: boolean?
+          attachments: attachment[]?
+          action_button_click: action_button_click?
       - name: mark_read
         input: { message_ids: string[] }
         output: { success: boolean }
+      - name: intercept_code
+        # Waitpoint primitive for OAuth / 2FA code delivery via the channel.
+        # Registers a pattern; the next inbound message matching the pattern
+        # resolves the waitpoint. Framework-owned (not channel-specific).
+        input:
+          pattern: string                   # regex
+          from: string?                     # restrict to a sender id, optional
+          expires_in_seconds: number?       # default 300
+        output:
+          waitpoint_id: string
 
   messaging-outbound:
     stage: experimental
-    interface_version: "0.1"
-    description: Send messages to users on the same channel they came from
+    interface_version: "0.2"
+    description: >
+      Send messages to users on the same channel they came from. Channel-agnostic
+      by contract — framework primitives only; channel adapters translate to
+      channel-native API calls.
     implementations: []
+    # Canonical vocabulary used across tools:
+    #   parse_mode ∈ "markdown" | "html" | "plain"
+    #     # framework-canonical formats; adapters map to channel-native dialects
+    #     # (Telegram MarkdownV2, Slack mrkdwn, Discord md, etc.)
+    #   inline_button := { text: string, button_id: string }
+    #     # `button_id` surfaces back as action_button_click.button_id on the
+    #     # inbound side — same identifier round-trips.
+    #   typing_kind ∈ "composing" | "uploading-file" | "uploading-image"
+    #                | "uploading-audio" | "uploading-video"
     tools:
       - name: send
-        input: { to: string, content: string, inline_buttons: [{ text: string, callback_data: string }]?, reply_to: string? }
-        output: { message_id: string, status: string }
+        input:
+          to: string
+          content: string
+          parse_mode: parse_mode?           # default "plain"
+          inline_buttons: inline_button[]?
+          reply_to: string?                 # message_id to reply to
+        output:
+          message_id: string                # framework-level id
+          channel_native_id: string?        # adapter's native id for follow-ups
+          status: string
+      - name: edit
+        # Edit a previously-sent message. Adapters that don't support edit
+        # should return status: "unsupported" rather than throwing.
+        input:
+          message_id: string
+          content: string
+          inline_buttons: inline_button[]?
+          parse_mode: parse_mode?
+        output:
+          status: string                    # "ok" | "unsupported" | "not_found"
+      - name: typing_indicator
+        # Transient signal — adapters fire and forget, no drawer written.
+        # Channels that don't support a given kind ignore silently.
+        input:
+          to: string
+          kind: typing_kind
+        output: { status: string }          # "ok" | "unsupported"
 
   crm:
     stage: experimental
