@@ -144,6 +144,11 @@ export function buildFrameworkTools(manifest: AiSkillManifest): McpTool[] {
           enum: ["first_regex_match", "first_capture_group", "full_content"],
           description: "What to return as resolved_with.content. Default first_regex_match.",
         },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional adopter-defined tags (e.g., [\"2fa\"], [\"oauth\"]) surfaced to dashboards/UIs for rendering hints. Framework has no semantics for these — they're passthrough metadata. Useful when a workspace dashboard wants to render a styled input (\"Enter the code your bank sent\") instead of a generic reply box.",
+        },
       },
     },
   });
@@ -296,6 +301,7 @@ async function requestMatch(
     },
     timeout_seconds: timeoutSeconds,
     extract: (input.extract as "first_regex_match" | "first_capture_group" | "full_content" | undefined) ?? "first_regex_match",
+    tags: Array.isArray(input.tags) ? (input.tags as unknown[]).filter((t): t is string => typeof t === "string") : undefined,
   });
 
   if ("error" in reg) {

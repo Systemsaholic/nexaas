@@ -54,6 +54,15 @@ export interface RegisterParams {
   };
   timeout_seconds?: number;
   extract?: ExtractMode;
+  /**
+   * Adopter-defined tags surfaced to dashboards / UIs as rendering hints
+   * (e.g., `["2fa"]`, `["oauth", "google"]`, `["delivery-confirmation"]`).
+   * Framework has zero semantics — stored verbatim in waitpoint state and
+   * readable via `content::jsonb -> 'tags'`. Dashboards use them to pick
+   * input styles, copy, or icons without the framework knowing about any
+   * specific category.
+   */
+  tags?: string[];
 }
 
 export interface RegisterResult {
@@ -150,6 +159,12 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
 
   const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
 
+  // Tags are pure passthrough — framework never reads them. Normalize to
+  // string[] and drop anything non-string so downstream SQL stays clean.
+  const tags = Array.isArray(params.tags)
+    ? params.tags.filter((t): t is string => typeof t === "string" && t.length > 0).slice(0, 16)
+    : undefined;
+
   await session.createWaitpoint({
     signal: waitpointId,
     room: WAITPOINT_ROOM,
@@ -164,6 +179,7 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
         sender_id: params.match.sender_id,
       },
       extract,
+      tags,
       created_at: new Date().toISOString(),
       expires_at: expiresAt,
     },
@@ -182,6 +198,7 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
       sender_id: params.match.sender_id,
       timeout_seconds: timeoutSec,
       extract,
+      tags,
     },
   });
 

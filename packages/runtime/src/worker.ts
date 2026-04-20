@@ -337,6 +337,7 @@ async function main() {
         match: body.match,
         timeout_seconds: body.timeout_seconds,
         extract: body.extract,
+        tags: Array.isArray(body.tags) ? body.tags : undefined,
       });
       if ("error" in result) {
         res.status(400).json({ error: result.error });
