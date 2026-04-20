@@ -18,11 +18,21 @@
  */
 
 import { sql, appendWal } from "@nexaas/palace";
-import { execSync } from "child_process";
+import { exec as execCb } from "child_process";
+import { promisify } from "util";
 import { notify } from "../notifications.js";
 
-function exec(cmd: string): string {
-  try { return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim(); } catch { return ""; }
+// Async exec — health monitor runs every 5 min inside the worker. Using
+// execSync here (as before) blocked the event loop for each shell check,
+// stalling /health, BullMQ scheduler ticks, and any HTTP consumer for
+// hundreds of ms at a stretch. Same root cause as #33.
+const execAsync = promisify(execCb);
+
+async function exec(cmd: string): Promise<string> {
+  try {
+    const { stdout } = await execAsync(cmd, { encoding: "utf-8", timeout: 10_000 });
+    return stdout.trim();
+  } catch { return ""; }
 }
 
 interface HealthAlert {
@@ -156,7 +166,7 @@ export async function runHealthCheck(workspace: string): Promise<HealthReport> {
   const palaceDrawers = parseInt(palaceCount[0]?.count ?? "0", 10);
 
   // 7. Redis
-  const redisPong = exec("redis-cli ping 2>/dev/null");
+  const redisPong = await exec("redis-cli ping 2>/dev/null");
   if (redisPong !== "PONG") {
     alerts.push({ severity: "critical", component: "redis", message: "Redis not responding" });
   }
@@ -181,7 +191,7 @@ export async function runHealthCheck(workspace: string): Promise<HealthReport> {
   );
 
   // 10. System resources
-  const memInfo = exec("free -g 2>/dev/null");
+  const memInfo = await exec("free -g 2>/dev/null");
   let memUsed = 0, memAvailable = 0;
   const memMatch = memInfo.match(/Mem:\s+\d+\s+(\d+)\s+\d+\s+\d+\s+\d+\s+(\d+)/);
   if (memMatch) {
@@ -189,7 +199,7 @@ export async function runHealthCheck(workspace: string): Promise<HealthReport> {
     memAvailable = parseInt(memMatch[2]!, 10);
   }
 
-  const diskInfo = exec("df -h / 2>/dev/null | tail -1");
+  const diskInfo = await exec("df -h / 2>/dev/null | tail -1");
   let diskPct = 0;
   const diskMatch = diskInfo.match(/(\d+)%/);
   if (diskMatch) diskPct = parseInt(diskMatch[1]!, 10);

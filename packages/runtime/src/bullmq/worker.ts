@@ -148,24 +148,40 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
     });
   });
 
-  // Graceful shutdown
-  process.on("SIGTERM", async () => {
+  // Graceful shutdown — give active jobs up to SHUTDOWN_DRAIN_MS to
+  // complete so their status transitions fire and BullMQ locks release
+  // cleanly. After that, force-close so systemd's TimeoutStopSec doesn't
+  // SIGKILL the process mid-shutdown.
+  const SHUTDOWN_DRAIN_MS = 25_000;
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[nexaas] ${signal} received — draining BullMQ worker (max ${SHUTDOWN_DRAIN_MS / 1000}s)`);
     stopHeartbeatLoop();
     if (_worker) {
-      await _worker.close();
+      const worker = _worker;
       _worker = null;
+      try {
+        await Promise.race([
+          worker.close(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error("drain timeout")), SHUTDOWN_DRAIN_MS),
+          ),
+        ]);
+        console.log(`[nexaas] BullMQ worker closed cleanly`);
+      } catch (err) {
+        console.warn(
+          `[nexaas] drain exceeded ${SHUTDOWN_DRAIN_MS / 1000}s — force-closing: ${(err as Error).message}`,
+        );
+        try { await worker.close(true); } catch { /* already forced */ }
+      }
     }
     process.exit(0);
-  });
+  };
 
-  process.on("SIGINT", async () => {
-    stopHeartbeatLoop();
-    if (_worker) {
-      await _worker.close();
-      _worker = null;
-    }
-    process.exit(0);
-  });
+  process.on("SIGTERM", () => { void shutdown("SIGTERM"); });
+  process.on("SIGINT", () => { void shutdown("SIGINT"); });
 
   return _worker;
 }

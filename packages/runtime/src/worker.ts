@@ -55,6 +55,52 @@ if (!WORKSPACE) {
   process.exit(1);
 }
 
+// Process-level safety net. pg-pool's 'error' event is already handled
+// (see #34), but there are many other ways an async error can escape
+// the enclosing try/catch — library bugs, ill-formed tool responses,
+// socket teardowns mid-promise. Log the full context so post-mortems
+// have something to work with, then either crash (uncaughtException —
+// state is inconsistent) or keep running (unhandledRejection — often
+// a forgotten await, not fatal).
+process.on("uncaughtException", (err, origin) => {
+  console.error(`[nexaas] uncaughtException (${origin}): ${err.message}`);
+  console.error(err.stack);
+  // Best-effort WAL entry so the restart shows up with context.
+  appendWal({
+    workspace: WORKSPACE!,
+    op: "worker_crashed",
+    actor: "process",
+    payload: {
+      origin,
+      error: err.message,
+      stack: (err.stack ?? "").slice(0, 2000),
+      pid: process.pid,
+      uptime_s: process.uptime(),
+    },
+  }).catch(() => { /* DB may be the thing that broke */ });
+  // Exit so systemd restarts us. Process state is too uncertain to continue.
+  setTimeout(() => process.exit(1), 500);
+});
+
+process.on("unhandledRejection", (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error(`[nexaas] unhandledRejection: ${err.message}`);
+  if (err.stack) console.error(err.stack);
+  // Do NOT exit — a forgotten await in one skill shouldn't take down the
+  // whole worker. Log for diagnosis and keep serving other work.
+  appendWal({
+    workspace: WORKSPACE!,
+    op: "worker_unhandled_rejection",
+    actor: "process",
+    payload: {
+      error: err.message,
+      stack: (err.stack ?? "").slice(0, 2000),
+      pid: process.pid,
+      uptime_s: process.uptime(),
+    },
+  }).catch(() => { /* best effort */ });
+});
+
 async function checkPort(port: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const tester = http.createServer()
