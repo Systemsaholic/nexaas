@@ -24,6 +24,12 @@ import { verifyOutputs, summarizeFailures, type OutputVerification } from "./ai-
 import type { OutputKind, ManifestApproval, RoutingDecision } from "./tag/route.js";
 import { apply as applyRoutedAction } from "./engine/apply.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
+import {
+  buildFrameworkTools,
+  executeFrameworkTool,
+  isFrameworkTool,
+  type FrameworkToolContext,
+} from "./ai-skill-framework-tools.js";
 
 export interface AiSkillManifest {
   id: string;
@@ -256,8 +262,22 @@ export async function runAiSkill(
     }
   }
 
-  // Tool executor that routes calls to the right MCP client
+  // Framework-level tools (#60) — inject produce_output if the skill
+  // declares any outputs. The handler runs in-process, not via MCP.
+  const frameworkToolsState = { producedOutputs: [] as string[] };
+  let frameworkToolsCtx: FrameworkToolContext | null = null;  // bound later when session is ready
+  for (const t of buildFrameworkTools(manifest)) {
+    allTools.push(t);
+  }
+
+  // Tool executor — framework__* calls are handled in-process; everything
+  // else routes to the matching MCP client.
   const executeTool = async (toolName: string, input: Record<string, unknown>): Promise<string> => {
+    if (isFrameworkTool(toolName)) {
+      if (!frameworkToolsCtx) throw new Error("framework tools called before context was bound");
+      return await executeFrameworkTool(toolName, input, frameworkToolsCtx);
+    }
+
     const parts = toolName.split("__");
     if (parts.length < 2) throw new Error(`Invalid tool name: ${toolName}`);
 
@@ -304,6 +324,21 @@ export async function runAiSkill(
         };
       }
     } catch { /* registry not available — spend cap will be skipped */ }
+
+    // Bind framework tool context now that session + manifest loader are
+    // ready. Loaded once per run so the same workspaceManifest is available
+    // both during the agentic loop (via framework__produce_output) and
+    // after (for Stage 1b primary_output auto-map).
+    const { manifest: workspaceManifestForRun } = await loadWorkspaceManifest(workspace);
+    frameworkToolsCtx = {
+      manifest,
+      session,
+      runId,
+      stepId,
+      workspace,
+      workspaceManifest: workspaceManifestForRun,
+      state: frameworkToolsState,
+    };
 
     // Merge manifest limits with defaults.
     const m = manifest.limits ?? {};
@@ -353,14 +388,25 @@ export async function runAiSkill(
     // primary_output pointing at an outputs[] entry, route the agentic
     // loop's result through engine.apply() per the declared routing.
     // Without primary_output, behavior is unchanged (direct drawer write).
+    //
+    // #60 — if any framework__produce_output calls fired during the
+    // loop, suppress primary_output auto-map. Explicit beats implicit:
+    // the AI used typed outputs, don't double-route the final text.
     const primaryOutputId = manifest.execution.primary_output;
     const primaryOutput = primaryOutputId
       ? (manifest.outputs ?? []).find((o) => o.id === primaryOutputId)
       : undefined;
+    const skipPrimaryAutoMap = frameworkToolsState.producedOutputs.length > 0;
 
-    if (!result.aborted && primaryOutput) {
+    if (skipPrimaryAutoMap && primaryOutput) {
+      console.log(
+        `[nexaas] Skipping primary_output auto-map for '${manifest.id}' — ${frameworkToolsState.producedOutputs.length} explicit produce_output call(s): ${frameworkToolsState.producedOutputs.join(", ")}`,
+      );
+    }
+
+    if (!result.aborted && primaryOutput && !skipPrimaryAutoMap) {
       const routing = (primaryOutput.routing_default as RoutingDecision) ?? "auto_execute";
-      const { manifest: workspaceManifest } = await loadWorkspaceManifest(workspace);
+      const workspaceManifest = workspaceManifestForRun;
       await applyRoutedAction(
         {
           action: {
@@ -397,8 +443,11 @@ export async function runAiSkill(
         await session.writeDrawer(primaryRoom, JSON.stringify(primaryDrawerPayload));
       }
     } else {
-      // Fallback (no primary_output declared, or run aborted): write the
-      // primary drawer directly as before. TAG is opt-in per skill.
+      // Fallback: write the canonical primary drawer directly. Runs if:
+      //   - no primary_output declared (Stage 1b opt-in), OR
+      //   - run aborted (primary_output would've been meaningless), OR
+      //   - produce_output fired (we skipped primary auto-map but still
+      //     want the per-skill run summary drawer for dashboards)
       await session.writeDrawer(primaryRoom, JSON.stringify(primaryDrawerPayload));
     }
 
