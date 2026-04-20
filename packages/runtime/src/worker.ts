@@ -38,6 +38,7 @@ import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
 import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
 import { ingestDocument } from "./ingest/index.js";
+import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -690,6 +691,30 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
       }
     } catch (err) {
       console.warn("[nexaas] Orphan reconciliation failed (non-fatal):", (err as Error).message);
+    }
+
+    // Load + validate the workspace manifest (architecture.md §16, issue #41).
+    // Fail-open: missing or malformed manifests only generate warnings.
+    // Framework continues with built-in defaults so deployed workspaces
+    // that haven't migrated yet keep running.
+    try {
+      const { manifest, warnings, errors } = await loadWorkspaceManifest(WORKSPACE!);
+      if (errors.length > 0) {
+        console.warn(`[nexaas] Manifest validation errors (${errors.length}) for ${WORKSPACE}:`);
+        for (const e of errors.slice(0, 10)) console.warn(`  - ${e}`);
+      }
+      if (warnings.length > 0) {
+        for (const w of warnings.slice(0, 5)) console.warn(`[nexaas] Manifest warning: ${w}`);
+      }
+      if (manifest) {
+        const capCount = Object.keys(manifest.capability_bindings).length;
+        const chCount = Object.keys(manifest.channel_bindings).length;
+        console.log(
+          `[nexaas] Manifest loaded (v${manifest.manifest_version}): ${capCount} capability binding(s), ${chCount} channel binding(s), ${manifest.installed_agents.length} agent(s)`,
+        );
+      }
+    } catch (err) {
+      console.warn("[nexaas] Manifest load failed (non-fatal):", (err as Error).message);
     }
 
     // Self-heal cron schedulers (#31).
