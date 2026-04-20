@@ -2,6 +2,8 @@
 
 **Lessons learned from Phoenix Voyages production deployment (2026-04-16 → 2026-04-18)**
 
+> **Which deployment mode?** This guide covers operational recipes that apply in both modes. For the conceptual difference between **direct adopter** (single tenant, manifest in workspace repo) and **operator-managed** (N tenants, manifests propagated from an operator VPS), see [`deployment-patterns.md`](./deployment-patterns.md) first.
+
 ---
 
 ## 1. Fresh Deployment
