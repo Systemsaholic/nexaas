@@ -250,6 +250,33 @@ If an AI skill fails with "input_schema: Field required":
 - The MCP server's tool definitions may use `inputSchema` (camelCase) instead of `input_schema` (snake_case)
 - The Nexaas runtime normalizes both formats, but ensure the schema includes `type: "object"` at minimum
 
+### Manifest hygiene — type-matching MCP input shapes
+
+The framework does NOT coerce argument types when forwarding tool calls to MCPs. Values pass through JSON serialization untouched. If a tool declares `to: string` and the workspace manifest supplies `chat_id: 1967590134` (unquoted integer), a well-behaved MCP (e.g., Pydantic-backed FastMCP) rejects the call with:
+
+```
+Error executing tool send: 1 validation error for sendArguments
+  to
+    Input should be a valid string [type=string_type, input_value=1967590134, input_type=int]
+```
+
+The fix is on the manifest side — quote the value:
+
+```json
+{ "channel_bindings": {
+    "pa_reply_al": {
+      "kind": "telegram",
+      "mcp": "telegram-mcp",
+      "config": { "chat_id": "1967590134" }
+    }
+  }
+}
+```
+
+When authoring a new MCP, consider accepting `str | int` on fields operators commonly hand-type as numbers (chat IDs, phone numbers, account numbers). Fields where string is the semantic type (names, URLs, content bodies) stay string-only.
+
+See `capabilities/_registry.yaml` preamble for the framework's full stance on this. Surfaced during Phoenix's #48 investigation; documented in #50.
+
 ---
 
 ## 6. The Agentic Loop

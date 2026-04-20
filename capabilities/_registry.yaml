@@ -6,6 +6,32 @@
 #   experimental — first implementation, provisional interface, version 0.x
 #   converging   — 2+ implementations, interface generalizing, version 1.0-beta
 #   stable       — 3+ implementations, locked interface, conformance tests required
+#
+# ---
+# Tool argument types — framework stance (#50)
+# ---
+# The framework does NOT coerce primitives when forwarding tool arguments
+# to MCP servers. Arguments pass through JSON.parse / JSON.stringify
+# untouched. Tool input shapes declared here are the MCP's contract.
+#
+# Manifest authors:
+#   Quote values whose declared type is `string`, even if they look numeric.
+#   A Telegram `chat_id: 1967590134` in `channel_bindings.<role>.config`
+#   must be written `chat_id: "1967590134"` to match `to: string` on the
+#   send tool. Unquoted will pass as a JSON integer and a well-behaved
+#   MCP (e.g. Pydantic-backed FastMCP) will reject with `isError: true`.
+#
+# MCP authors:
+#   Consider accepting `str | int` on fields that operators commonly
+#   hand-type as numbers (chat IDs, phone numbers, account numbers).
+#   Framework doesn't require it; it's ergonomic hygiene. Fields where
+#   string IS the semantic type (names, URLs, content bodies) stay
+#   string-only.
+#
+# Why not coerce framework-side: coercion would entangle the runtime
+# with every MCP's schema semantics and lie to MCP authors who expect
+# `to: str` to mean "I get a string." Keep MCPs as the source of truth
+# for their input shapes; keep the framework tenant-agnostic.
 
 version: "1.0"
 
