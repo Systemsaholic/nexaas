@@ -149,6 +149,10 @@ Set in `.env` (never committed):
 - `NEXAAS_WORKER_CONCURRENCY` — parallel job limit (default: 5)
 - `NEXAAS_WORKER_PORT` — health/dashboard port (default: 9090)
 - `NEXAAS_BACKUP_DIR` — backup storage path (default: /var/backups/nexaas)
+- `NEXAAS_WORKSPACE_MANIFEST_DIR` — where to read the workspace manifest (default: `/opt/nexmatic/workspaces/` — operator-managed mode; set to `/etc/nexaas/workspaces` or similar for direct-adopter mode)
+- `NEXAAS_FLEET_ENDPOINT` + `NEXAAS_FLEET_TOKEN` — fleet-heartbeat target (operator-managed only; leave unset for direct adopters — sender becomes a silent no-op)
+- `NEXAAS_PA_TIMEOUT_MS` — per-request PA handler timeout (default: 120000 = 2 min)
+- `NEXAAS_WAL_RETENTION_DAYS` — enable WAL retention policy (default: unset = keep forever)
 
 ## Separation of Concerns — Nexaas vs Nexmatic
 

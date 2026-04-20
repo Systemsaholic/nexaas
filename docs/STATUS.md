@@ -1,7 +1,96 @@
 # Nexaas — Build Status
 
-**Last updated:** 2026-04-18
-**Current phase:** Phase 3 COMPLETE — all 21 items done. Nexmatic paused. Phoenix stabilization in progress.
+**Last updated:** 2026-04-20
+**Current phase:** Reliability + channel-framework epic landing. Phoenix (canary) on `main`.
+
+## Sessions 2026-04-19 → 2026-04-20
+
+### Reliability & hardening batch
+
+Multiple production bugs surfaced and fixed on Phoenix. Every fix is
+workspace-agnostic — applies identically to direct-adopter and
+operator-managed deployments (see `deployment-patterns.md`).
+
+**Issues closed:**
+
+- `#25` agentic-loop guardrails — spend cap, repetition detector, error streak, token caps
+- `#26` per-turn `max_tokens` raised 4096 → 16000 (was truncating tool_use JSON)
+- `#27` workspace-level 429 backoff — BullMQ queue pause with auto-resume
+- `#28` output verification — skill-declared verify blocks gate run completion
+- `#29` workspace_config vs workspace_kv schema split
+- `#30` preflight gate on ai-skill manifests — opt-in empty-work suppression
+- `#31` scheduler wipe on worker restart — self-heal from manifests replaces destructive reconcile
+- `#32` Anthropic retry wrapper — 5-attempt exp-backoff with jitter, 60s per-call timeout
+- `#33` /health endpoint hang — async exec in shell-skill + worker handlers, listen-first startup
+- `#34` pg-pool idle-disconnect crash — added 'error' listener
+- `#35` missing migration for framework_heartbeat — applied on Phoenix
+- `#36` orphan `running` skill_runs — periodic 20-min reaper alongside startup reaper
+- `#38` messaging-inbound/outbound v0.2 — channel-agnostic field renames
+- `#41` workspace manifest JSON schema — Zod + fail-open loader
+- `#44` deployment-patterns doc — direct adopter vs operator-managed
+
+**Issues open (staged or pending dependency):**
+
+- `#27`, `#28`, `#30`, `#32`, `#34`, `#36` — shipped, awaiting 24h Phoenix observation
+- `#37` — compile TS → JS in production (follow-up to #33 tsx/esbuild investigation)
+- `#39` Stage 1 shipped — inbound-message trigger dispatcher (awaits #42 for end-to-end)
+- `#40` Stage 1 shipped — notifications.* outbound subscriber (awaits #45 Stage 1b for skill-side)
+- `#42` — telegram-adapter refactor (capstone, depends on #38/#39/#40/#41)
+- `#43` — capability registry YAML parseability (quality follow-up)
+- `#45` Stage 1a shipped — TAG types + approval-request drawer. Stages 1b–5 remain.
+
+**Key commits (on `main`):**
+
+```
+fc70633 approval-callback resolver
+4fd76ee #39 Stage 1 — inbound-message trigger dispatcher
+472d7f5 #40 Stage 1 — notifications.* outbound subscriber
+bb93498 #45 Stage 1a — TAG types + approval-request drawer
+4026256 #44 deployment-patterns docs
+f7e10c9 #38 messaging v0.2 renames
+30e3f4b #41 workspace manifest schema
+82117a2 harden 5/5 — WAL retention (opt-in)
+5777cb2 harden 4/5 — outbox relay reentrance + backoff
+6ec54f2 harden 3/5 — MCP client lifecycle
+d0ccfe5 harden 2/5 — ioredis error listeners
+dcd6e05 harden 1/5 — PA request timeout
+59417d8 async health-monitor + uncaughtException + bounded shutdown drain
+a5059cd #33 root cause — async exec in shell-skill
+a50a8aa #36 periodic orphan reaper
+ed45ee1 #34 pg-pool error handler
+915d563 #32 Anthropic retry wrapper
+f4db78a fleet versioning + heartbeat v0.2.0
+```
+
+### End-to-end channel framework now wired
+
+For the first time the framework end-to-end composes without channel-
+specific code:
+
+```
+skill output (approval_required)
+  → TAG (bb93498) writes approval-request drawer
+  → #40 outbound dispatcher (472d7f5) sends via channel MCP
+  → [human taps button]
+  → channel adapter writes inbox.messaging.<role> drawer
+  → #39 inbound dispatcher (4fd76ee) fires subscribed skills
+  → approval-resolver (fc70633) resolves the waitpoint
+  → outbox entry → skill resumes via pillar pipeline
+```
+
+Two known gaps pending:
+- **#45 Stage 1b** — `ai-skill.ts` (Phoenix's current executor path) doesn't
+  emit to TAG. Until this bridge lands, Phoenix skills can't feed the
+  pipeline without manual drawer writes.
+- **#42** — concrete Telegram adapter refactor proving the pattern. First
+  real-world validator of #38–#41.
+
+### Dead-code removal
+
+Commit `a547ac3` removed `orchestrator/` (pre-BullMQ scaffolding, zero
+active consumers) and `workspaces/` (tenant registries that belong in
+the consuming business's repo per CLAUDE.md). Nexmatic's consumer paths
+tracked for migration in an issue on the Nexmatic repo.
 
 ## Phoenix Stabilization (2026-04-18)
 
@@ -280,12 +369,18 @@ All decisions are documented in `nexmatic/docs/v1-refactor-plan.md` Part XII. Ke
 │       ├── 000-011                   Pre-palace migrations
 │       └── 012_palace_substrate.sql  Palace substrate (19 tables)
 ├── packages/
-│   ├── palace/src/                   IMPLEMENTED — palace API, WAL, embeddings
-│   ├── runtime/src/                  STUBBED — pipeline, gateway, TAG, CAG, RAG
-│   ├── factory/src/                  EMPTY — authoring primitives (later)
-│   ├── ops-console-core/src/         EMPTY — console widgets (later)
-│   └── cli/src/                      EMPTY — nexaas init, verify-wal, etc. (later)
-├── mcp/servers/memory/               Framework memory MCP (629 LOC)
+│   ├── palace/src/                   IMPLEMENTED — palace API, WAL, embeddings, waitpoints, signing
+│   ├── runtime/src/                  IMPLEMENTED — pipeline (CAG→RAG→Model→TAG→Engine),
+│   │                                   model gateway, BullMQ worker, skill executors,
+│   │                                   schema loader, fleet heartbeat, 4 background tasks
+│   │                                   (compaction, waitpoint-reaper, notification-dispatcher,
+│   │                                   inbound-dispatcher, approval-resolver, orphan-reaper,
+│   │                                   health-monitor), retry/guardrail infrastructure
+│   ├── cli/src/                      IMPLEMENTED — 15-command CLI (init, upgrade, status, health,
+│   │                                   register-skill, trigger-skill, library, gdpr, verify-wal, etc.)
+│   ├── factory/commands/             IMPLEMENTED — /new-skill, /new-flow, /new-mcp, /nexaasify
+│   └── ops-console-core/src/         EMPTY — console widgets (consuming businesses build their own)
+├── mcp/servers/palace/               Palace MCP server (8 tools)
 ├── scripts/                          Health check scripts
 └── docs/
     ├── architecture.md               Framework architecture

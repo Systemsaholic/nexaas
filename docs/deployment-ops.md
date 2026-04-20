@@ -249,6 +249,32 @@ OPS_ALERT_FROM="Nexaas Alerts <alerts@nexmatic.ca>"
 
 Routing: critical → Telegram + Email + Palace, warning → Telegram + Palace, info → Palace only.
 
+### Observability signals added in 2026-04-19/20
+
+New WAL ops operators can query via `SELECT * FROM nexaas_memory.wal WHERE op = 'X'`:
+
+| op | when |
+|----|------|
+| `ai_skill_aborted` | agentic-loop guardrail fired (spend cap, repetition, error streak) |
+| `ai_skill_rate_limited` | Anthropic 429; workspace queue paused via #27 backoff |
+| `ai_skill_skipped` | preflight gate returned exit 1 (no work) |
+| `agentic_truncated` | per-turn `max_tokens` hit mid-tool_use (#26) |
+| `ai_skill_verification` | output-verification results (#28) |
+| `tag_routed` | every TAG routing decision (#45 Stage 1a) |
+| `approval_requested` | TAG emitted an approval-request drawer |
+| `approval_granted` / `approval_denied` / `approval_resolved` | approval-resolver handled a callback |
+| `notification_delivered` / `notification_failed` / `notification_skipped` | outbound dispatcher outcomes |
+| `inbound_dispatched` / `inbound_no_subscriber` | inbound-message trigger fire |
+| `queue_paused` / `queue_resumed` | workspace-level 429 backoff cycle |
+| `framework_heartbeat_sent` / `_skipped` / `_failed` | fleet heartbeat (operator-managed deployments) |
+| `worker_crashed` / `worker_unhandled_rejection` | process-level error handler |
+
+New tables keyed by `workspace`:
+
+- `framework_heartbeat` — current version + last push status (migration 015)
+- `notification_dispatches` — outbound idempotency (migration 016)
+- `inbound_dispatches` — inbound trigger firing log (migration 017)
+
 ### Automated backups
 
 ```bash

@@ -20,6 +20,10 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 
 **Append-only** — The palace never deletes. Drawers are superseded or marked dormant/expired, but the historical record is preserved. Enables free audit trails and time-travel queries.
 
+**Approval request drawer** — The framework-canonical shape written to `notifications.pending.waitpoints.<run_id>` when TAG routes an output as `approval_required`. Carries `kind: "approval_request"`, `waitpoint_signal`, `decisions`, `payload_preview`, resolved channel binding, and `idempotency_key`. The outbound dispatcher picks it up; channel adapters render decisions as inline buttons. See `architecture.md §13` and `packages/runtime/src/engine/apply.ts`.
+
+**Approval resolver** — Background task that correlates inbound button clicks against the dispatch that delivered the approval request, looks up the waitpoint signal, and calls `palace.resolveWaitpoint` to unblock the suspended skill run. Channel-agnostic — adapters only need to report `action_button_click.{button_id, message_id}`; the framework does the lookup via `notification_dispatches.channel_message_id`. See `packages/runtime/src/tasks/approval-resolver.ts`.
+
 **Archetype** — A starter template in a pattern library. New skills stamp from the closest archetype via the factory's authoring interview rather than starting blank. Archetypes are business-specific; Nexmatic provides its own pattern library.
 
 **Authoring Interview** — The structured conversation the factory walks an operator through to produce a new skill. Each answer maps to a specific field in the generated artifact. Different consuming businesses configure different interview questions.
@@ -56,6 +60,10 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 
 **Custom domain** — A client-owned DNS name (e.g., `nexaas.envirotem.ca`) pointed at their workspace VPS. Self-service through the client dashboard. The default subdomain (e.g., `<workspace>.nexmatic.ca`) stays active alongside any custom domains.
 
+**Deployment mode** — One of two supported configurations (see `deployment-patterns.md`): **direct adopter** (single tenant per VPS, manifest in workspace repo, no operator layer — Phoenix Voyages is the canary), or **operator-managed** (N tenants managed by a central operator VPS with ops-console, client-dashboard, library propagator, tiered billing — Nexmatic is the reference). Framework features work identically in both modes.
+
+**Direct adopter** — Deployment mode where a single workspace runs on a single VPS with no operator layer. Workspace team owns manifest location (`/etc/nexaas/workspaces/<id>.workspace.json` by convention), framework upgrade cadence, and deployment process.
+
 **Dormant drawer** — A drawer with `dormant_signal` set. The palace-level representation of a waitpoint. Resolved when an external event triggers `resolveWaitpoint(signal, resolution)`.
 
 **Drawer** — The fundamental unit of palace memory: raw text content plus metadata facets (`workspace`, `wing`, `hall`, `room`, `skill_id`, `run_id`, etc.). Everything observable in Nexaas is a drawer. Term borrowed from MemPalace.
@@ -68,11 +76,17 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 
 **Factory** — The authoring system that produces new skills and flows. The framework (Nexaas) provides the primitives; a consuming business (Nexmatic) provides the specific slash commands, interview questions, archetype library, and curation discipline.
 
+**Fleet heartbeat** — Every worker posts a heartbeat with framework version, commit SHA, branch, hostname, uptime to `${NEXAAS_FLEET_ENDPOINT}/heartbeat` every 5 minutes (plus on startup and post-upgrade). Operator-managed deployments wire the endpoint to their ops-console; direct adopters leave it unset and the sender is a silent no-op. See `docs/fleet-protocol.md` and `packages/runtime/src/fleet/heartbeat.ts`.
+
 **Flow** — A client-specific business workflow assembled from skills. Flows are composed per-workspace; skills are primitive and library-resident. Flows live in the workspace, reference skills by id + version + binding, and are editable via factory slash commands.
 
 **Four Pillars** — CAG, RAG, TAG, Contracts. The core Nexaas execution model. Every skill run flows through CAG → RAG → Model → TAG, with Contracts providing the rules TAG enforces.
 
 **HNSW** — Hierarchical Navigable Small World, the vector index type pgvector uses for sub-10ms nearest-neighbor search over drawer embeddings at our scale.
+
+**Guardrail (agentic-loop)** — Per-run limits enforced inside the Claude agentic loop: spend cap (`max_spend_usd`), per-turn and cumulative token caps, repetition detector (identical tool calls in a row), error-streak detector. Declared in the skill manifest; defaults apply if unset. See `packages/runtime/src/models/agentic-loop.ts`.
+
+**Inbound dispatcher** — Background task that polls `inbox.messaging.<role>` drawers written by channel adapters, matches each against skill manifests declaring `triggers: [{type: inbound-message, channel_role}]`, and enqueues parallel BullMQ jobs (one per subscribed skill). Tracked in `nexaas_memory.inbound_dispatches` for idempotency. See `packages/runtime/src/tasks/inbound-dispatcher.ts`.
 
 **Interface contract (capability)** — The documented tool names, input shapes, and output shapes that any MCP claiming a given capability must implement. Versioned. Matures through capability stages.
 
@@ -100,11 +114,15 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 
 **Normalize version** — Integer field on every drawer. Bumping the normalize version of a drawer schema triggers automatic re-mining of older content. Clean migration pattern for evolving memory structures.
 
+**Notification dispatcher (outbound)** — Background task that polls `notifications.pending.*` drawers, resolves `channel_role` against the workspace manifest's `channel_bindings`, invokes the bound channel's `messaging-outbound.send` MCP tool, and writes `notifications.delivered.<kind>.<role>` / `notifications.failed.*` receipt drawers. Idempotency via `nexaas_memory.notification_dispatches` keyed by `(workspace, idempotency_key)`. See `packages/runtime/src/tasks/notification-dispatcher.ts`.
+
 **Ontology** — The canonical registry of wings, halls, and room patterns in the palace, maintained at the framework level. Adding a new top-level wing requires a PR against the ontology file.
 
 **Operator** — A person authorized to perform privileged actions. Roles: `ops_admin`, `ops_member`, `client_admin`. Each operator has a registered identity and one or more signing keys. Every privileged action is signed.
 
 **Operator key** — An ed25519 keypair tied to an operator identity. Public key stored in `operator_keys` registry; private key held by the operator (file for Tier 1, device for Tier 2 WebAuthn). Signs privileged WAL rows.
+
+**Operator-managed** — Deployment mode where a central operator VPS runs ops-console, library propagator, and fleet management for N client VPSes. Each client runs one Nexaas workspace; manifests live in the operator's repo and rsync to clients. Nexmatic is the reference implementation.
 
 **Ops Console** — The operator-facing dashboard for fleet management. The framework provides a console **core** (palace browser, WAL viewer, effective policy inspector, etc.); a consuming business extends the core with its own application. Nexmatic's Ops Console is a business-specific extension.
 
@@ -117,6 +135,8 @@ For framework conceptual context, see [`architecture.md`](./architecture.md). Fo
 **Palace footprint** — The explicit declaration in a skill manifest of which rooms it reads from (retrieval), writes to (output), subscribes to (triggers), and emits to (downstream triggers). Gives a static map of skill-to-room relationships.
 
 **Pattern library** — The set of archetype templates used by a consuming business's factory. Nexmatic maintains its own pattern library in its repository.
+
+**Preflight gate** — Optional shell command declared on an ai-skill manifest (`execution.preflight.command`) that runs before MCP connect + model warmup. Exit 0 proceeds; exit 1 marks the run `skipped` with zero cost; exit ≥2 fails. Lets high-frequency scanners cheaply short-circuit empty-work runs. See `packages/runtime/src/ai-skill.ts`.
 
 **Persona** — Layer-3 sub-agent concept: a persistent model configuration with its own palace wing and voice, owning a set of specialist skills. Schema field reserved in v1; runtime implementation deferred to v1.2+.
 

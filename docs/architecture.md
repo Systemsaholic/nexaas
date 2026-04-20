@@ -339,10 +339,10 @@ Skills declare triggers abstractly. The trigger type registry is the plugin surf
 
 ### Trigger Types
 
-- **`cron`** — schedule-based, self-contained
-- **`event`** — subscribes to drawer writes in `events.<dotted.path>` rooms
-- **`inbound-message`** — binds to a channel role; incoming messages through that channel fire the skill
-- **`webhook`** — exposes an HTTP endpoint; external systems POST to trigger
+- **`cron`** — schedule-based, self-contained. Implementation: `packages/runtime/src/worker.ts` (scheduler self-heal walks manifests + upserts BullMQ job schedulers). Self-healing on every worker restart from `nexaas-skills/**/skill.yaml`.
+- **`event`** — (future) subscribes to drawer writes in `events.<dotted.path>` rooms
+- **`inbound-message`** — binds to a channel role; incoming messages through that channel fire the skill. Implementation: `packages/runtime/src/tasks/inbound-dispatcher.ts`. Polls `inbox.messaging.<role>` drawers, matches against manifests declaring `triggers: [{type: inbound-message, channel_role}]`, fans out parallel BullMQ jobs (one per subscriber).
+- **`webhook`** — (future) exposes an HTTP endpoint; external systems POST to trigger
 - **`manual`** — fired from the operator console or client dashboard with ACL checks
 - **`file-watch`** — (future) fires on file system events in a watched directory
 
@@ -351,6 +351,10 @@ Skills declare triggers abstractly. The trigger type registry is the plugin surf
 Events are drawers, not a separate bus. Skill A writes a drawer to `events.invoicing.pending`; skill B's manifest subscribes to that room; when the drawer lands, the trigger fires skill B.
 
 Cross-skill choreography is expressed entirely through palace writes. No new infrastructure, no message broker, no webhook dance. Every event is automatically audit-logged and retroactively inspectable.
+
+### Dispatch tracking
+
+Drawer-driven trigger firings are tracked in `nexaas_memory.inbound_dispatches` keyed by `(workspace, drawer_id, skill_id)`. Re-polls never re-fire the same (drawer, skill) pair. No-subscriber drawers get a sentinel row so they're not rescanned; operators can clear sentinel rows to replay historical drawers if a new skill subscribes.
 
 ---
 
@@ -364,9 +368,19 @@ A skill declares `notify.channel_role: reviewer_notification`. A workspace manif
 
 ### Inbound and Outbound
 
-Channels are two-way. Inbound adapters poll or webhook-receive messages, write them to `inbox.*` rooms; inbound-message triggers fire skills. Outbound adapters subscribe to `notifications.*` room writes, format the drawer content, deliver to the human, and record delivery receipts as new drawers.
+Channels are two-way. Inbound adapters poll or webhook-receive messages, write them to `inbox.messaging.<role>` drawers using the v0.2 canonical shape (content, attachments, action_button_click, reply_to, edited — see `capabilities/_registry.yaml`); the inbound dispatcher fires subscribed skills. Outbound adapters don't run in-workspace — the outbound dispatcher (`packages/runtime/src/tasks/notification-dispatcher.ts`) watches `notifications.pending.*` drawers, resolves the target channel_role via the workspace manifest, invokes the bound channel MCP's `messaging-outbound.send` tool, writes delivered/failed receipt drawers to `notifications.delivered.<kind>.<role>` / `notifications.failed.<kind>.<role>`.
 
 Both directions flow through the palace.
+
+### Idempotency
+
+Outbound dispatches are claimed atomically in `nexaas_memory.notification_dispatches` keyed by `(workspace, idempotency_key)`. A skill author supplies a deterministic key; the framework enforces exactly-once delivery even across worker crashes and BullMQ retries. Adapters that post successfully record `channel_message_id` on the row so subsequent edits / deletes can target the native id.
+
+### Approval round-trip
+
+An approval-request output (TAG `routing: approval_required`) emits a specially-shaped drawer to `notifications.pending.waitpoints.<run_id>` that the outbound dispatcher delivers with inline buttons. When the human taps a button, the channel adapter writes an `inbox.messaging.<role>` drawer with `action_button_click.{button_id, message_id}`. A companion approval-resolver task (`packages/runtime/src/tasks/approval-resolver.ts`) correlates the click against `notification_dispatches.channel_message_id` to locate the originating approval, then calls `palace.resolveWaitpoint(signal, decision, actor)` and writes an outbox entry for skill resumption.
+
+Channel adapters don't encode any framework knowledge in button callback data — they report native `message_id` + `button_id`, and the framework's dispatch table does the lookup. Any v0.2-conformant messaging channel plugs in.
 
 ---
 
