@@ -199,6 +199,12 @@ async function reconcileSkillSchedulers(workspace: string): Promise<{
   return { registered, skipped, errors };
 }
 
+// Worker lifecycle state observable via /health. Kept module-level so the
+// /health handler closure sees the latest value as startup progresses.
+let serverState: "booting" | "initializing" | "ready" | "failed" = "booting";
+let workerRef: import("bullmq").Worker | null = null;
+let startupError: string | null = null;
+
 async function main() {
   console.log(`[nexaas] Starting worker for workspace: ${WORKSPACE}`);
   console.log(`[nexaas] Concurrency: ${CONCURRENCY}, Port: ${PORT}`);
@@ -211,67 +217,37 @@ async function main() {
     process.exit(1);
   }
 
-  // Initialize Postgres pool
+  // Initialize Postgres pool — needed before anything queries the DB.
   createPool();
   console.log("[nexaas] Postgres pool initialized");
 
-  // Reconcile orphaned skill_runs from prior crashes (#21)
-  try {
-    const reconciled = await reconcileOrphanedRuns(WORKSPACE!);
-    if (reconciled > 0) {
-      console.log(`[nexaas] Reconciled ${reconciled} orphaned skill_runs from prior crash`);
-    }
-  } catch (err) {
-    console.warn("[nexaas] Orphan reconciliation failed (non-fatal):", (err as Error).message);
-  }
-
-  // Self-heal cron schedulers on every startup (#31 — replaces the
-  // destructive stale-reconcile that wiped upsertJobScheduler entries).
-  try {
-    const result = await reconcileSkillSchedulers(WORKSPACE!);
-    if (result.registered > 0) {
-      console.log(
-        `[nexaas] Scheduler self-heal: ${result.registered} cron trigger(s) upserted` +
-        (result.skipped > 0 ? `, ${result.skipped} manifest(s) without cron skipped` : "") +
-        (result.errors > 0 ? `, ${result.errors} error(s)` : ""),
-      );
-    } else if (result.errors > 0) {
-      console.warn(`[nexaas] Scheduler self-heal encountered ${result.errors} error(s) and registered 0 schedulers`);
-    }
-  } catch (err) {
-    console.warn("[nexaas] Scheduler self-heal failed (non-fatal):", (err as Error).message);
-  }
-
-  // Start the BullMQ worker
-  const worker = startWorker(WORKSPACE!, CONCURRENCY);
-  console.log(`[nexaas] BullMQ worker started on queue nexaas-skills-${WORKSPACE}`);
-
-  // Start the outbox relay
-  startOutboxRelay(1000);
-  console.log("[nexaas] Outbox relay started (polling every 1s)");
-
-  // Express app for Bull Board + health check
+  // ─── Express server comes up FIRST so /health is responsive within
+  // a couple of seconds of boot, not after the 20-30s reconcile work
+  // below. Operators (and `nexaas upgrade`) get an immediate
+  // `state: booting` / `state: initializing` signal instead of timeouts
+  // during warmup (#33).
   const app = express();
 
-  // Health check — registered FIRST, ahead of Bull Board, body-parser,
-  // and every other route. A health probe should never depend on any
-  // other middleware being happy. The handler is synchronous so even
-  // when a heavy handler is mid-flight, this path is only blocked by
-  // the event loop being busy — not by middleware chain ordering (#33).
   app.get("/health", (_req, res) => {
-    const isRunning = worker.isRunning();
-    res.status(isRunning ? 200 : 503).json({
-      status: isRunning ? "healthy" : "unhealthy",
+    const isRunning = workerRef?.isRunning() === true;
+    const ready = serverState === "ready" && isRunning;
+    res.status(ready ? 200 : 503).json({
+      status: ready ? "healthy" : (serverState === "failed" ? "failed" : "initializing"),
+      state: serverState,
       workspace: WORKSPACE,
       concurrency: CONCURRENCY,
       uptime: process.uptime(),
+      startup_error: startupError,
     });
   });
 
-  // Bull Board dashboard — framework-level visibility
-  const dashboard = createDashboard(WORKSPACE!);
-  app.use("/queues", dashboard.getRouter());
-  console.log("[nexaas] Bull Board dashboard at /queues");
+  // Bull Board is registered AFTER the BullMQ worker comes up (see below)
+  // because createDashboard() needs live queue handles. Until then, /queues
+  // returns a 503 via the fallback below.
+  app.get("/queues*", (_req, res, next) => {
+    if (serverState === "ready") return next();
+    res.status(503).json({ error: "dashboard not yet available", state: serverState });
+  });
 
   // PA HTTP adapter — enables client dashboard to use the full PA service
   app.use(express.json());
@@ -638,11 +614,10 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     }
   });
 
-  // Start the HTTP server with proper error handling (#19)
+  // Start the HTTP server NOW, before the heavy init. /health reports
+  // state=booting / state=initializing while the rest of startup runs.
   const server = app.listen(PORT, () => {
-    console.log(`[nexaas] Dashboard + health on :${PORT}`);
-    console.log(`[nexaas]   /queues  — Bull Board (queue visibility)`);
-    console.log(`[nexaas]   /health  — health check`);
+    console.log(`[nexaas] HTTP listening on :${PORT} (state=${serverState})`);
   });
 
   // Cap connection lifetime so slow or abandoned clients don't
@@ -655,6 +630,61 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     console.error(`[nexaas] FATAL: HTTP server error: ${err.message}`);
     process.exit(1);
   });
+
+  // ─── Heavy init runs AFTER the HTTP server is accepting connections.
+  // Any error here flips serverState to "failed" without exiting — the
+  // HTTP server stays up so operators can see the failure via /health.
+  serverState = "initializing";
+
+  try {
+    // Reconcile orphaned skill_runs from prior crashes (#21).
+    try {
+      const reconciled = await reconcileOrphanedRuns(WORKSPACE!);
+      if (reconciled > 0) {
+        console.log(`[nexaas] Reconciled ${reconciled} orphaned skill_runs from prior crash`);
+      }
+    } catch (err) {
+      console.warn("[nexaas] Orphan reconciliation failed (non-fatal):", (err as Error).message);
+    }
+
+    // Self-heal cron schedulers (#31).
+    try {
+      const result = await reconcileSkillSchedulers(WORKSPACE!);
+      if (result.registered > 0) {
+        console.log(
+          `[nexaas] Scheduler self-heal: ${result.registered} cron trigger(s) upserted` +
+          (result.skipped > 0 ? `, ${result.skipped} manifest(s) without cron skipped` : "") +
+          (result.errors > 0 ? `, ${result.errors} error(s)` : ""),
+        );
+      } else if (result.errors > 0) {
+        console.warn(`[nexaas] Scheduler self-heal encountered ${result.errors} error(s) and registered 0 schedulers`);
+      }
+    } catch (err) {
+      console.warn("[nexaas] Scheduler self-heal failed (non-fatal):", (err as Error).message);
+    }
+
+    // Start the BullMQ worker.
+    workerRef = startWorker(WORKSPACE!, CONCURRENCY);
+    console.log(`[nexaas] BullMQ worker started on queue nexaas-skills-${WORKSPACE}`);
+
+    // Start the outbox relay.
+    startOutboxRelay(1000);
+    console.log("[nexaas] Outbox relay started (polling every 1s)");
+
+    // Register Bull Board now that BullMQ queues are live.
+    const dashboard = createDashboard(WORKSPACE!);
+    app.use("/queues", dashboard.getRouter());
+    console.log("[nexaas] Bull Board dashboard at /queues");
+
+    serverState = "ready";
+    console.log("[nexaas] Worker ready.");
+  } catch (err) {
+    serverState = "failed";
+    startupError = err instanceof Error ? err.message : String(err);
+    console.error("[nexaas] FATAL: startup init failed:", err);
+    // Keep the HTTP server running so operators can see /health return
+    // state=failed instead of getting connection refused.
+  }
 
   // Background tasks
   setInterval(async () => {
