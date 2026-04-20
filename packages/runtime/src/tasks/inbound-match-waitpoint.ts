@@ -199,7 +199,6 @@ interface WaitpointRow {
   dormant_signal: string | null;
   dormant_until: string | null;
   created_at: string;
-  superseded_by: string | null;
 }
 
 async function findByWaitpointId(workspace: string, waitpointId: string): Promise<WaitpointRow | null> {
@@ -208,7 +207,7 @@ async function findByWaitpointId(workspace: string, waitpointId: string): Promis
   // resolution drawer is written. Look for either state.
   const rows = await sql<WaitpointRow>(
     `SELECT id, workspace, content, dormant_signal, dormant_until::text AS dormant_until,
-            created_at::text AS created_at, superseded_by
+            created_at::text AS created_at
        FROM nexaas_memory.events
       WHERE workspace = $1
         AND wing = $2 AND hall = $3 AND room = $4
@@ -307,7 +306,7 @@ export async function matchDrawerAgainstWaitpoints(
   const openWaitpoints = await sql<WaitpointRow>(
     `SELECT id, workspace, content, dormant_signal,
             dormant_until::text AS dormant_until,
-            created_at::text AS created_at, superseded_by
+            created_at::text AS created_at
        FROM nexaas_memory.events
       WHERE workspace = $1
         AND wing = $2 AND hall = $3 AND room = $4
