@@ -197,6 +197,7 @@ export async function apply(
       if (resolved) {
         const decisions = action.approval?.decisions ?? ["approve", "reject"];
         const onTimeout = action.approval?.on_timeout ?? "deny";
+        const handlers = action.approval?.handlers;
         const payloadJson = JSON.stringify(action.action.payload ?? {});
         const payloadPreview = payloadJson.length > 500 ? payloadJson.slice(0, 500) + "…" : payloadJson;
 
@@ -206,11 +207,14 @@ export async function apply(
             kind: "approval_request",
             run_id: runId,
             step_id: stepId,
+            skill_id: session.ctx.skillId,           // original skill — for handler context (#53)
             waitpoint_signal: signal,
             output_id: action.action.kind,
             summary: `Approval required: ${action.action.kind}`,
             payload_preview: payloadPreview,
+            payload_full: action.action.payload,     // full payload forwarded to handler skills
             decisions: decisions.map((id) => ({ id, label: id })),
+            handlers,                                 // decision → handler skill id (#53)
             channel_role: resolved.role,
             channel_kind: resolved.binding?.kind,
             channel_mcp: resolved.binding?.mcp,

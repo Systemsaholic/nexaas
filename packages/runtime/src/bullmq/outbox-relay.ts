@@ -23,7 +23,11 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
 
   switch (row.intent_type) {
     case "enqueue_job": {
-      await enqueueSkillStep({
+      // manifest_path is an extension field used by the BullMQ worker to
+      // dispatch ai-skill / shell-skill branches (versus pillar pipeline
+      // fallback). Approval-resolver's handler-dispatch path (#53) writes
+      // this; outbox relay forwards it to the job data as-is.
+      const jobData: Record<string, unknown> = {
         workspace: row.workspace,
         runId: payload.run_id as string,
         skillId: payload.skill_id as string,
@@ -34,7 +38,11 @@ async function processOutboxRow(row: OutboxRow): Promise<void> {
         resumedWith: payload.resumed_with as Record<string, unknown> | undefined,
         parentRunId: payload.parent_run_id as string | undefined,
         depth: payload.depth as number | undefined,
-      });
+      };
+      if (typeof payload.manifest_path === "string") {
+        jobData.manifestPath = payload.manifest_path;
+      }
+      await enqueueSkillStep(jobData as unknown as Parameters<typeof enqueueSkillStep>[0]);
       break;
     }
 

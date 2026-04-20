@@ -50,6 +50,23 @@ export interface ManifestApproval {
   decisions?: string[];                              // default: ["approve", "reject"]
   timeout_seconds?: number;                          // default 3600 (1h)
   on_timeout?: "deny" | "approve" | "escalate";      // default "deny"
+  /**
+   * Per-decision handler skill (#53). When a decision fires, instead of
+   * re-entering the original skill run (which ai-skill.ts can't do
+   * cleanly), the framework enqueues a fresh run of the named handler
+   * skill with the decision + original-run context in triggerPayload.
+   *
+   * Example:
+   *   handlers:
+   *     approve: email/actually-send
+   *     reject:  email/log-cancellation
+   *     edit:    email/open-editor
+   *
+   * Omitting a key means no handler fires for that decision —
+   * the resolution is recorded in the WAL and that's it. Skills
+   * can still subscribe to `events.*` drawers for legacy composition.
+   */
+  handlers?: Record<string, string>;
 }
 
 export interface ManifestOutput {

@@ -32,7 +32,9 @@
  *     handles that via NotifyConfig.on_timeout
  */
 
+import { randomUUID } from "crypto";
 import { sql, appendWal, resolveWaitpoint } from "@nexaas/palace";
+import { findSkillManifest } from "../skill-manifest-index.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const POLL_BATCH_SIZE = 50;
@@ -114,9 +116,12 @@ interface ApprovalRequestContent {
   waitpoint_signal?: string;
   run_id?: string;
   step_id?: string;
+  skill_id?: string;                                 // original skill id (#53)
   output_id?: string;
   channel_role?: string;
   decisions?: Array<{ id: string; label?: string }>;
+  handlers?: Record<string, string>;                 // decision → handler skill_id (#53)
+  payload_full?: Record<string, unknown>;            // original output payload
 }
 
 async function lookupApprovalContext(
@@ -160,13 +165,54 @@ async function enqueueResumption(
   approval: ApprovalRequestContent,
   decision: string,
   actor: string,
-): Promise<void> {
-  // Outbox entry — the outbox relay picks this up and enqueues a BullMQ
-  // job. Worker sees `resumedWith` and routes to the pillar pipeline's
-  // resume path. Skills that ran via ai-skill.ts won't have a meaningful
-  // resumption path until #45 Stage 1b; this is a best-effort emit that
-  // composes cleanly once the bridge lands.
-  if (!approval.run_id || !approval.step_id) return;
+): Promise<{ strategy: "handler" | "resume_original" | "none"; handler_skill?: string; error?: string }> {
+  // #53 — if the approval block declared a handler skill for this decision,
+  // enqueue a fresh run of that skill with the original-run context as
+  // triggerPayload. Matches event-driven composition (architecture §9)
+  // and works for both ai-skill.ts and pillar-pipeline origin skills.
+  const handlerSkillId = approval.handlers?.[decision];
+  if (handlerSkillId) {
+    const handlerEntry = findSkillManifest(handlerSkillId);
+    if (!handlerEntry) {
+      return {
+        strategy: "handler",
+        handler_skill: handlerSkillId,
+        error: `handler skill '${handlerSkillId}' not found in nexaas-skills tree`,
+      };
+    }
+    const handlerRunId = randomUUID();
+    await sql(
+      `INSERT INTO nexaas_memory.outbox (workspace, intent_type, payload)
+       VALUES ($1, 'enqueue_job', $2)`,
+      [
+        workspace,
+        JSON.stringify({
+          run_id: handlerRunId,
+          skill_id: handlerEntry.skillId,
+          step_id: handlerEntry.execType,
+          manifest_path: handlerEntry.manifestPath,
+          trigger_type: "resumption",
+          trigger_payload: {
+            decision,
+            actor,
+            resolved_at: new Date().toISOString(),
+            original_run_id: approval.run_id,
+            original_skill_id: approval.skill_id,
+            original_output_id: approval.output_id,
+            original_payload: approval.payload_full,
+            channel_role: approval.channel_role,
+          },
+        }),
+      ],
+    );
+    return { strategy: "handler", handler_skill: handlerSkillId };
+  }
+
+  // Legacy path — target the original run with resumedWith. Only meaningful
+  // for pillar-pipeline skills (runSkillStep consumes resumedWith). ai-skill
+  // origin runs are effectively no-op here; authors who need resumption
+  // should declare handlers[decision] per #53.
+  if (!approval.run_id || !approval.step_id) return { strategy: "none" };
   await sql(
     `INSERT INTO nexaas_memory.outbox (workspace, intent_type, payload)
      VALUES ($1, 'enqueue_job', $2)`,
@@ -185,6 +231,7 @@ async function enqueueResumption(
       }),
     ],
   );
+  return { strategy: "resume_original" };
 }
 
 export async function resolvePendingApprovals(workspace: string): Promise<{
@@ -245,8 +292,11 @@ export async function resolvePendingApprovals(workspace: string): Promise<{
         `approval-callback:${drawer.id}`,
       );
 
-      // Fire outbox entry to resume the skill's next step (pillar pipeline).
-      await enqueueResumption(
+      // Fire resumption. If the approval declared a handler skill (#53),
+      // enqueue that. Otherwise target the original run (legacy pillar-
+      // pipeline resume). For ai-skill origin runs without a handler,
+      // this is a no-op — the run already completed.
+      const resumption = await enqueueResumption(
         workspace,
         ctx.approval,
         click.button_id,
@@ -268,8 +318,27 @@ export async function resolvePendingApprovals(workspace: string): Promise<{
           signal: ctx.approval.waitpoint_signal,
           decision: click.button_id,
           channel_role: ctx.approval.channel_role,
+          resumption_strategy: resumption.strategy,
+          handler_skill: resumption.handler_skill,
+          resumption_error: resumption.error,
         },
       });
+      if (resumption.error) {
+        // Handler was declared but the skill isn't installed. Surface
+        // prominently — operator needs to add the handler skill or fix
+        // the manifest.
+        await appendWal({
+          workspace,
+          op: "approval_handler_missing",
+          actor: "approval-resolver",
+          payload: {
+            drawer_id: drawer.id,
+            decision: click.button_id,
+            handler_skill: resumption.handler_skill,
+            error: resumption.error,
+          },
+        });
+      }
       resolved++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
