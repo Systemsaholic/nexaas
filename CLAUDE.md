@@ -150,6 +150,26 @@ Set in `.env` (never committed):
 - `NEXAAS_WORKER_PORT` — health/dashboard port (default: 9090)
 - `NEXAAS_BACKUP_DIR` — backup storage path (default: /var/backups/nexaas)
 
+## Separation of Concerns — Nexaas vs Nexmatic
+
+**Nexaas (`/opt/nexaas/`, `Systemsaholic/nexaas`)** is the FRAMEWORK. It is:
+- Owned and maintained by the Nexaas dev team
+- Agnostic to specific clients, workspaces, and business configurations
+- Responsible for: palace, runtime, pillar pipeline, CLI, MCP protocol, worker, ingest, PA service, factory commands
+- Issues tracked at: `github.com/Systemsaholic/nexaas/issues`
+
+**Nexmatic (`/opt/nexmatic/`, `Systemsaholic/nexmatic`)** is the BUSINESS. It is:
+- Owned and maintained by the Nexmatic dev team (separate team)
+- Responsible for: Ops Console, Client Dashboard, add-ons, billing, onboarding, workspace manifests, deploy scripts, Zernio integration
+- Issues tracked at: `github.com/Systemsaholic/nexmatic/issues`
+
+**Rules:**
+- Nexmatic code NEVER modifies Nexaas framework code. If Nexmatic needs a framework change, it files an issue on the Nexaas repo.
+- Nexaas code NEVER contains client-specific data, workspace manifests, or business logic.
+- Workspace manifests live in `/opt/nexmatic/workspaces/` — NOT in the Nexaas repo.
+- Nexaas issues are NOT Nexmatic issues and vice versa. Each team tracks its own.
+- When working in one repo, do not make changes to the other without explicit coordination.
+
 ## What NOT to Do
 
 - Do NOT write Python. This is a TypeScript codebase.
