@@ -22,7 +22,14 @@ export interface AnthropicResult {
   actions: ModelAction[];
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
   stopReason: string;
+}
+
+function promptCachingEnabled(): boolean {
+  const v = (process.env.NEXAAS_PROMPT_CACHE ?? "on").toLowerCase();
+  return v !== "off" && v !== "false" && v !== "0";
 }
 
 function toAnthropicMessages(
@@ -38,12 +45,17 @@ function toAnthropicMessages(
 
 function toAnthropicTools(
   tools: Tool[],
+  cacheOn: boolean,
 ): Anthropic.Tool[] {
-  return tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema as Anthropic.Tool.InputSchema,
-  }));
+  return tools.map((t, idx) => {
+    const isLast = idx === tools.length - 1;
+    return {
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+      ...(cacheOn && isLast ? { cache_control: { type: "ephemeral" as const } } : {}),
+    };
+  });
 }
 
 function extractActions(
@@ -73,6 +85,7 @@ export async function invoke(
   tools?: Tool[],
 ): Promise<AnthropicResult> {
   const client = getClient();
+  const cacheOn = promptCachingEnabled();
 
   const params: Anthropic.MessageCreateParams = {
     model: model.model,
@@ -81,11 +94,13 @@ export async function invoke(
   };
 
   if (system) {
-    params.system = system;
+    params.system = cacheOn
+      ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+      : system;
   }
 
   if (tools && tools.length > 0) {
-    params.tools = toAnthropicTools(tools);
+    params.tools = toAnthropicTools(tools, cacheOn);
   }
 
   const response = await client.messages.create(params);
@@ -97,6 +112,8 @@ export async function invoke(
     actions,
     inputTokens: response.usage.input_tokens,
     outputTokens: response.usage.output_tokens,
+    cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
     stopReason: response.stop_reason ?? "end_turn",
   };
 }

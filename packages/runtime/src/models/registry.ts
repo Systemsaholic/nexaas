@@ -93,12 +93,27 @@ export function getProviderConfig(
   return provider;
 }
 
+/**
+ * Anthropic prompt-cache multipliers on base input-token rate:
+ *   cache_creation: 1.25× (write premium, once per 5-min TTL)
+ *   cache_read:     0.10× (deep discount on every hit)
+ * Regular input tokens (cache-miss tail) bill at 1.0×.
+ */
+const CACHE_CREATION_MULTIPLIER = 1.25;
+const CACHE_READ_MULTIPLIER = 0.10;
+
 export function estimateCost(
   model: ModelEntry,
   inputTokens: number,
   outputTokens: number,
+  cacheCreationTokens = 0,
+  cacheReadTokens = 0,
 ): number {
-  const inputCost = (model.input_cost_per_m ?? 0) * (inputTokens / 1_000_000);
-  const outputCost = (model.output_cost_per_m ?? 0) * (outputTokens / 1_000_000);
-  return Math.round((inputCost + outputCost) * 10000) / 10000;
+  const inputM = (model.input_cost_per_m ?? 0) / 1_000_000;
+  const outputM = (model.output_cost_per_m ?? 0) / 1_000_000;
+  const cost = inputTokens * inputM
+    + outputTokens * outputM
+    + cacheCreationTokens * inputM * CACHE_CREATION_MULTIPLIER
+    + cacheReadTokens * inputM * CACHE_READ_MULTIPLIER;
+  return Math.round(cost * 10000) / 10000;
 }

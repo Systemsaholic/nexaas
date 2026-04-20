@@ -469,16 +469,23 @@ export async function runAiSkill(
 
     // Update token usage — prefer registry-sourced pricing, fall back to previous guess.
     const cost = pricedModelEntry
-      ? estimateCost(pricedModelEntry, result.inputTokens, result.outputTokens)
+      ? estimateCost(
+          pricedModelEntry, result.inputTokens, result.outputTokens,
+          result.cacheCreationTokens, result.cacheReadTokens,
+        )
       : estimateCost(
           { provider: "anthropic", model, input_cost_per_m: tier === "good" ? 3 : 1, output_cost_per_m: tier === "good" ? 15 : 5 } as ModelEntry,
           result.inputTokens,
           result.outputTokens,
+          result.cacheCreationTokens,
+          result.cacheReadTokens,
         );
 
     await runTracker.updateTokenUsage(runId, {
       input: result.inputTokens,
       output: result.outputTokens,
+      cache_creation: result.cacheCreationTokens,
+      cache_read: result.cacheReadTokens,
       cost_usd: cost,
     });
 
@@ -493,6 +500,8 @@ export async function runAiSkill(
         tool_calls: result.toolCalls.length,
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
+        cache_creation_input_tokens: result.cacheCreationTokens,
+        cache_read_input_tokens: result.cacheReadTokens,
         cost_usd: cost,
         stop_reason: result.stopReason,
         aborted: result.aborted,

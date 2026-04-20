@@ -50,7 +50,13 @@ export interface RetrievalChunk {
 export interface ExecuteResult {
   content: string;
   actions: ModelAction[];
-  tokenUsage: { input: number; output: number; cost_usd: number };
+  tokenUsage: {
+    input: number;
+    output: number;
+    cache_creation?: number;
+    cache_read?: number;
+    cost_usd: number;
+  };
   provider: string;
   model: string;
   isFallback: boolean;
@@ -67,17 +73,21 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+interface InvokeOutcome {
+  content: string;
+  actions: ModelAction[];
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 async function invokeModel(
   entry: ModelEntry,
   messages: Message[],
   system?: string,
   tools?: Tool[],
-): Promise<{
-  content: string;
-  actions: ModelAction[];
-  inputTokens: number;
-  outputTokens: number;
-}> {
+): Promise<InvokeOutcome> {
   const registry = loadRegistry();
   const providerConfig = getProviderConfig(entry.provider, registry);
 
@@ -88,6 +98,8 @@ async function invokeModel(
       actions: result.actions,
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
+      cacheCreationTokens: result.cacheCreationTokens,
+      cacheReadTokens: result.cacheReadTokens,
     };
   }
 
@@ -113,6 +125,8 @@ async function invokeModel(
     actions: result.actions,
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
   };
 }
 
@@ -126,12 +140,7 @@ async function tryWithRetries(
   messages: Message[],
   system?: string,
   tools?: Tool[],
-): Promise<{
-  content: string;
-  actions: ModelAction[];
-  inputTokens: number;
-  outputTokens: number;
-} | null> {
+): Promise<InvokeOutcome | null> {
   for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
     try {
       return await invokeModel(entry, messages, system, tools);
@@ -167,7 +176,13 @@ export const ModelGateway = {
     const primaryResult = await tryWithRetries(primary, fullMessages, system, tools);
 
     if (primaryResult) {
-      const cost = estimateCost(primary, primaryResult.inputTokens, primaryResult.outputTokens);
+      const cost = estimateCost(
+        primary,
+        primaryResult.inputTokens,
+        primaryResult.outputTokens,
+        primaryResult.cacheCreationTokens,
+        primaryResult.cacheReadTokens,
+      );
 
       await appendWal({
         workspace: workspaceId,
@@ -179,6 +194,8 @@ export const ModelGateway = {
           model: primary.model,
           input_tokens: primaryResult.inputTokens,
           output_tokens: primaryResult.outputTokens,
+          cache_creation_input_tokens: primaryResult.cacheCreationTokens,
+          cache_read_input_tokens: primaryResult.cacheReadTokens,
           cost_usd: cost,
           fallback: false,
           run_id: runId,
@@ -192,6 +209,8 @@ export const ModelGateway = {
         tokenUsage: {
           input: primaryResult.inputTokens,
           output: primaryResult.outputTokens,
+          cache_creation: primaryResult.cacheCreationTokens,
+          cache_read: primaryResult.cacheReadTokens,
           cost_usd: cost,
         },
         provider: primary.provider,
@@ -205,7 +224,13 @@ export const ModelGateway = {
       const fallbackResult = await tryWithRetries(fallback, fullMessages, system, tools);
 
       if (fallbackResult) {
-        const cost = estimateCost(fallback, fallbackResult.inputTokens, fallbackResult.outputTokens);
+        const cost = estimateCost(
+          fallback,
+          fallbackResult.inputTokens,
+          fallbackResult.outputTokens,
+          fallbackResult.cacheCreationTokens,
+          fallbackResult.cacheReadTokens,
+        );
 
         await appendWal({
           workspace: workspaceId,
@@ -219,6 +244,8 @@ export const ModelGateway = {
             fallback_model: fallback.model,
             input_tokens: fallbackResult.inputTokens,
             output_tokens: fallbackResult.outputTokens,
+            cache_creation_input_tokens: fallbackResult.cacheCreationTokens,
+            cache_read_input_tokens: fallbackResult.cacheReadTokens,
             cost_usd: cost,
             run_id: runId,
             step_id: stepId,
@@ -231,6 +258,8 @@ export const ModelGateway = {
           tokenUsage: {
             input: fallbackResult.inputTokens,
             output: fallbackResult.outputTokens,
+            cache_creation: fallbackResult.cacheCreationTokens,
+            cache_read: fallbackResult.cacheReadTokens,
             cost_usd: cost,
           },
           provider: fallback.provider,

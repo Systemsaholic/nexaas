@@ -332,6 +332,8 @@ Be helpful, context-aware, and follow the brand voice.`;
         tool_calls: result.toolCalls.length,
         input_tokens: result.inputTokens,
         output_tokens: result.outputTokens,
+        cache_creation_input_tokens: result.cacheCreationTokens,
+        cache_read_input_tokens: result.cacheReadTokens,
       },
     });
 

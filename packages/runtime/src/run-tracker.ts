@@ -150,7 +150,13 @@ export const runTracker = {
 
   async updateTokenUsage(
     runId: string,
-    usage: { input: number; output: number; cost_usd: number },
+    usage: {
+      input: number;
+      output: number;
+      cache_creation?: number;
+      cache_read?: number;
+      cost_usd: number;
+    },
   ): Promise<void> {
     await sql(
       `UPDATE nexaas_memory.skill_runs
@@ -162,6 +168,8 @@ export const runTracker = {
         JSON.stringify({
           input_tokens: usage.input,
           output_tokens: usage.output,
+          cache_creation_input_tokens: usage.cache_creation ?? 0,
+          cache_read_input_tokens: usage.cache_read ?? 0,
           cost_usd: usage.cost_usd,
         }),
       ],

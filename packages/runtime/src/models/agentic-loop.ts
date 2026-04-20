@@ -132,6 +132,10 @@ export interface AgenticResult {
   actions: ModelAction[];
   inputTokens: number;
   outputTokens: number;
+  /** Tokens counted toward writing the cache (premium-priced, one-time per 5-min window). */
+  cacheCreationTokens: number;
+  /** Tokens read from cache (~10% of normal input price). */
+  cacheReadTokens: number;
   costUsd: number;
   turns: number;
   stopReason: AgenticStopReason;
@@ -154,15 +158,42 @@ function canonicalize(input: Record<string, unknown>): string {
   }
 }
 
+/**
+ * Anthropic prompt-cache pricing multipliers applied to the base input-token rate:
+ *   - cache_creation: 1.25×  (write premium; paid once per 5-min window)
+ *   - cache_read:     0.10×  (huge discount; paid on every hit)
+ * Regular input tokens (the cache-miss tail) bill at 1.0× as usual.
+ * Per Anthropic docs (https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching).
+ */
+const CACHE_CREATION_MULTIPLIER = 1.25;
+const CACHE_READ_MULTIPLIER = 0.10;
+
 function costOf(
   pricing: AgenticModelPricing | undefined,
   inputTokens: number,
   outputTokens: number,
+  cacheCreationTokens = 0,
+  cacheReadTokens = 0,
 ): number {
   if (!pricing) return 0;
-  const c = pricing.inputCostPerM * (inputTokens / 1_000_000)
-    + pricing.outputCostPerM * (outputTokens / 1_000_000);
+  const inputM = pricing.inputCostPerM / 1_000_000;
+  const outputM = pricing.outputCostPerM / 1_000_000;
+  const c = inputTokens * inputM
+    + outputTokens * outputM
+    + cacheCreationTokens * inputM * CACHE_CREATION_MULTIPLIER
+    + cacheReadTokens * inputM * CACHE_READ_MULTIPLIER;
   return Math.round(c * 10000) / 10000;
+}
+
+/**
+ * Prompt caching is on by default. Set NEXAAS_PROMPT_CACHE=off to disable
+ * (e.g., debugging cache-eligibility issues). Cache breakpoints go on
+ * [system] and [last tool] — a single shared prefix across all turns of
+ * a run AND across runs of the same skill within the 5-min TTL.
+ */
+function promptCachingEnabled(): boolean {
+  const v = (process.env.NEXAAS_PROMPT_CACHE ?? "on").toLowerCase();
+  return v !== "off" && v !== "false" && v !== "0";
 }
 
 export async function runAgenticLoop(params: {
@@ -187,16 +218,33 @@ export async function runAgenticLoop(params: {
   const maxTokensPerTurn = limits.maxOutputTokensPerTurn ?? DEFAULT_MAX_OUTPUT_TOKENS_PER_TURN;
 
   const client = getClient();
+  const cacheOn = promptCachingEnabled();
 
-  const anthropicTools: Anthropic.Tool[] = tools.map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema as Anthropic.Tool.InputSchema,
-  }));
+  const anthropicTools: Anthropic.Tool[] = tools.map((t, idx) => {
+    const isLast = idx === tools.length - 1;
+    return {
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+      // Cache breakpoint on the last tool caches the entire tools block.
+      // Combined with the system breakpoint below, the full [tools + system]
+      // prefix is cacheable across turns and across runs within the 5-min TTL.
+      ...(cacheOn && isLast ? { cache_control: { type: "ephemeral" as const } } : {}),
+    };
+  });
+
+  // System prompt as a content-block array so we can attach cache_control.
+  // When caching is off, fall back to the plain-string form (identical wire
+  // behavior, zero cache metadata).
+  const systemParam: string | Anthropic.TextBlockParam[] = cacheOn
+    ? [{ type: "text", text: system, cache_control: { type: "ephemeral" } }]
+    : system;
 
   let messages = [...params.messages];
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  let totalCacheCreationTokens = 0;
+  let totalCacheReadTokens = 0;
   let turns = 0;
   const allToolCalls: AgenticResult["toolCalls"] = [];
   let finalContent = "";
@@ -223,13 +271,15 @@ export async function runAgenticLoop(params: {
     const response = await retryMessagesCreate(() => client.messages.create({
       model,
       max_tokens: maxTokensPerTurn,
-      system,
+      system: systemParam,
       messages,
       tools: anthropicTools,
     }));
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
+    totalCacheCreationTokens += response.usage.cache_creation_input_tokens ?? 0;
+    totalCacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
 
     let turnText = "";
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
@@ -351,6 +401,8 @@ export async function runAgenticLoop(params: {
         tool_calls: turnToolRecords,
         input_tokens: response.usage.input_tokens,
         output_tokens: response.usage.output_tokens,
+        cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
+        cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
         identical_streak: identicalStreak,
         error_streak: errorStreak,
       },
@@ -386,7 +438,12 @@ export async function runAgenticLoop(params: {
         stop_reason: stopReason,
         input_tokens: totalInputTokens,
         output_tokens: totalOutputTokens,
-        cost_usd: costOf(modelPricing, totalInputTokens, totalOutputTokens),
+        cache_creation_input_tokens: totalCacheCreationTokens,
+        cache_read_input_tokens: totalCacheReadTokens,
+        cost_usd: costOf(
+          modelPricing, totalInputTokens, totalOutputTokens,
+          totalCacheCreationTokens, totalCacheReadTokens,
+        ),
       },
     });
   }
@@ -397,7 +454,12 @@ export async function runAgenticLoop(params: {
     actions: [],
     inputTokens: totalInputTokens,
     outputTokens: totalOutputTokens,
-    costUsd: costOf(modelPricing, totalInputTokens, totalOutputTokens),
+    cacheCreationTokens: totalCacheCreationTokens,
+    cacheReadTokens: totalCacheReadTokens,
+    costUsd: costOf(
+      modelPricing, totalInputTokens, totalOutputTokens,
+      totalCacheCreationTokens, totalCacheReadTokens,
+    ),
     turns,
     stopReason,
     aborted,
