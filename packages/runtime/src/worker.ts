@@ -14,18 +14,30 @@
 import http from "http";
 import express from "express";
 import { Queue } from "bullmq";
-import { readdirSync, readFileSync, existsSync, statSync } from "fs";
+import {
+  readdirSync, readFileSync, existsSync, statSync,
+  writeFileSync, mkdirSync,
+} from "fs";
 import { join } from "path";
 import { promisify } from "util";
-import { exec as execCallback } from "child_process";
+import { exec as execCallback, spawn } from "child_process";
 import { load as yamlLoad } from "js-yaml";
+// IMPORTANT: static imports only. `await import(...)` inside an HTTP
+// handler round-trips through tsx/esbuild's IPC (epoll fd 62), which
+// blocks the main thread from draining the HTTP listener on libuv's
+// main epoll (fd 13). Symptom is /health hanging for minutes at a time
+// while BullMQ jobs continue to process. See #33.
 import { startWorker } from "./bullmq/worker.js";
 import { startOutboxRelay } from "./bullmq/outbox-relay.js";
 import { createDashboard } from "./bullmq/dashboard.js";
-import { createPool, sql } from "@nexaas/palace";
+import { getRedisConnectionOpts } from "./bullmq/connection.js";
+import { createPool, sql, appendWal } from "@nexaas/palace";
 import { runCompaction } from "./tasks/closet-compaction.js";
 import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
 import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
+import { handlePaMessage } from "./pa/service.js";
+import { loadMcpConfigs } from "./mcp/client.js";
+import { ingestDocument } from "./ingest/index.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -254,7 +266,6 @@ async function main() {
 
   app.post("/api/pa/message", async (req, res) => {
     try {
-      const { handlePaMessage } = await import("./pa/service.js");
 
       const { message, senderName, senderId, channel, threadId, systemPrompt } = req.body;
 
@@ -264,7 +275,6 @@ async function main() {
       }
 
       // Auto-discover MCP servers from workspace .mcp.json
-      const { loadMcpConfigs } = await import("./mcp/client.js");
       const wsRoot = process.env.NEXAAS_WORKSPACE_ROOT ?? "";
       const mcpConfigs = loadMcpConfigs(wsRoot);
       const availableMcpServers = Object.keys(mcpConfigs);
@@ -307,7 +317,6 @@ async function main() {
       const { url, method } = req.body;
       if (!url) { res.status(400).json({ error: "url required" }); return; }
 
-      const { mkdirSync, readdirSync } = await import("fs");
 
       mkdirSync(WS_SITE_DIR, { recursive: true });
 
@@ -347,7 +356,6 @@ async function main() {
           : WS_SITE_DIR;
 
         // Start a simple static server in background
-        const { spawn } = await import("child_process");
         const server = spawn("npx", ["-y", "serve", "-l", String(WS_PORT), "-s", siteRoot], {
           detached: true,
           stdio: "ignore",
@@ -380,7 +388,6 @@ async function main() {
       const { instruction, senderName } = req.body;
       if (!instruction) { res.status(400).json({ error: "instruction required" }); return; }
 
-      const { readdirSync, readFileSync, writeFileSync } = await import("fs");
 
       // Find the site root
       const hostname = readdirSync(WS_SITE_DIR).find(d => !d.startsWith("."));
@@ -409,7 +416,6 @@ async function main() {
       const mainContent = readFileSync(join(siteRoot, mainFile), "utf-8");
 
       // Use the PA to generate the edit
-      const { handlePaMessage } = await import("./pa/service.js");
       const result = await handlePaMessage(WORKSPACE!, {
         id: "webstudio-editor",
         displayName: "WebStudio Editor",
@@ -485,7 +491,6 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
         return;
       }
 
-      const { ingestDocument } = await import("./ingest/index.js");
       const result = await ingestDocument(
         WORKSPACE!,
         drawerId,
@@ -512,9 +517,6 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
 
       if (!addonId) { res.status(400).json({ error: "addonId required" }); return; }
 
-      const { readFileSync, writeFileSync, existsSync, mkdirSync } = await import("fs");
-      const { join } = await import("path");
-      const { sql } = await import("@nexaas/palace");
       const wsRoot = process.env.NEXAAS_WORKSPACE_ROOT ?? "";
       const nexaasRoot = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
 
@@ -584,9 +586,7 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
         for (const skillId of skills) {
           try {
             const jobName = `cron-${skillId.replace(/\//g, "-")}`;
-            const { Queue } = await import("bullmq");
-            const { getRedisConnectionOpts: getOpts } = await import("./bullmq/connection.js");
-            const q = new Queue(`nexaas-skills-${WORKSPACE}`, getOpts());
+            const q = new Queue(`nexaas-skills-${WORKSPACE}`, getRedisConnectionOpts());
             const repeatables = await q.getRepeatableJobs();
             for (const r of repeatables.filter(j => j.name === jobName)) {
               await q.removeRepeatableByKey(r.key);
@@ -600,7 +600,6 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
       }
 
       // 3. WAL audit
-      const { appendWal } = await import("@nexaas/palace");
       await appendWal({
         workspace: WORKSPACE!,
         op: enable ? "addon_activated" : "addon_deactivated",
