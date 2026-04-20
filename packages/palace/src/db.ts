@@ -9,6 +9,14 @@ export function createPool(connectionString?: string): pg.Pool {
       max: 10,
       idleTimeoutMillis: 30_000,
     });
+    // Without this handler, an 'error' event on an idle client (kernel TCP
+    // timeout, PG idle_in_transaction_session_timeout, DB restart, network
+    // blip) propagates as an unhandled exception and kills the worker
+    // process. See #34. The pool itself recovers — the bad client is
+    // discarded automatically and the next query acquires a fresh one.
+    _pool.on("error", (err) => {
+      console.warn(`[nexaas] pg pool client error (non-fatal, pool will reconnect): ${err.message}`);
+    });
   }
   return _pool;
 }
