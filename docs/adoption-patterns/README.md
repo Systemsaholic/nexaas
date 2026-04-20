@@ -34,12 +34,13 @@ speculative until live validation are marked *(pending canary validation)*.
 | Pattern | Status | Description |
 |---|---|---|
 | [`telegram-channel.md`](./telegram-channel.md) | v0.1 — framework-side shipped, Phoenix validation pending (#42) | Inbound + outbound Telegram adapter using v0.2 messaging capabilities; end-to-end approval round-trip |
-| `2fa-code-intercept.md` | *pending* | Channel-agnostic one-time-code capture via the inbound-match waitpoint primitive (OAuth, TD MFA, 2FA flows) |
+| [`manifest-hygiene.md`](./manifest-hygiene.md) | v0.1 — shipped 2026-04-20 | Workspace manifest gotchas (chat_id int/str, channel_role naming, `capability_bindings` vs `channel_bindings`) |
+| [`2fa-code-intercept.md`](./2fa-code-intercept.md) | v0.1 — shipped 2026-04-20 | Channel-agnostic one-time-code capture via the inbound-match waitpoint primitive (OAuth, TD MFA, 2FA flows) |
+| [`multi-vps-channel-relay.md`](./multi-vps-channel-relay.md) | v0.1 — shipped 2026-04-20, Nexmatic validation pending (#64) | Operator-managed multi-VPS inbound: ops-relay → `/api/drawers/inbound` → client VPS |
+| [`debugging-playbook.md`](./debugging-playbook.md) | v0.1 — shipped 2026-04-20 | Common symptoms → diagnostics → fixes, indexed by WAL op and SQL query |
 | `approval-gated-output.md` | *pending* | TAG `approval_required` routing for ai-skill outputs — skill author → TAG → channel → human → resume |
 | `daily-automation-skill.md` | *pending* | Shell skill with cron trigger + preflight gate + output verification |
 | `ai-skill-migration.md` | *pending* | Converting Trigger.dev / n8n / `claude --print` automations into proper Nexaas ai-skills via `/nexaasify` |
-| `manifest-hygiene.md` | *pending* | Workspace manifest gotchas (chat_id int/str, channel_role naming, `capability_bindings` vs `channel_bindings`) |
-| `debugging-playbook.md` | *pending* | Common symptoms → diagnostics → fixes, indexed by WAL op and SQL query |
 
 ## Cross-reference conventions
 
