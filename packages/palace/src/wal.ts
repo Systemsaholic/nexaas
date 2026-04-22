@@ -88,7 +88,14 @@ export async function verifyWalChain(
     hash: string;
     created_at: string;
   }>(
-    `SELECT id, op, actor, payload, prev_hash, hash, created_at::text
+    // to_char the timestamp into the exact shape `new Date().toISOString()`
+    // produced at write time. Postgres' default `::text` cast uses
+    // "2026-04-22 11:15:00.094+00" which differs byte-for-byte from
+    // "2026-04-22T11:15:00.094Z" — the hash input the row was built with —
+    // so the default formatting always fails recomputation. See #70.
+    `SELECT id, op, actor, payload, prev_hash, hash,
+            to_char(created_at AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at
      FROM nexaas_memory.wal
      WHERE workspace = $1 ${condition}
      ORDER BY id ASC`,
