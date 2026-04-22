@@ -83,7 +83,21 @@ export interface StatusResult {
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
-const MAX_TIMEOUT_SECONDS = 24 * 3600;
+
+// Default cap is 24h. Adopters running state-machine hold patterns (Stripe
+// payment-failed, multi-day approval loops) can raise this via env — e.g.
+// `NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS=7`. No added load from longer timeouts;
+// the reaper continues to fire whenever each individual waitpoint expires.
+// See #66.
+const MAX_TIMEOUT_DAYS = (() => {
+  const raw = process.env.NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS;
+  if (!raw) return 1;
+  const parsed = Number.parseFloat(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  // Upper bound so a typo doesn't strand a waitpoint for years.
+  return Math.min(parsed, 365);
+})();
+const MAX_TIMEOUT_SECONDS = Math.floor(MAX_TIMEOUT_DAYS * 24 * 3600);
 const MAX_RAW_REGEX_LENGTH = 500;
 const MAX_RAW_QUANTIFIERS = 10;
 
