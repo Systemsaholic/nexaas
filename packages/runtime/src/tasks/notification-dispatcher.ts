@@ -53,6 +53,10 @@ interface DispatchEnvelope {
   inline_buttons?: Array<{ text: string; button_id: string }>;
   reply_to?: string;
   to?: string;  // optional override; usually derived from channel binding config
+  // Hold the dispatch until a wall-clock time (ISO-8601). Unset → send ASAP.
+  // Past → send now. Future → dispatcher skips this tick; drawer re-polled
+  // next tick. See #65.
+  send_after?: string;
   [extra: string]: unknown;
 }
 
@@ -186,7 +190,7 @@ async function dispatchViaMcp(
     // Forward any other envelope fields that aren't framework-reserved.
     const reserved = new Set([
       "idempotency_key", "channel_role", "content", "parse_mode",
-      "inline_buttons", "reply_to", "to",
+      "inline_buttons", "reply_to", "to", "send_after",
       // TAG approval-request drawer fields (#45 Stage 1a) — don't forward
       // these to the MCP; they're for the subscriber's own context.
       "kind", "run_id", "step_id", "waitpoint_signal", "output_id",
@@ -267,6 +271,17 @@ export async function dispatchPendingNotifications(
         },
       });
       continue;
+    }
+
+    // send_after: hold until wall-clock time (#65). Future → leave drawer
+    // alone and try again next tick. No WAL write, no claim — the drawer
+    // is simply not-yet-due. Malformed send_after falls through to send-now
+    // (loud failure preferable to silent indefinite wait).
+    if (envelope.send_after) {
+      const dueAt = Date.parse(envelope.send_after);
+      if (Number.isFinite(dueAt) && dueAt > Date.now()) {
+        continue;
+      }
     }
 
     // Channel binding resolution — fail-open: log + skip if missing.
