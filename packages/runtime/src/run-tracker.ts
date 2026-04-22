@@ -8,6 +8,7 @@
 
 import { sql } from "@nexaas/palace";
 import { getFrameworkIdentity } from "./fleet/heartbeat.js";
+import { checkFailureStreak } from "./tasks/silent-failure-watchdog.js";
 
 export type RunStatus =
   | "running"
@@ -92,12 +93,23 @@ export const runTracker = {
 
   async markStepFailed(runId: string, stepId: string, error: unknown): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
-    await sql(
+    const rows = await sql<{ workspace: string; skill_id: string }>(
       `UPDATE nexaas_memory.skill_runs
        SET status = 'failed', error_summary = $2, last_activity = now(), completed_at = now()
-       WHERE run_id = $1`,
+       WHERE run_id = $1
+       RETURNING workspace, skill_id`,
       [runId, message],
     );
+    // Silent-failure watchdog (#69). Best-effort — never block the failure
+    // path on the watchdog or let it override the original error surface.
+    const row = rows[0];
+    if (row) {
+      try {
+        await checkFailureStreak(row.workspace, row.skill_id);
+      } catch (err) {
+        console.error("[nexaas] silent-failure watchdog error:", err);
+      }
+    }
   },
 
   async markWaiting(runId: string): Promise<void> {

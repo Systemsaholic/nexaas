@@ -154,6 +154,8 @@ Set in `.env` (never committed):
 - `NEXAAS_PA_TIMEOUT_MS` — per-request PA handler timeout (default: 120000 = 2 min)
 - `NEXAAS_WAL_RETENTION_DAYS` — enable WAL retention policy (default: unset = keep forever)
 - `NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS` — upper bound on inbound-match waitpoint timeouts (default: 1 day). Raise for state-machine hold patterns (e.g. `7` for week-scale approval loops). See #66.
+- `NEXAAS_SILENT_FAILURE_THRESHOLD` — consecutive-failure count that triggers a silent-failure alert (default: 5; minimum: 2). See #69.
+- `NEXAAS_SILENT_FAILURE_CHANNEL_ROLE` — channel_role to emit silent-failure alerts to (unset = feature disabled). Bind this role to an operator-facing channel in the workspace manifest. See #69.
 - `NEXAAS_CROSS_VPS_BEARER_TOKEN` — bearer token for cross-VPS framework HTTP endpoints (`/api/waitpoints/inbound-match`, `/api/drawers/inbound`). Set in operator-managed mode where an ops-VPS relay writes into client VPSes. Leave unset in direct-adopter mode — endpoints remain open. See `docs/adoption-patterns/multi-vps-channel-relay.md`.
 
 ## Separation of Concerns — Nexaas vs Nexmatic
