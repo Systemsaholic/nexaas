@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { sql, sqlOne } from "./db.js";
+import { sql, sqlInTransaction } from "./db.js";
 
 export interface WalEntry {
   workspace: string;
@@ -26,39 +26,53 @@ export async function appendWal(entry: WalEntry): Promise<void> {
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const prev = await sqlOne<{ hash: string }>(
-        `SELECT hash FROM nexaas_memory.wal
-         WHERE workspace = $1
-         ORDER BY id DESC
-         LIMIT 1
-         FOR UPDATE`,
-        [entry.workspace],
-      );
+      // Wrap SELECT+INSERT in a single transaction gated by a per-workspace
+      // advisory lock. Previously the SELECT and INSERT ran as separate
+      // autocommit statements, so the `FOR UPDATE` lock released the moment
+      // the SELECT completed — two concurrent callers would both read the
+      // same "latest" row and insert rows sharing a prev_hash, forking the
+      // chain. The advisory lock serializes all appendWal calls for the
+      // same workspace; it releases automatically on COMMIT/ROLLBACK.
+      // Different workspaces don't block each other. See #71.
+      await sqlInTransaction(async (client) => {
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended('nexaas:wal:' || $1::text, 0))",
+          [entry.workspace],
+        );
 
-      const prevHash = prev?.hash ?? GENESIS_HASH;
-      const createdAt = new Date().toISOString();
-      const canonical = canonicalize(entry, createdAt, prevHash);
-      const hash = computeHash(canonical);
+        const prevResult = await client.query<{ hash: string }>(
+          `SELECT hash FROM nexaas_memory.wal
+           WHERE workspace = $1
+           ORDER BY id DESC
+           LIMIT 1`,
+          [entry.workspace],
+        );
 
-      const signedContentHash = entry.signature
-        ? computeHash(canonical)
-        : null;
+        const prevHash = prevResult.rows[0]?.hash ?? GENESIS_HASH;
+        const createdAt = new Date().toISOString();
+        const canonical = canonicalize(entry, createdAt, prevHash);
+        const hash = computeHash(canonical);
 
-      await sql(
-        `INSERT INTO nexaas_memory.wal
-          (workspace, op, actor, payload, prev_hash, hash,
-           signed_by_key_id, signature, signed_content_hash, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [
-          entry.workspace, entry.op, entry.actor,
-          JSON.stringify(entry.payload),
-          prevHash, hash,
-          entry.signedByKeyId ?? null,
-          entry.signature ?? null,
-          signedContentHash,
-          createdAt,
-        ],
-      );
+        const signedContentHash = entry.signature
+          ? computeHash(canonical)
+          : null;
+
+        await client.query(
+          `INSERT INTO nexaas_memory.wal
+            (workspace, op, actor, payload, prev_hash, hash,
+             signed_by_key_id, signature, signed_content_hash, created_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            entry.workspace, entry.op, entry.actor,
+            JSON.stringify(entry.payload),
+            prevHash, hash,
+            entry.signedByKeyId ?? null,
+            entry.signature ?? null,
+            signedContentHash,
+            createdAt,
+          ],
+        );
+      });
 
       return;
     } catch (err: unknown) {
