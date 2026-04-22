@@ -113,19 +113,27 @@ export async function verifyWalChain(
       };
     }
 
-    const canonical = canonicalize(
-      { workspace, op: row.op, actor: row.actor, payload: row.payload },
-      row.created_at,
-      row.prev_hash,
-    );
-    const recomputed = computeHash(canonical);
+    // The `workspace_genesis` row is written by `nexaas init` via raw SQL
+    // (not through appendWal), so its hash was not produced by canonicalize().
+    // It serves as the chain's trust anchor — integrity for subsequent rows
+    // comes from prev_hash linkage, not from re-deriving the anchor. Verify
+    // the anchor exists and links correctly, but skip hash recomputation.
+    // See #70 for the longer explanation.
+    if (row.op !== "workspace_genesis") {
+      const canonical = canonicalize(
+        { workspace, op: row.op, actor: row.actor, payload: row.payload },
+        row.created_at,
+        row.prev_hash,
+      );
+      const recomputed = computeHash(canonical);
 
-    if (recomputed !== row.hash) {
-      return {
-        valid: false,
-        brokenAt: row.id,
-        error: `hash mismatch at id ${row.id}: expected ${recomputed}, got ${row.hash}`,
-      };
+      if (recomputed !== row.hash) {
+        return {
+          valid: false,
+          brokenAt: row.id,
+          error: `hash mismatch at id ${row.id}: expected ${recomputed}, got ${row.hash}`,
+        };
+      }
     }
 
     expectedPrevHash = row.hash;
