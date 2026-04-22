@@ -148,6 +148,8 @@ rooms:
 self_reflection: false
 ```
 
+**Python scripts and `working_directory`:** when `working_directory` is set, the framework prepends it to `PYTHONPATH` so `python3 scripts/foo.py` can `import mypackage` where `mypackage/` sits at the repo root. Without this, Python only auto-adds the script's own directory to `sys.path` (not cwd), and imports of sibling packages fail with `ModuleNotFoundError`. No action needed — this is automatic.
+
 ### AI Skill
 
 ```yaml

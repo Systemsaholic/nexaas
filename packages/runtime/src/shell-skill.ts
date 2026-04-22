@@ -89,6 +89,17 @@ export async function runShellSkill(
       cwd: manifest.execution.working_directory,
       env: {
         ...process.env,
+        // Prepend working_directory to PYTHONPATH so `python3 scripts/foo.py`
+        // can import sibling packages of the repo root (#68). Python only
+        // auto-adds cwd to sys.path in interactive/`-c` mode, not for script
+        // invocations — without this, every ops script needs sys.path boilerplate.
+        ...(manifest.execution.working_directory
+          ? {
+              PYTHONPATH: process.env.PYTHONPATH
+                ? `${manifest.execution.working_directory}:${process.env.PYTHONPATH}`
+                : manifest.execution.working_directory,
+            }
+          : {}),
         NEXAAS_RUN_ID: runId,
         NEXAAS_TRIGGER_TYPE: triggerType,
         // Payload as JSON so shell skills can parse without a DB round trip.
