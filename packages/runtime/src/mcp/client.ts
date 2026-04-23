@@ -130,6 +130,22 @@ export class McpClient {
     return this.tools;
   }
 
+  getServerName(): string {
+    return this.serverName;
+  }
+
+  // Used by the pool (#63) to decide whether to reuse a cached client or
+  // respawn. `disposed` flips on spawn error, stdin write failure, and child
+  // exit — any of those means the subprocess is no longer usable even if it
+  // hasn't been explicitly disconnected.
+  isHealthy(): boolean {
+    if (this.disposed) return false;
+    if (!this.process) return false;
+    if (this.process.killed) return false;
+    if (this.process.exitCode !== null) return false;
+    return true;
+  }
+
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
     const result = await this.send("tools/call", { name, arguments: args }) as {
       content: Array<{ type: string; text?: string }>;

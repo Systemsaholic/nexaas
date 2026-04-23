@@ -156,6 +156,7 @@ Set in `.env` (never committed):
 - `NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS` — upper bound on inbound-match waitpoint timeouts (default: 1 day). Raise for state-machine hold patterns (e.g. `7` for week-scale approval loops). See #66.
 - `NEXAAS_SILENT_FAILURE_THRESHOLD` — consecutive-failure count that triggers a silent-failure alert (default: 5; minimum: 2). See #69.
 - `NEXAAS_SILENT_FAILURE_CHANNEL_ROLE` — channel_role to emit silent-failure alerts to (unset = feature disabled). Bind this role to an operator-facing channel in the workspace manifest. See #69.
+- `NEXAAS_MCP_POOL_ENABLED` — reuse MCP subprocesses across ai-skill runs instead of spawning fresh per run (default: unset = spawn-per-run). Saves 3–5s per run on skills declaring many MCPs. Applies to `ai-skill.ts` only for now; other call sites (subagent, notification-dispatcher, pa/service) stay on spawn-per-run. See #63.
 - `NEXAAS_CROSS_VPS_BEARER_TOKEN` — bearer token for cross-VPS framework HTTP endpoints (`/api/waitpoints/inbound-match`, `/api/drawers/inbound`). Set in operator-managed mode where an ops-VPS relay writes into client VPSes. Leave unset in direct-adopter mode — endpoints remain open. See `docs/adoption-patterns/multi-vps-channel-relay.md`.
 
 ## Separation of Concerns — Nexaas vs Nexmatic

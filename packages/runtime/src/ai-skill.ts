@@ -18,6 +18,7 @@ import { spawnSync } from "child_process";
 import { palace, appendWal } from "@nexaas/palace";
 import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
+import { acquireMcpClient, releaseMcpClient } from "./mcp/pool.js";
 import { runAgenticLoop, type McpTool, type AgenticLimits } from "./models/agentic-loop.js";
 import { resolveTier, estimateCost, type ModelEntry } from "./models/registry.js";
 import { verifyOutputs, summarizeFailures, type OutputVerification } from "./ai-skill-verify.js";
@@ -253,9 +254,11 @@ export async function runAiSkill(
         continue;
       }
 
-      const client = new McpClient(serverName, config);
       try {
-        await client.connect();
+        // acquireMcpClient transparently returns a pooled long-lived client
+        // when NEXAAS_MCP_POOL_ENABLED is set, or spawns fresh otherwise
+        // (legacy behavior). See packages/runtime/src/mcp/pool.ts (#63).
+        const client = await acquireMcpClient(serverName, config);
         mcpClients.push(client);
         const tools = client.getTools();
         // Prefix tool names with server name to avoid collisions
@@ -611,7 +614,7 @@ export async function runAiSkill(
     if (status === 429) {
       console.warn(`[nexaas] AI skill '${manifest.id}' hit rate limit — rethrowing for queue backoff`);
       for (const client of mcpClients) {
-        try { await client.disconnect(); } catch { /* ignore */ }
+        try { await releaseMcpClient(client); } catch { /* ignore */ }
       }
       mcpClients.length = 0;
       throw err;
@@ -623,7 +626,7 @@ export async function runAiSkill(
   } finally {
     // Disconnect all MCP clients
     for (const client of mcpClients) {
-      try { await client.disconnect(); } catch { /* ignore */ }
+      try { await releaseMcpClient(client); } catch { /* ignore */ }
     }
   }
 }

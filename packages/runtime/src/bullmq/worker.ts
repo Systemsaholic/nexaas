@@ -16,6 +16,7 @@ import { appendWal } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
 import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
 import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
+import { shutdownMcpPool } from "../mcp/pool.js";
 import { readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { randomUUID } from "crypto";
@@ -196,6 +197,11 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         );
         try { await worker.close(true); } catch { /* already forced */ }
       }
+    }
+    // Tear down any pooled MCP subprocesses (#63). No-op when pooling is
+    // disabled. Best-effort so shutdown never hangs on a misbehaving child.
+    try { await shutdownMcpPool(); } catch (err) {
+      console.warn(`[nexaas] MCP pool shutdown error: ${(err as Error).message}`);
     }
     process.exit(0);
   };
