@@ -1,7 +1,9 @@
 # 2FA / OAuth code intercept
 
-*v0.1 — framework-side primitives complete; end-to-end validation
-pending on first adopter dashboard/SMS/email adapter.*
+*v0.2 — framework-side primitives complete; end-to-end validated on
+Nexmatic dashboard adapter (BSBC workspace, 2026-04-29). See "Worked
+example — Nexmatic dashboard channel" below for the concrete flow,
+gotchas, and observed wall-clock timings.*
 
 Pattern for skills that need to pause, prompt a human for a one-time
 code (2FA, OAuth redirect parameter, delivery confirmation), and
@@ -259,12 +261,124 @@ auth follow-up (#53) for bearer-token scenarios.
   tool both go away. Legacy skill paths revert to whatever workaround
   existed before.
 
+## Worked example — Nexmatic dashboard channel
+
+End-to-end validation captured 2026-04-29 on the BSBC workspace
+(`broken-stick-brewery`, framework `78c6a91`). The skill is a shell
+adopter — `_demo/mock-bank-fetch` — that mirrors the shape of any
+real bank-CSV-fetch skill but talks to a synthetic mock-bank service.
+Source: <https://github.com/Systemsaholic/nexmatic/tree/main/packages/client-dashboard/app/api/mock-bank>.
+
+### Components
+
+| Layer | Component | Where |
+|---|---|---|
+| Mock service | `POST /api/mock-bank/{login,verify}` returning a 2FA challenge then canned account data | `client-dashboard/app/api/mock-bank/` (Nexmatic) |
+| Credential vault | `POST /api/vault/decrypt` (localhost-only, AES-256-GCM) | `client-dashboard/app/api/vault/` (Nexmatic) |
+| Skill | `_demo/mock-bank-fetch/run.sh` — shell skill calling the framework HTTP API | `<workspace_root>/nexaas-skills/_demo/mock-bank-fetch/` |
+| Channel | Dashboard waitpoint banner (polls `/api/waitpoints`, 6-digit input box, writes inbound drawer on submit) | `client-dashboard/components/waitpoint-banner.tsx` (Nexmatic) |
+| Framework primitives | inbound-match-waitpoint, inbound-dispatcher, palace.resolveWaitpoint | `packages/runtime/src/tasks/`, `packages/palace/src/` |
+
+### Flow
+
+```
+skill.run                         (t=0)
+  ├─ vault.decrypt(mock-bank, password)
+  ├─ POST /api/mock-bank/login    → { session_id, requires_2fa: true }
+  ├─ POST /api/waitpoints/inbound-match
+  │       { match: { room_pattern: "*", content_pattern: "digit_code" },
+  │         tags: ["2fa","mock-bank","demo"] }
+  │     → { waitpoint_id }
+  │     WAL: inbound_match_waitpoint_registered
+  ├─ poll palace for resolution drawer keyed by waitpoint_id
+  │
+  │   ──── human enters code in dashboard banner (t≈19s) ────
+  │   POST /api/waitpoints { waitpointId, value: "511100" }
+  │   → writes inbox.messaging.dashboard.<sanitized-email> drawer
+  │     content = { from: <email>, content: "My code is 511100", … }
+  │
+  ├─ inbound-dispatcher polls (3s tick)
+  │     → matchDrawerAgainstWaitpoints
+  │     → palace.resolveWaitpoint(signal, { extracted: "511100", … })
+  │     → writes superseding drawer at waitpoints.inbound_match.active
+  │       content.resolution.extracted = "511100"
+  │     WAL: waitpoint_resolved + inbound_match_waitpoint_resolved
+  │
+  ├─ poll detects resolution drawer → reads `extracted`
+  ├─ POST /api/mock-bank/verify { session_id, code: "511100" }
+  │     → { account_data: { … } }
+  └─ INSERT _demo.mock-bank.runs.<run_id>  (output drawer)
+```
+
+Wall-clock observed: register at `T+0.5s`, resolution WAL ops at `T+19s`
+(time spent waiting for the human to type the code), output drawer at
+`T+22s`.
+
+### WAL trail (sanitized)
+
+```
+inbound_match_waitpoint_registered
+  payload: { waitpoint_id, room_pattern: "*", content_pattern: "digit_code",
+             timeout_seconds: 300, tags: ["2fa","mock-bank","demo"] }
+
+waitpoint_resolved
+  payload: { signal: <waitpoint_id>, drawer_id: <waitpoint_drawer>,
+             resolution: { extracted: "511100", drawer_id: <inbound_drawer>,
+                            channel_role: "dashboard.<sanitized-email>" } }
+
+inbound_match_waitpoint_resolved
+  payload: { waitpoint_id, drawer_id, channel_role,
+             extract_mode: "first_regex_match", extracted_length: 6 }
+```
+
+### Gotchas surfaced during validation
+
+1. **`room_pattern` is exact-string OR `"*"` — not regex.** The doc's
+   "use exact role or `*` for any" line in `RegisterParams` is
+   load-bearing; we tried `"inbox.messaging.dashboard\\..*"` first
+   and it never matched. Either use the exact `drawer.room` value
+   (e.g., `"dashboard.al-nexmatic-ca"`) or `"*"` and rely on
+   `content_pattern` + `sender_id` to scope. Adding regex support
+   would unblock "any room starting with `dashboard.`" ergonomics
+   but is not on the critical path.
+
+2. **Resolution writes a superseding drawer — don't poll the original.**
+   `palace.resolveWaitpoint` mutates the original drawer's
+   `dormant_signal = NULL` AND inserts a NEW drawer at the same
+   `wing/hall/room` whose `content.resolution.extracted` carries the
+   value. Poll the new drawer keyed by `waitpoint_id`:
+
+   ```sql
+   SELECT content::jsonb->'resolution'->>'extracted'
+     FROM nexaas_memory.events
+    WHERE workspace = $1 AND wing = 'waitpoints' AND hall = 'inbound_match'
+      AND room = 'active'
+      AND content::jsonb->'resolution'->>'waitpoint_id' = $2
+    ORDER BY created_at DESC LIMIT 1;
+   ```
+
+3. **Dashboard middleware blocks worker calls by default.** Skills
+   running on the same VPS as the Next.js dashboard need their
+   localhost endpoints (`/api/vault/decrypt`,
+   `/api/mock-bank/{login,verify}`) excluded from the auth-redirect
+   middleware. The route handlers themselves enforce
+   localhost + internal-token / shared-secret.
+
+4. **`inbound_dispatches` reports `(none) — no subscriber` when no
+   skill subscribes to the channel role.** That's not an error —
+   `matchDrawerAgainstWaitpoints` runs in the same dispatcher tick
+   regardless, so the waitpoint resolves correctly. Easy to misread
+   in journal output during initial debugging.
+
 ## Canary status
 
 - **Framework primitive** (#49 + fixes #51 #52): shipped
 - **Skill-side tool** (`framework__request_match`): shipped in `d3e2841`
 - **Phoenix TD EasyWeb 2FA validation**: pending `td/auth.py` migration
-- **Nexmatic dashboard-as-channel adapter**: pending Nexmatic-side work
+- **Nexmatic dashboard-as-channel adapter (BSBC, 2026-04-29)**: ✅
+  validated end-to-end with the worked example above
 
-This doc will be revised when Phoenix validates end-to-end and when
-Nexmatic's first 2FA-gated skill lands.
+This doc will be revised again when Phoenix validates the Telegram
+adapter against the same primitive (the dashboard validation already
+proves the channel-agnostic claim — Telegram is just a different
+inbound-drawer source).
