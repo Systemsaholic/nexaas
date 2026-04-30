@@ -42,6 +42,7 @@ import { load as yamlLoad } from "js-yaml";
 import { sql, appendWal } from "@nexaas/palace";
 import { enqueueSkillStep, type SkillJobData } from "../bullmq/queues.js";
 import { matchDrawerAgainstWaitpoints } from "./inbound-match-waitpoint.js";
+import { reportMissingRelation } from "./_consistency-warning.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
 const POLL_BATCH_SIZE = 50;
@@ -297,7 +298,8 @@ export function startInboundDispatcher(
         );
       }
     } catch (err) {
-      console.error("[nexaas] inbound dispatcher error:", err);
+      const handled = await reportMissingRelation(workspace, "inbound-dispatcher", err);
+      if (!handled) console.error("[nexaas] inbound dispatcher error:", err);
     } finally {
       _polling = false;
     }

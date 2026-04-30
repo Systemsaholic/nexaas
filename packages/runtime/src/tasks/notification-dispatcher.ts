@@ -26,6 +26,7 @@ import { sql, appendWal, palace } from "@nexaas/palace";
 import { McpClient, loadMcpConfigs } from "../mcp/client.js";
 import { loadWorkspaceManifest } from "../schemas/load-manifest.js";
 import type { WorkspaceManifest, ChannelBinding } from "../schemas/workspace-manifest.js";
+import { reportMissingRelation } from "./_consistency-warning.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const MAX_ATTEMPTS = 5;
@@ -373,7 +374,8 @@ export function startNotificationDispatcher(
         );
       }
     } catch (err) {
-      console.error("[nexaas] notification dispatcher error:", err);
+      const handled = await reportMissingRelation(workspace, "notification-dispatcher", err);
+      if (!handled) console.error("[nexaas] notification dispatcher error:", err);
     } finally {
       _polling = false;
     }
