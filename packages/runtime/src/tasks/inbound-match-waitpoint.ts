@@ -193,23 +193,14 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
     ? params.tags.filter((t): t is string => typeof t === "string" && t.length > 0).slice(0, 16)
     : undefined;
 
-  // Credential-adjacent + missing sender_id = security gap. Warn loudly but
-  // don't refuse — some patterns (shared admin channels) are legitimately
-  // sender-agnostic. Surfaces in console output AND the WAL payload below
-  // so downstream observability can flag risky registrations.
+  // Credential-adjacent + missing sender_id = security gap. Compute the flag
+  // up-front (so the WAL payload can record it), but defer the visible warn
+  // until after createWaitpoint succeeds — otherwise a creation failure
+  // produces a phantom warning for a waitpoint that never existed.
   const credentialAdjacentTagsHit = tags
     ? tags.filter((t) => CREDENTIAL_ADJACENT_TAGS.has(t.toLowerCase()))
     : [];
   const senderIdWarn = credentialAdjacentTagsHit.length > 0 && !params.match.sender_id;
-  if (senderIdWarn) {
-    console.warn(
-      `[nexaas] inbound-match-waitpoint ${waitpointId} registered with credential-adjacent ` +
-      `tags (${credentialAdjacentTagsHit.join(", ")}) but no match.sender_id — anyone with ` +
-      `adapter write access can resolve this waitpoint with an arbitrary value. Pass ` +
-      `match.sender_id to scope to the expected human. ` +
-      `See docs/adoption-patterns/2fa-code-intercept.md#security-always-scope-by-sender_id`,
-    );
-  }
 
   await session.createWaitpoint({
     signal: waitpointId,
@@ -231,6 +222,19 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
     },
     timeout: `${timeoutSec}s`,
   });
+
+  // Waitpoint exists — safe to emit the warning. Don't refuse — some patterns
+  // (shared admin channels, broadcast confirmations) are legitimately
+  // sender-agnostic. Surfaces in console output AND the WAL payload below.
+  if (senderIdWarn) {
+    console.warn(
+      `[nexaas] inbound-match-waitpoint ${waitpointId} registered with credential-adjacent ` +
+      `tags (${credentialAdjacentTagsHit.join(", ")}) but no match.sender_id — anyone with ` +
+      `adapter write access can resolve this waitpoint with an arbitrary value. Pass ` +
+      `match.sender_id to scope to the expected human. ` +
+      `See docs/adoption-patterns/2fa-code-intercept.md#security-always-scope-by-sender_id`,
+    );
+  }
 
   await appendWal({
     workspace: params.workspace,
