@@ -159,8 +159,22 @@ to the expected human. Without it, an attacker with adapter write
 access could resolve your waitpoint with an arbitrary code.
 
 Framework doesn't enforce this (some patterns are legitimately
-sender-agnostic — e.g., a shared admin channel), but skill prompts
-should consistently require it for credential-adjacent flows.
+sender-agnostic — e.g., a shared admin channel), but it does **warn**.
+When a waitpoint registers with credential-adjacent tags (`2fa`, `mfa`,
+`oauth`, `2-step`, `auth-code`, `verification`) and no `sender_id`, the
+runtime emits a `console.warn` and flags the registration in WAL via
+`payload.sender_id_warn = true`. Sweep with:
+
+```sql
+SELECT created_at, payload->>'waitpoint_id' AS wp, payload->>'tags' AS tags
+  FROM nexaas_memory.wal
+ WHERE op = 'inbound_match_waitpoint_registered'
+   AND (payload->>'sender_id_warn')::boolean
+ ORDER BY created_at DESC;
+```
+
+Skill prompts should still consistently require `sender_id` for
+credential-adjacent flows — the warning surfaces drift, it doesn't fix it.
 
 ## UI rendering hints — the `tags` array
 
