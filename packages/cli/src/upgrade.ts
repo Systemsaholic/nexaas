@@ -118,6 +118,7 @@ export async function run(args: string[]) {
       const sqlPath = join(nexaasRoot, "database/migrations", migration);
       const sqlContent = readFileSync(sqlPath, "utf-8");
       const client = await pool.connect();
+      let migrationFailed = false;
       try {
         await client.query("BEGIN");
         await client.query(sqlContent);
@@ -131,10 +132,14 @@ export async function run(args: string[]) {
         await client.query("ROLLBACK").catch(() => { /* best effort */ });
         console.error(`    ✗ ${migration}: ${(e as Error).message}`);
         console.error("  Migration failed — stopping. Fix the issue and run 'nexaas upgrade --migrate'");
+        migrationFailed = true;
+      } finally {
         client.release();
-        process.exit(1);
       }
-      client.release();
+      // Exit AFTER release so the connection always returns to the pool —
+      // process.exit doesn't run finally on the *outer* scope, but we already
+      // released in the inner finally. Belt and suspenders: see PR #77 review.
+      if (migrationFailed) process.exit(1);
     }
   } else {
     console.log("  Migrations: up to date");
