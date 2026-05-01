@@ -1,12 +1,12 @@
 /**
- * Nexaas Email-Outbound MCP Server (#78 PR A).
+ * Nexaas Email-Outbound MCP Server (#78).
  *
  * Implements the `email-outbound` capability defined in
  * capabilities/_registry.yaml. Skills declaring `mcp_servers: [email-outbound]`
  * receive `send` and `track` tools for transactional and marketing email.
  *
- * Provider-pluggable. PR A ships with Resend; Postmark, SendGrid, AWS SES
- * follow in a separate PR (issue #78 step 2). All providers conform to the
+ * Provider-pluggable. Today: Resend, Postmark, SendGrid. AWS SES is tracked
+ * as a follow-up (needs SDK choice). All providers conform to the
  * EmailProvider interface in `types.ts`, so the MCP entry point stays
  * provider-agnostic — selection happens once at server start (see
  * `provider-select.ts`) and is logged on stderr.
@@ -15,7 +15,9 @@
  * name from a skill manifest's `mcp_servers` array.
  *
  * Environment:
- *   RESEND_API_KEY                 — Resend bearer token (PR A)
+ *   RESEND_API_KEY                 — Resend bearer token
+ *   POSTMARK_SERVER_TOKEN          — Postmark per-server token
+ *   SENDGRID_API_KEY               — SendGrid bearer token
  *   EMAIL_OUTBOUND_PROVIDER        — pin a specific provider (optional)
  */
 
