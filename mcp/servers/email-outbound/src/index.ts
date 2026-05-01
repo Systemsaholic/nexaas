@@ -71,8 +71,8 @@ const sendSchema = {
 server.tool(
   "send",
   "Send a transactional or marketing email through the workspace's configured provider. " +
-  "Returns a `message_id` you can pass to `track` later. Per-recipient rejection (if any) " +
-  "is in the `rejected` array; an empty array means the provider accepted all recipients.",
+  "Returns `message_id` (omitted when *all* recipients were rejected — guard before passing to `track`), " +
+  "`accepted` (recipients the provider took), and `rejected` (per-recipient failures with reason).",
   sendSchema,
   async (input) => {
     try {

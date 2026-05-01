@@ -23,7 +23,12 @@ export interface SendInput {
 }
 
 export interface SendOutput {
-  message_id: string;
+  /**
+   * Provider's native id for the accepted message. Undefined when *all*
+   * recipients were rejected (no message exists to track). Skills should
+   * guard before passing to `track`. PR #79 review.
+   */
+  message_id?: string;
   accepted: string[];
   rejected: Array<{ email: string; reason: string }>;
 }

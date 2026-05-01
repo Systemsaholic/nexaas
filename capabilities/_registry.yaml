@@ -146,7 +146,7 @@ capabilities:
           message_id: "string"             # from a prior send response
         output:
           message_id: "string"
-          status: "string"                 # queued | sent | delivered | bounced | complained | unknown
+          status: "queued | sent | delivered | bounced | complained | unknown"
           delivered_at: "string?"          # ISO; absent until provider confirms
           opened: "{ count: number, last_at: string? }?"
           clicked: "{ count: number, last_at: string? }?"

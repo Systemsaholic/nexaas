@@ -134,10 +134,10 @@ export class ResendProvider implements EmailProvider {
     if (!res.ok) {
       // Resend bundles all rejections into a single error — we surface as
       // "all recipients rejected with the provider message" since per-
-      // recipient rejection is not in the API response.
+      // recipient rejection is not in the API response. `message_id` is
+      // omitted (undefined) — there is no message to track. PR #79 review.
       const reason = parsed.message ?? `HTTP ${res.status}`;
       return {
-        message_id: "",
         accepted: [],
         rejected: recipients.map((email) => ({ email, reason })),
       };
