@@ -36,11 +36,22 @@ const NAMED_PATTERNS: Record<string, string> = {
 
 export type ExtractMode = "first_regex_match" | "first_capture_group" | "full_content";
 
+export type RoomMatchMode = "exact" | "glob" | "regex";
+
 export interface RegisterParams {
   workspace: string;
   match: {
-    /** `inbox.messaging.<room_pattern>` — use exact role or `*` for any. */
+    /**
+     * Room scope. `*` matches any inbox.messaging.* drawer. Otherwise
+     * interpreted per `room_match_mode`:
+     *   - `exact` (default) — literal string compare
+     *   - `glob` — `*` matches one path segment (no dots), `?` matches one char.
+     *   - `regex` — full regex, validated through the same backtracking guard
+     *     as `content_regex`.
+     */
     room_pattern?: string;
+    /** How to interpret `room_pattern` when not `*`. Default `exact` for back-compat. See #74. */
+    room_match_mode?: RoomMatchMode;
     /** Named pattern key, or omit in favor of `content_regex`. */
     content_pattern?: keyof typeof NAMED_PATTERNS | string;
     /** Raw regex — requires `raw: true`. */
@@ -110,6 +121,23 @@ const WAITPOINT_ROOM = { wing: "waitpoints", hall: "inbound_match", room: "activ
  * named patterns. Sufficient to keep typos and copy-pastes from wedging
  * the event loop.
  */
+/**
+ * Compile a glob to an anchored regex (#74). Conventions:
+ *   `*` → `[^.]*` (one path segment — does not cross dots)
+ *   `?` → `.`     (one character)
+ *   everything else regex-escaped literal
+ *
+ * Segment-bounded `*` is the more useful default for hierarchical room
+ * names like `dashboard.al-nexmatic-ca` — `dashboard.*` matches that
+ * room without sweeping `dashboard.foo.bar`. Adopters that want
+ * "match across dots" should use `room_match_mode: regex` with `.*`.
+ */
+function compileGlob(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const re = escaped.replace(/\*/g, "[^.]*").replace(/\?/g, ".");
+  return new RegExp(`^${re}$`);
+}
+
 function validateRawRegex(pattern: string): { ok: true } | { ok: false; reason: string } {
   if (pattern.length > MAX_RAW_REGEX_LENGTH) {
     return { ok: false, reason: `pattern too long (max ${MAX_RAW_REGEX_LENGTH} chars)` };
@@ -163,6 +191,25 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
   const resolved = resolvePattern(params.match);
   if ("error" in resolved) return { error: resolved.error };
 
+  // Validate room_match_mode + room_pattern combo at registration time so
+  // operators get an immediate error instead of a silent never-match (#74).
+  // The `*` sentinel always means "any room" regardless of mode.
+  const roomPattern = params.match.room_pattern ?? "*";
+  const roomMatchMode: RoomMatchMode = params.match.room_match_mode ?? "exact";
+  if (roomMatchMode !== "exact" && roomMatchMode !== "glob" && roomMatchMode !== "regex") {
+    return { error: `room_match_mode must be one of: exact, glob, regex (got '${roomMatchMode}')` };
+  }
+  if (roomPattern !== "*" && roomMatchMode === "regex") {
+    const check = validateRawRegex(roomPattern);
+    if (!check.ok) return { error: `room_pattern regex rejected: ${check.reason}` };
+    try { new RegExp(`^${roomPattern}$`); }
+    catch (err) { return { error: `room_pattern regex invalid: ${(err as Error).message}` }; }
+  }
+  if (roomPattern !== "*" && roomMatchMode === "glob") {
+    try { compileGlob(roomPattern); }
+    catch (err) { return { error: `room_pattern glob invalid: ${(err as Error).message}` }; }
+  }
+
   const timeoutSec = Math.min(
     MAX_TIMEOUT_SECONDS,
     Math.max(1, params.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS),
@@ -185,7 +232,8 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
     state: {
       waitpoint_id: waitpointId,
       match: {
-        room_pattern: params.match.room_pattern ?? "*",
+        room_pattern: roomPattern,
+        room_match_mode: roomMatchMode,
         content_pattern: params.match.content_pattern,
         content_regex: params.match.content_regex,
         raw: params.match.raw === true,
@@ -206,7 +254,8 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
     actor: "inbound-match-waitpoint",
     payload: {
       waitpoint_id: waitpointId,
-      room_pattern: params.match.room_pattern ?? "*",
+      room_pattern: roomPattern,
+      room_match_mode: roomMatchMode === "exact" ? undefined : roomMatchMode,
       content_pattern: params.match.content_pattern,
       content_regex_raw: params.match.raw === true,
       sender_id: params.match.sender_id,
@@ -366,9 +415,31 @@ export async function matchDrawerAgainstWaitpoints(
     const match = state.match as Record<string, unknown> | undefined;
     if (!match) continue;
 
-    // Room scope check. `*` or missing matches any inbox.messaging.* room.
+    // Room scope check (#74). `*` or missing matches any inbox.messaging.*
+    // room regardless of mode. Otherwise interpret per `room_match_mode`:
+    //   exact (default) — literal string compare
+    //   glob            — segment-bounded `*` / single-char `?`
+    //   regex           — full regex (validated at registration)
     const roomPattern = typeof match.room_pattern === "string" ? match.room_pattern : "*";
-    if (roomPattern !== "*" && roomPattern !== drawer.room) continue;
+    const roomMatchMode = (typeof match.room_match_mode === "string" ? match.room_match_mode : "exact") as RoomMatchMode;
+    if (roomPattern !== "*") {
+      let roomMatched = false;
+      try {
+        if (roomMatchMode === "exact") {
+          roomMatched = roomPattern === drawer.room;
+        } else if (roomMatchMode === "glob") {
+          roomMatched = compileGlob(roomPattern).test(drawer.room);
+        } else if (roomMatchMode === "regex") {
+          roomMatched = new RegExp(`^${roomPattern}$`).test(drawer.room);
+        }
+      } catch {
+        // Compile failed at match time — registration validated this, so a
+        // failure here implies state corruption. Skip the waitpoint to keep
+        // matching other open ones.
+        continue;
+      }
+      if (!roomMatched) continue;
+    }
 
     // Sender scope check.
     if (typeof match.sender_id === "string" && match.sender_id && drawerFrom !== match.sender_id) continue;
