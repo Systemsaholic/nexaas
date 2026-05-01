@@ -17,11 +17,14 @@
       "@nexaas/palace": ["./packages/palace/src/index.ts"],
       "@nexaas/palace/*": ["./packages/palace/src/*"],
       "@nexaas/runtime": ["./packages/runtime/src/index.ts"],
-      "@nexaas/runtime/*": ["./packages/runtime/src/*"]
+      "@nexaas/runtime/*": ["./packages/runtime/src/*"],
+      "@nexaas/integration-sdk": ["./packages/integration-sdk/src/index.ts"],
+      "@nexaas/integration-sdk/*": ["./packages/integration-sdk/src/*"]
     }
   },
   "include": [
-    "packages/*/src/**/*.ts"
+    "packages/*/src/**/*.ts",
+    "integrations/*/src/**/*.ts"
   ],
   "exclude": [
     "node_modules",

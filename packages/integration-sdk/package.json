@@ -1,0 +1,14 @@
+{
+  "name": "@nexaas/integration-sdk",
+  "version": "0.1.0",
+  "description": "Authoring kit for Nexaas integrations — manifest schema, capability contracts, and shared helpers used by all integration packages (reference + adopter).",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}
