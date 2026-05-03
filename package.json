@@ -6,7 +6,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "integrations/*"
+    "integrations/*",
+    "mcp/servers/email-outbound"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

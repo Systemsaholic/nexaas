@@ -1,52 +1,17 @@
 /**
- * Shared types between the MCP entry point and provider plugins.
+ * Capability types for the email-outbound MCP shell.
  *
- * Mirrors the email-outbound capability v0.2 spec in
- * capabilities/_registry.yaml. The MCP entry point validates input via zod
- * before handing off to a provider; the provider's job is to translate
- * these framework-canonical fields into whatever the underlying API
- * expects, then translate the response back into the canonical output
- * shape. Skills never see provider-specific shapes.
+ * The canonical definitions now live in `@nexaas/integration-sdk` (#88
+ * Phase 2). This file re-exports them so the shell's existing imports
+ * (`./types.js`) keep working — Postmark and SendGrid still live in
+ * `./providers/` and import from here. They'll switch to importing
+ * directly from `@nexaas/integration-sdk` when each gets extracted in a
+ * follow-up PR.
  */
 
-export interface SendInput {
-  from: { email: string; name?: string };
-  reply_to?: string;
-  to: string | string[];
-  subject: string;
-  body_text: string;
-  body_html?: string;
-  headers?: Record<string, string>;
-  tracking?: { opens?: boolean; clicks?: boolean };
-  tags?: string[];
-  attachments?: Array<{ filename: string; content_base64: string }>;
-}
-
-export interface SendOutput {
-  /**
-   * Provider's native id for the accepted message. Undefined when *all*
-   * recipients were rejected (no message exists to track). Skills should
-   * guard before passing to `track`. PR #79 review.
-   */
-  message_id?: string;
-  accepted: string[];
-  rejected: Array<{ email: string; reason: string }>;
-}
-
-export interface TrackOutput {
-  message_id: string;
-  status: "queued" | "sent" | "delivered" | "bounced" | "complained" | "unknown";
-  delivered_at?: string;
-  opened?: { count: number; last_at?: string };
-  clicked?: { count: number; last_at?: string };
-  bounced?: { at: string; type: string; reason?: string };
-}
-
-export interface EmailProvider {
-  /** Stable identifier — `resend`, `postmark`, `sendgrid`, `aws_ses`. Surfaces in WAL & logs. */
-  readonly name: string;
-
-  send(input: SendInput): Promise<SendOutput>;
-
-  track(messageId: string): Promise<TrackOutput>;
-}
+export type {
+  EmailProvider,
+  SendInput,
+  SendOutput,
+  TrackOutput,
+} from "@nexaas/integration-sdk";

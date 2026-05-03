@@ -15,7 +15,7 @@
  */
 
 import type { EmailProvider } from "./types.js";
-import { ResendProvider } from "./providers/resend.js";
+import { createResendProvider } from "@nexaas/email-provider-resend";
 import { PostmarkProvider } from "./providers/postmark.js";
 import { SendGridProvider } from "./providers/sendgrid.js";
 
@@ -35,7 +35,7 @@ export function selectProvider(): SelectedProvider {
     if (!resendKey) {
       throw new Error("EMAIL_OUTBOUND_PROVIDER=resend but RESEND_API_KEY is unset");
     }
-    return { provider: new ResendProvider(resendKey), name: "resend", reason: "env_pin" };
+    return { provider: createResendProvider(resendKey), name: "resend", reason: "env_pin" };
   }
 
   if (explicitName === "postmark") {
@@ -62,7 +62,7 @@ export function selectProvider(): SelectedProvider {
   // Auto-detect — first key wins. Order is documented in the README so
   // behavior is predictable when multiple keys are present.
   if (resendKey) {
-    return { provider: new ResendProvider(resendKey), name: "resend", reason: "auto_detect" };
+    return { provider: createResendProvider(resendKey), name: "resend", reason: "auto_detect" };
   }
   if (postmarkToken) {
     return { provider: new PostmarkProvider(postmarkToken), name: "postmark", reason: "auto_detect" };
