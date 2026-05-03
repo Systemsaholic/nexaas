@@ -1,5 +1,5 @@
 /**
- * Postmark provider plugin (#78 PR B).
+ * @nexaas/email-provider-postmark — Postmark implementation of email-outbound.
  *
  * Postmark's HTTP API:
  *   POST /email                              — send a single message
@@ -18,9 +18,19 @@
  * delivery time, and bounce details. Open/click counts come from
  * /opens and /clicks endpoints; we return aggregate state only here
  * to avoid three round-trips per `track` call.
+ *
+ * Migrated from `mcp/servers/email-outbound/src/providers/postmark.ts`
+ * in #88 Phase 2.
  */
 
-import type { EmailProvider, SendInput, SendOutput, TrackOutput } from "../types.js";
+import {
+  asArray,
+  withTimeout,
+  type EmailProvider,
+  type SendInput,
+  type SendOutput,
+  type TrackOutput,
+} from "@nexaas/integration-sdk";
 
 const POSTMARK_API = "https://api.postmarkapp.com";
 const SEND_TIMEOUT_MS = 10_000;
@@ -45,19 +55,6 @@ interface PostmarkMessageDetails {
     ReceivedAt?: string;
     Details?: { Type?: string; Description?: string };
   }>;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
-    ),
-  ]);
-}
-
-function asArray<T>(v: T | T[]): T[] {
-  return Array.isArray(v) ? v : [v];
 }
 
 function formatFrom(input: SendInput["from"]): string {
@@ -235,7 +232,15 @@ export class PostmarkProvider implements EmailProvider {
     // Open / click counts require separate /opens and /clicks endpoint
     // calls per recipient — three round-trips per `track`. Skipped here
     // to keep `track` cheap; skills needing engagement should subscribe
-    // to Postmark webhooks. Documented in the server README.
+    // to Postmark webhooks. Documented in the integration README.
     return out;
   }
+}
+
+/**
+ * Stable factory export consumed by the email-outbound MCP shell and (in
+ * Phase 3) by the manifest-driven loader.
+ */
+export function createPostmarkProvider(serverToken: string): EmailProvider {
+  return new PostmarkProvider(serverToken);
 }

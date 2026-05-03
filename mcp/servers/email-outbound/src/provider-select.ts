@@ -16,7 +16,7 @@
 
 import type { EmailProvider } from "./types.js";
 import { createResendProvider } from "@nexaas/email-provider-resend";
-import { PostmarkProvider } from "./providers/postmark.js";
+import { createPostmarkProvider } from "@nexaas/email-provider-postmark";
 import { SendGridProvider } from "./providers/sendgrid.js";
 
 export interface SelectedProvider {
@@ -42,7 +42,7 @@ export function selectProvider(): SelectedProvider {
     if (!postmarkToken) {
       throw new Error("EMAIL_OUTBOUND_PROVIDER=postmark but POSTMARK_SERVER_TOKEN is unset");
     }
-    return { provider: new PostmarkProvider(postmarkToken), name: "postmark", reason: "env_pin" };
+    return { provider: createPostmarkProvider(postmarkToken), name: "postmark", reason: "env_pin" };
   }
 
   if (explicitName === "sendgrid") {
@@ -65,7 +65,7 @@ export function selectProvider(): SelectedProvider {
     return { provider: createResendProvider(resendKey), name: "resend", reason: "auto_detect" };
   }
   if (postmarkToken) {
-    return { provider: new PostmarkProvider(postmarkToken), name: "postmark", reason: "auto_detect" };
+    return { provider: createPostmarkProvider(postmarkToken), name: "postmark", reason: "auto_detect" };
   }
   if (sendgridKey) {
     return { provider: new SendGridProvider(sendgridKey), name: "sendgrid", reason: "auto_detect" };

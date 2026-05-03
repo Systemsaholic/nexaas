@@ -1,0 +1,9 @@
+name: email-provider-postmark
+implements:
+  - capability: email-outbound
+    version: ">=0.2 <1"
+    provider_name: postmark
+env:
+  required: [POSTMARK_SERVER_TOKEN]
+  optional: []
+entry: "./src/index.ts"
