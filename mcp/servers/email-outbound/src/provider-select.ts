@@ -14,10 +14,10 @@
  * the reason the provider was picked.
  */
 
-import type { EmailProvider } from "./types.js";
+import type { EmailProvider } from "@nexaas/integration-sdk";
 import { createResendProvider } from "@nexaas/email-provider-resend";
 import { createPostmarkProvider } from "@nexaas/email-provider-postmark";
-import { SendGridProvider } from "./providers/sendgrid.js";
+import { createSendGridProvider } from "@nexaas/email-provider-sendgrid";
 
 export interface SelectedProvider {
   provider: EmailProvider;
@@ -49,7 +49,7 @@ export function selectProvider(): SelectedProvider {
     if (!sendgridKey) {
       throw new Error("EMAIL_OUTBOUND_PROVIDER=sendgrid but SENDGRID_API_KEY is unset");
     }
-    return { provider: new SendGridProvider(sendgridKey), name: "sendgrid", reason: "env_pin" };
+    return { provider: createSendGridProvider(sendgridKey), name: "sendgrid", reason: "env_pin" };
   }
 
   if (explicitName) {
@@ -68,7 +68,7 @@ export function selectProvider(): SelectedProvider {
     return { provider: createPostmarkProvider(postmarkToken), name: "postmark", reason: "auto_detect" };
   }
   if (sendgridKey) {
-    return { provider: new SendGridProvider(sendgridKey), name: "sendgrid", reason: "auto_detect" };
+    return { provider: createSendGridProvider(sendgridKey), name: "sendgrid", reason: "auto_detect" };
   }
 
   throw new Error(

@@ -1,0 +1,9 @@
+name: email-provider-sendgrid
+implements:
+  - capability: email-outbound
+    version: ">=0.2 <1"
+    provider_name: sendgrid
+env:
+  required: [SENDGRID_API_KEY]
+  optional: []
+entry: "./src/index.ts"
