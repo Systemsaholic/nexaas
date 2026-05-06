@@ -35,6 +35,12 @@ export interface ShellSkillManifest {
   rooms?: {
     primary?: { wing: string; hall: string; room: string };
   };
+  /**
+   * Optional mutex groups. Skills declaring overlapping group names
+   * serialize within the worker; non-overlapping skills parallelize.
+   * See docs/rfcs/0001-skill-concurrency-groups.md.
+   */
+  concurrency_groups?: string[];
 }
 
 export interface SkillExecutionContext {

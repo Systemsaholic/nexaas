@@ -96,6 +96,12 @@ export interface AiSkillManifest {
     max_consecutive_identical_tool_calls?: number;
     max_consecutive_errors?: number;
   };
+  /**
+   * Optional mutex groups. Skills declaring overlapping group names
+   * serialize within the worker; non-overlapping skills parallelize.
+   * See docs/rfcs/0001-skill-concurrency-groups.md.
+   */
+  concurrency_groups?: string[];
 }
 
 const DEFAULT_LIMITS: Required<Pick<AiSkillManifest, "limits">>["limits"] = {

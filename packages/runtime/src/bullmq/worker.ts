@@ -17,6 +17,7 @@ import type { SkillJobData } from "./queues.js";
 import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
 import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
 import { shutdownMcpPool } from "../mcp/pool.js";
+import { withGroups } from "../concurrency-groups.js";
 import { readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { randomUUID } from "crypto";
@@ -66,22 +67,46 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
           triggerPayload: data.triggerPayload,
         };
 
+        // RFC #95 — skill-declared concurrency groups serialize across
+        // shared resources (e.g. sqlite:data/onboarding.db). Skills
+        // without `concurrency_groups` bypass the semaphore entirely.
+        const groups = (manifest as { concurrency_groups?: string[] })
+          .concurrency_groups;
+        const lockMeta = {
+          workspace: data.workspace,
+          skillId: data.skillId,
+          runId: data.runId,
+        };
+
         if (execType === "shell") {
-          await runShellSkill(
-            data.workspace,
-            manifest as unknown as ShellSkillManifest,
-            executionContext,
+          await withGroups(
+            groups,
+            () =>
+              runShellSkill(
+                data.workspace,
+                manifest as unknown as ShellSkillManifest,
+                executionContext,
+              ),
+            lockMeta,
           );
           return;
         }
 
         if (execType === "ai-skill") {
+          // Hoist out of `jobData` so the closure passed to withGroups()
+          // doesn't lose TS narrowing across the function boundary.
+          const manifestPath = jobData.manifestPath;
           try {
-            await runAiSkill(
-              data.workspace,
-              manifest as unknown as AiSkillManifest,
-              jobData.manifestPath,
-              executionContext,
+            await withGroups(
+              groups,
+              () =>
+                runAiSkill(
+                  data.workspace,
+                  manifest as unknown as AiSkillManifest,
+                  manifestPath,
+                  executionContext,
+                ),
+              lockMeta,
             );
           } catch (err) {
             if (isRateLimitError(err)) {
