@@ -63,6 +63,81 @@ interface DispatchEnvelope {
 let _polling = false;
 let _interval: NodeJS.Timeout | null = null;
 
+function htmlEscape(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Render an approval-request drawer into channel-shaped fields.
+ *
+ * TAG (#45 Stage 1a) writes approval drawers with structured fields
+ * (`summary`, `payload_full`, `payload_preview`, `decisions`) and no
+ * `content` — the dispatcher must translate them into something a
+ * channel adapter can render. Without this step the dispatcher forwards
+ * `content: ""` and Telegram (and presumably any adapter) rejects empty
+ * messages, retries 5×, and the approval prompt is never delivered (#93).
+ *
+ * Email-shape detection: when `payload_full` carries `{to, subject, body}`
+ * we render a proper email preview using `<blockquote>` for the body —
+ * not `<pre>`, because a code block makes prose unreadable and the
+ * JSON-stringified `payload_preview` shows literal `\n` and escaped
+ * quotes. Other payload shapes fall back to `<pre>{payload_preview}</pre>`.
+ *
+ * `decisions[{id, label}]` → `inline_buttons[{text: label, button_id: id}]`
+ * matches what `approval-resolver` validates against (`click.button_id`
+ * is checked against the recorded `decisionIds`).
+ */
+function renderApprovalRequest(envelope: DispatchEnvelope): {
+  content: string;
+  parse_mode: string;
+  inline_buttons?: Array<{ text: string; button_id: string }>;
+} {
+  const summary = typeof envelope.summary === "string" ? envelope.summary : "";
+  const payloadFull = envelope.payload_full as Record<string, unknown> | undefined;
+  const payloadPreview = typeof envelope.payload_preview === "string"
+    ? envelope.payload_preview
+    : "";
+
+  const isEmailPayload =
+    payloadFull != null &&
+    typeof payloadFull.to === "string" &&
+    typeof payloadFull.subject === "string" &&
+    typeof payloadFull.body === "string";
+
+  const lead = summary ? `${htmlEscape(summary)}\n\n` : "";
+  let content: string;
+  if (isEmailPayload && payloadFull != null) {
+    const to = htmlEscape(payloadFull.to as string);
+    const subject = htmlEscape(payloadFull.subject as string);
+    const body = htmlEscape(payloadFull.body as string);
+    content =
+      `${lead}` +
+      `<b>To:</b> ${to}\n` +
+      `<b>Subject:</b> ${subject}\n\n` +
+      `<blockquote>${body}</blockquote>`;
+  } else {
+    content = `${lead}<pre>${htmlEscape(payloadPreview)}</pre>`;
+  }
+
+  let buttons: Array<{ text: string; button_id: string }> | undefined;
+  const decisionsRaw = envelope.decisions;
+  if (Array.isArray(decisionsRaw)) {
+    buttons = decisionsRaw
+      .filter((d): d is { id?: unknown; label?: unknown } => d !== null && typeof d === "object")
+      .map((d) => ({
+        text: typeof d.label === "string" ? d.label : String(d.id ?? "?"),
+        button_id: typeof d.id === "string" ? d.id : String(d.id ?? ""),
+      }))
+      .filter((b) => b.button_id !== "");
+    if (buttons.length === 0) buttons = undefined;
+  }
+
+  return { content, parse_mode: "HTML", inline_buttons: buttons };
+}
+
 function parseEnvelope(content: string): DispatchEnvelope | null {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
@@ -179,10 +254,27 @@ async function dispatchViaMcp(
     // through as-is — channel adapters may use it (e.g., Telegram
     // disable_notification) but the framework doesn't touch it.
     // `to` is derived from binding.config if the envelope didn't supply one.
+    //
+    // Approval-request drawers (#45 Stage 1a) carry no `content` — TAG
+    // writes structured fields and expects the dispatcher to render them.
+    // Without this branch the adapter receives `content: ""` and rejects
+    // the send; see #93.
+    const renderedApproval =
+      envelope.kind === "approval_request" && !envelope.content
+        ? renderApprovalRequest(envelope)
+        : null;
+
     const sendInput: Record<string, unknown> = {
       to: envelope.to ?? binding.config?.to ?? binding.config?.chat_id ?? binding.config?.channel,
-      content: envelope.content ?? "",
+      content: renderedApproval ? renderedApproval.content : (envelope.content ?? ""),
     };
+    if (renderedApproval) {
+      sendInput.parse_mode = renderedApproval.parse_mode;
+      if (renderedApproval.inline_buttons) {
+        sendInput.inline_buttons = renderedApproval.inline_buttons;
+      }
+    }
+    // Envelope-supplied overrides win over rendered defaults.
     if (envelope.parse_mode != null) sendInput.parse_mode = envelope.parse_mode;
     if (envelope.inline_buttons) sendInput.inline_buttons = envelope.inline_buttons;
     if (envelope.reply_to != null) sendInput.reply_to = envelope.reply_to;
@@ -194,8 +286,9 @@ async function dispatchViaMcp(
       // TAG approval-request drawer fields (#45 Stage 1a) — don't forward
       // these to the MCP; they're for the subscriber's own context.
       "kind", "run_id", "step_id", "waitpoint_signal", "output_id",
-      "summary", "payload_preview", "decisions", "channel_kind",
-      "channel_mcp", "channel_config", "on_timeout",
+      "summary", "payload_preview", "payload_full", "decisions",
+      "handlers", "skill_id", "channel_kind", "channel_mcp",
+      "channel_config", "on_timeout",
     ]);
     for (const [k, v] of Object.entries(envelope)) {
       if (!reserved.has(k)) sendInput[k] = v;
@@ -382,6 +475,13 @@ export function startNotificationDispatcher(
 
   console.log(`[nexaas] Notification dispatcher started (polling every ${interval / 1000}s)`);
 }
+
+/**
+ * Test-only export of the approval-request renderer. Underscore prefix
+ * marks it as not part of the public surface; consumers should not rely
+ * on this. See `scripts/test-approval-render-93.mjs` for usage.
+ */
+export const _renderApprovalRequest = renderApprovalRequest;
 
 export function stopNotificationDispatcher(): void {
   if (_interval) {
