@@ -205,6 +205,45 @@ with inline buttons.
 - **Return 200 immediately.** No Claude call, no `handlePaMessage`, no
   agent logic in the adapter. The inbound dispatcher takes over from here.
 
+### Startup webhook self-check (adapter-side, strongly recommended)
+
+> **Operational gotcha (#116).** Telegram delivers each bot's updates to
+> *exactly one* webhook URL. If anything else (a separate FastAPI
+> service, a teammate testing locally, a stale `setWebhook` call from
+> last week) holds the webhook for the same bot token, your adapter
+> sits idle indefinitely with **zero log lines**. Inbound disappears
+> silently — Phoenix lost ~6 hours of `insurance_setup:*` button taps
+> this way before a human noticed downstream skills weren't firing.
+
+The adapter SHOULD call `getWebhookInfo` on startup and emit a loud
+warning when `result.url` does not match the URL it expects to own:
+
+```python
+# Adapter startup (Python — language doesn't matter)
+async def verify_webhook_ownership(bot_token: str, expected_url: str) -> None:
+    async with aiohttp.ClientSession() as s:
+        async with s.get(f"https://api.telegram.org/bot{bot_token}/getWebhookInfo") as r:
+            info = (await r.json()).get("result", {})
+    actual = info.get("url", "")
+    if actual != expected_url:
+        # 1. Log loud
+        logging.warning(
+            "telegram webhook owned by %r, expected %r — inbound will NOT reach this adapter",
+            actual, expected_url,
+        )
+        # 2. Write a palace drawer the operator alert flow picks up
+        await write_drawer("notifications.alerts.warning", {
+            "code": "telegram_webhook_misowned",
+            "expected": expected_url,
+            "actual": actual,
+            "advice": "another service holds setWebhook for this bot token — re-run setWebhook from this adapter or split the bot",
+        })
+```
+
+Adopters who share a bot token across services should ensure exactly one
+service is the canonical webhook owner; everything else should use
+`getUpdates` polling or its own dedicated bot.
+
 ### Outbound MCP tools (adapter-side)
 
 The adapter's MCP must expose `send`, `edit`, and `typing_indicator`
