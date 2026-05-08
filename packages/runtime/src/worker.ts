@@ -44,6 +44,7 @@ import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
 import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
 import { startApprovalResolver } from "./tasks/approval-resolver.js";
+import { startOutputStalenessWatchdog } from "./tasks/output-staleness-watchdog.js";
 import {
   registerWaitpoint as registerInboundMatch,
   getWaitpointStatus as getInboundMatchStatus,
@@ -916,6 +917,13 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     // dispatcher (skills can subscribe to the same drawer and also see
     // the button click).
     startApprovalResolver(WORKSPACE!);
+
+    // Output-cadence staleness watchdog (#86 Gap 1) — alerts when a
+    // declared output hasn't been produced within max_silence. No-op
+    // for skills without staleness_alert config; per-output channel_role
+    // routes via the existing notification-dispatcher.
+    const skillsRoot = join(process.env.NEXAAS_WORKSPACE_ROOT ?? "/opt/nexaas", "nexaas-skills");
+    startOutputStalenessWatchdog(WORKSPACE!, skillsRoot);
 
     serverState = "ready";
     console.log("[nexaas] Worker ready.");

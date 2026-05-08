@@ -30,6 +30,7 @@
  */
 
 import type { PalaceSession, Drawer } from "@nexaas/palace";
+import { appendWal } from "@nexaas/palace";
 import type { McpTool } from "./models/agentic-loop.js";
 import type { AiSkillManifest } from "./ai-skill.js";
 import type { RoutingDecision } from "./tag/route.js";
@@ -241,6 +242,30 @@ async function produceOutput(
   }
 
   ctx.state.producedOutputs.push(output.id);
+
+  // Single source of truth for output-cadence tracking (#86 Gap 1). The
+  // staleness watchdog reads MAX(created_at) on this op per (skill_id,
+  // output_id) to decide whether a declared output has gone silent
+  // longer than the manifest's staleness_alert.max_silence permits.
+  // Best-effort; observability never blocks the produce-output path.
+  try {
+    await appendWal({
+      workspace: ctx.workspace,
+      op: "output_produced",
+      actor: `skill:${ctx.manifest.id}`,
+      payload: {
+        skill_id: ctx.manifest.id,
+        skill_version: ctx.manifest.version,
+        output_id: output.id,
+        output_kind: output.kind ?? null,
+        routing,
+        run_id: ctx.runId,
+        step_id: ctx.stepId,
+      },
+    });
+  } catch (err) {
+    console.error("[nexaas] output_produced WAL emit failed:", err);
+  }
 
   // Compact receipt — enough for the AI to decide next steps without
   // leaking internal framework state.
