@@ -45,6 +45,7 @@ import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js"
 import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
 import { startApprovalResolver } from "./tasks/approval-resolver.js";
 import { startOutputStalenessWatchdog } from "./tasks/output-staleness-watchdog.js";
+import { startSchedulerWatchdog } from "./tasks/scheduler-watchdog.js";
 import {
   registerWaitpoint as registerInboundMatch,
   getWaitpointStatus as getInboundMatchStatus,
@@ -924,6 +925,14 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
     // routes via the existing notification-dispatcher.
     const skillsRoot = join(process.env.NEXAAS_WORKSPACE_ROOT ?? "/opt/nexaas", "nexaas-skills");
     startOutputStalenessWatchdog(WORKSPACE!, skillsRoot);
+
+    // Scheduler watchdog (#86 Gap 2) — alerts on cron triggers that should
+    // have fired but didn't. Disabled when NEXAAS_SCHEDULER_WATCHDOG_CHANNEL_ROLE
+    // is unset; opt-in for adopters who want overdue-cron visibility.
+    const schedulerQueue = new Queue(`nexaas-skills-${WORKSPACE}`, {
+      connection: getRedisConnectionOpts().connection,
+    });
+    startSchedulerWatchdog(WORKSPACE!, schedulerQueue);
 
     serverState = "ready";
     console.log("[nexaas] Worker ready.");
