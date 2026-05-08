@@ -17,3 +17,10 @@ export type {
 } from "./manifest.js";
 
 export { withTimeout, asArray } from "./helpers.js";
+
+export type {
+  EmailProvider,
+  SendInput,
+  SendOutput,
+  TrackOutput,
+} from "./capabilities/email-outbound.js";

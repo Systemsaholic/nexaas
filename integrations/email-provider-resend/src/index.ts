@@ -1,5 +1,5 @@
 /**
- * Resend provider plugin.
+ * @nexaas/email-provider-resend — Resend implementation of email-outbound.
  *
  * Resend's HTTP API is small enough that a fetch-based client is simpler
  * than pulling in their SDK. Two endpoints used:
@@ -13,12 +13,23 @@
  * The GET endpoint returns last-known status but engagement counts come
  * via webhooks — we surface what the email-fetch endpoint exposes
  * (`last_event` / `created_at` / `delivered_at`) and leave count granularity
- * to a future webhook-receiver task. This keeps the framework-side
- * implementation stateless; skills that need precise open/click counts
- * should listen to the webhook drawer and aggregate themselves.
+ * to a future webhook-receiver task. This keeps the integration stateless;
+ * skills that need precise open/click counts should listen to the webhook
+ * drawer and aggregate themselves.
+ *
+ * Migrated from `mcp/servers/email-outbound/src/providers/resend.ts` in
+ * #88 Phase 2 — first reference integration to land under the new
+ * `integrations/` layout.
  */
 
-import type { EmailProvider, SendInput, SendOutput, TrackOutput } from "../types.js";
+import {
+  asArray,
+  withTimeout,
+  type EmailProvider,
+  type SendInput,
+  type SendOutput,
+  type TrackOutput,
+} from "@nexaas/integration-sdk";
 
 const RESEND_API = "https://api.resend.com";
 const SEND_TIMEOUT_MS = 10_000;
@@ -45,21 +56,8 @@ interface ResendEmailLookup {
   bounce?: { type?: string; message?: string };
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
-    ),
-  ]);
-}
-
 function formatFrom(input: SendInput["from"]): string {
   return input.name ? `${input.name} <${input.email}>` : input.email;
-}
-
-function asArray<T>(v: T | T[]): T[] {
-  return Array.isArray(v) ? v : [v];
 }
 
 function normalizeStatus(lastEvent?: string): TrackOutput["status"] {
@@ -135,7 +133,7 @@ export class ResendProvider implements EmailProvider {
       // Resend bundles all rejections into a single error — we surface as
       // "all recipients rejected with the provider message" since per-
       // recipient rejection is not in the API response. `message_id` is
-      // omitted (undefined) — there is no message to track. PR #79 review.
+      // omitted (undefined) — there is no message to track.
       const reason = parsed.message ?? `HTTP ${res.status}`;
       return {
         accepted: [],
@@ -190,4 +188,13 @@ export class ResendProvider implements EmailProvider {
     // capability spec contract.
     return out;
   }
+}
+
+/**
+ * Stable factory export consumed by the email-outbound MCP shell and (in
+ * Phase 3) by the manifest-driven loader. Kept as a named export so the
+ * loader can pluck it via `(await import(pkg)).createResendProvider`.
+ */
+export function createResendProvider(apiKey: string): EmailProvider {
+  return new ResendProvider(apiKey);
 }

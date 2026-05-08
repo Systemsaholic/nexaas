@@ -1,0 +1,9 @@
+name: email-provider-resend
+implements:
+  - capability: email-outbound
+    version: ">=0.2 <1"
+    provider_name: resend
+env:
+  required: [RESEND_API_KEY]
+  optional: []
+entry: "./src/index.ts"
