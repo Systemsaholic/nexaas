@@ -9,6 +9,16 @@
  * Single-worker (default): in-process semaphore keyed on group name.
  * Multi-worker: replace with Redis SET-NX + heartbeat (see RFC #95).
  *
+ * **Lock lifetime is bounded by the worker process.** Locks live in-memory
+ * for the duration of the running worker — a clean shutdown or a crash
+ * releases every held lock implicitly via process exit, so a stuck lock
+ * cannot survive a restart. This is the right behavior for the single-
+ * worker case but means lock state is not durable across restarts:
+ * a skill mid-execution at shutdown does not "resume" holding the lock
+ * when the worker comes back, and the next caller acquires fresh.
+ * The phase-2 Redis backend (#97) will need explicit TTL + heartbeat
+ * cleanup to provide the same guarantee in a multi-worker deployment.
+ *
  * See docs/rfcs/0001-skill-concurrency-groups.md for design.
  */
 import { appendWal } from "@nexaas/palace";
