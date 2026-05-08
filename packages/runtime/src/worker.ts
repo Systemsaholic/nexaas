@@ -52,6 +52,7 @@ import {
   cancelWaitpoint as cancelInboundMatch,
   listNamedPatterns,
 } from "./tasks/inbound-match-waitpoint.js";
+import { executeTrigger, validateTriggerInput } from "./api/skills-trigger.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -411,6 +412,43 @@ async function main() {
   // Once the drawer lands, the inbound dispatcher's poll cycle picks
   // it up and routes to subscribed skills (inbound-match waitpoints
   // resolve within one dispatcher tick).
+
+  // ─── Manual skill trigger (#83) ─────────────────────────────────────
+  // HTTP peer of `nexaas trigger-skill` for the dashboard, external
+  // webhooks, and any add-on UX with a "do it now" button. Same auth
+  // posture as the waitpoint/inbound endpoints — bearer when
+  // NEXAAS_CROSS_VPS_BEARER_TOKEN is set, pass-through otherwise.
+
+  app.post("/api/skills/trigger", bearerAuth(), async (req, res) => {
+    try {
+      const validated = validateTriggerInput(req.body);
+      if ("error" in validated) {
+        res.status(validated.status).json({ error: validated.error });
+        return;
+      }
+      const outcome = await executeTrigger(validated, {
+        workspaceRoot: process.env.NEXAAS_WORKSPACE_ROOT ?? "/opt/nexaas",
+        defaultWorkspace: WORKSPACE,
+        enqueue: async (queueName, jobName, data, opts) => {
+          const queue = new Queue(queueName, getRedisConnectionOpts());
+          try {
+            const job = await queue.add(jobName, data, opts);
+            return { id: job.id };
+          } finally {
+            await queue.close();
+          }
+        },
+        audit: async (entry) => { await appendWal(entry); },
+      });
+      if ("error" in outcome) {
+        res.status(outcome.status).json({ error: outcome.error });
+        return;
+      }
+      res.status(outcome.status).json(outcome.body);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
 
   app.post("/api/drawers/inbound", bearerAuth(), async (req, res) => {
     try {
