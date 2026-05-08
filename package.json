@@ -5,14 +5,17 @@
   "description": "Nexaas — framework for context-aware AI execution",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "integrations/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "verify-wal": "npm -w @nexaas/cli run verify-wal",
-    "validate-skill": "npm -w @nexaas/cli run validate-skill"
+    "validate-skill": "npm -w @nexaas/cli run validate-skill",
+    "changeset": "changeset",
+    "release": "changeset version"
   },
   "repository": {
     "type": "git",
@@ -21,6 +24,7 @@
   "author": "Systemsaholic",
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
+    "@changesets/cli": "^2.27.0",
     "tsx": "^4.21.0"
   }
 }
