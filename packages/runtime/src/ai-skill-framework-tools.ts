@@ -117,7 +117,12 @@ export function buildFrameworkTools(manifest: AiSkillManifest): McpTool[] {
       properties: {
         channel_role: {
           type: "string",
-          description: "Framework channel_role to watch — the inbox.messaging.<role> room adapter writes to. Must be declared in workspace manifest's channel_bindings.",
+          description: "Framework channel_role to watch — the inbox.messaging.<role> room adapter writes to. Must be declared in workspace manifest's channel_bindings. Interpreted per `room_match_mode` (exact by default).",
+        },
+        room_match_mode: {
+          type: "string",
+          enum: ["exact", "glob", "regex"],
+          description: "How to match `channel_role` against the drawer's room name. `exact` (default) compares literally. `glob` allows `*` (one segment, no dots) and `?` (one char) — useful for sub-namespaced rooms like `dashboard.*` matching `dashboard.al-nexmatic-ca`. `regex` is full regex with the same backtracking guard as content_regex; use `.*` to span dots. The `*` channel_role sentinel always matches any room regardless of this flag.",
         },
         content_pattern: {
           type: "string",
@@ -315,10 +320,17 @@ async function requestMatch(
 
   // Pass-through params to registerWaitpoint, letting its own validation
   // handle named-vs-raw-vs-missing decisions.
+  const roomMatchMode = (() => {
+    const raw = input.room_match_mode;
+    if (raw === "exact" || raw === "glob" || raw === "regex") return raw;
+    return undefined;  // registerWaitpoint defaults to exact
+  })();
+
   const reg = await registerWaitpoint({
     workspace: ctx.workspace,
     match: {
       room_pattern: channelRole,
+      room_match_mode: roomMatchMode,
       content_pattern: input.content_pattern as string | undefined,
       content_regex: input.content_regex as string | undefined,
       raw: input.raw === true,
