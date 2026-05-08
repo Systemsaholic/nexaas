@@ -84,6 +84,19 @@ export interface StatusResult {
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
 
+/**
+ * Tags that imply the waitpoint will resolve with a credential — 2FA codes,
+ * OAuth callbacks, MFA tokens. When any of these appear in `tags` and the
+ * caller did not pass `match.sender_id`, the framework emits a non-blocking
+ * warning and flags the registration in WAL. The waitpoint is *not* refused —
+ * some adopter patterns are legitimately sender-agnostic — but the discipline
+ * documented in `docs/adoption-patterns/2fa-code-intercept.md` is now
+ * observable instead of honor-system. Match is case-insensitive.
+ */
+const CREDENTIAL_ADJACENT_TAGS = new Set([
+  "2fa", "mfa", "oauth", "2-step", "auth-code", "verification",
+]);
+
 // Default cap is 24h. Adopters running state-machine hold patterns (Stripe
 // payment-failed, multi-day approval loops) can raise this via env — e.g.
 // `NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS=7`. No added load from longer timeouts;
@@ -173,11 +186,21 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
 
   const expiresAt = new Date(Date.now() + timeoutSec * 1000).toISOString();
 
-  // Tags are pure passthrough — framework never reads them. Normalize to
-  // string[] and drop anything non-string so downstream SQL stays clean.
+  // Tags are pure passthrough for downstream UIs — framework reads them
+  // only to detect credential-adjacent registrations missing sender_id
+  // scope (see CREDENTIAL_ADJACENT_TAGS).
   const tags = Array.isArray(params.tags)
     ? params.tags.filter((t): t is string => typeof t === "string" && t.length > 0).slice(0, 16)
     : undefined;
+
+  // Credential-adjacent + missing sender_id = security gap. Compute the flag
+  // up-front (so the WAL payload can record it), but defer the visible warn
+  // until after createWaitpoint succeeds — otherwise a creation failure
+  // produces a phantom warning for a waitpoint that never existed.
+  const credentialAdjacentTagsHit = tags
+    ? tags.filter((t) => CREDENTIAL_ADJACENT_TAGS.has(t.toLowerCase()))
+    : [];
+  const senderIdWarn = credentialAdjacentTagsHit.length > 0 && !params.match.sender_id;
 
   await session.createWaitpoint({
     signal: waitpointId,
@@ -200,6 +223,19 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
     timeout: `${timeoutSec}s`,
   });
 
+  // Waitpoint exists — safe to emit the warning. Don't refuse — some patterns
+  // (shared admin channels, broadcast confirmations) are legitimately
+  // sender-agnostic. Surfaces in console output AND the WAL payload below.
+  if (senderIdWarn) {
+    console.warn(
+      `[nexaas] inbound-match-waitpoint ${waitpointId} registered with credential-adjacent ` +
+      `tags (${credentialAdjacentTagsHit.join(", ")}) but no match.sender_id — anyone with ` +
+      `adapter write access can resolve this waitpoint with an arbitrary value. Pass ` +
+      `match.sender_id to scope to the expected human. ` +
+      `See docs/adoption-patterns/2fa-code-intercept.md#security-always-scope-by-sender_id`,
+    );
+  }
+
   await appendWal({
     workspace: params.workspace,
     op: "inbound_match_waitpoint_registered",
@@ -213,6 +249,7 @@ export async function registerWaitpoint(params: RegisterParams): Promise<Registe
       timeout_seconds: timeoutSec,
       extract,
       tags,
+      sender_id_warn: senderIdWarn || undefined,
     },
   });
 
