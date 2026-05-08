@@ -378,7 +378,7 @@ Outbound dispatches are claimed atomically in `nexaas_memory.notification_dispat
 
 ### Approval round-trip
 
-An approval-request output (TAG `routing: approval_required`) emits a specially-shaped drawer to `notifications.pending.waitpoints.<run_id>` that the outbound dispatcher delivers with inline buttons. When the human taps a button, the channel adapter writes an `inbox.messaging.<role>` drawer with `action_button_click.{button_id, message_id}`. A companion approval-resolver task (`packages/runtime/src/tasks/approval-resolver.ts`) correlates the click against `notification_dispatches.channel_message_id` to locate the originating approval, then calls `palace.resolveWaitpoint(signal, decision, actor)` and writes an outbox entry for skill resumption.
+An approval-request output (TAG `routing: approval_required`) emits a specially-shaped drawer to `notifications.pending.approvals` (with `run_id` in drawer content; #56 cleanup) that the outbound dispatcher delivers with inline buttons. When the human taps a button, the channel adapter writes an `inbox.messaging.<role>` drawer with `action_button_click.{button_id, message_id}`. A companion approval-resolver task (`packages/runtime/src/tasks/approval-resolver.ts`) correlates the click against `notification_dispatches.channel_message_id` to locate the originating approval, then calls `palace.resolveWaitpoint(signal, decision, actor)` and writes an outbox entry for skill resumption.
 
 Channel adapters don't encode any framework knowledge in button callback data — they report native `message_id` + `button_id`, and the framework's dispatch table does the lookup. Any v0.2-conformant messaging channel plugs in.
 
