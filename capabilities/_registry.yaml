@@ -105,19 +105,52 @@ capabilities:
 
   email-outbound:
     stage: experimental
-    interface_version: "0.1"
-    description: Send transactional email
-    implementations: []
+    interface_version: "0.2"
+    description: Send transactional or marketing email
+    implementations: [resend]
+    # Bumped v0.1 → v0.2 for #78 (Email Autopilot). v0.1 had a single-recipient
+    # `to: string` and a flat `from: string`; v0.2 supports multi-recipient,
+    # structured sender (display-name), reply_to, custom headers, provider-side
+    # tracking flags, and per-recipient delivery outcome. Zero v0.1 implementations
+    # existed at the time of bump, so this is a free re-spec, not a migration.
     tools:
       - name: send
         input:
-          to: "string"
-          from: "string"
+          from:
+            email: "string"                # sender address
+            name: "string?"                # display name — provider may render as "Name <email>"
+          reply_to: "string?"              # sets the Reply-To header
+          to: "string | string[]"          # one or many; provider splits into separate sends if needed
           subject: "string"
-          html: "string?"
-          text: "string?"
-          attachments: "attachment[]?"   # attachment := { filename: string, content_base64: string }
-        output: { message_id: "string", status: "string" }
+          body_text: "string"              # required for deliverability — providers reject html-only
+          body_html: "string?"
+          headers: "{ [k: string]: string }?"   # custom headers; provider may reject reserved ones (List-Unsubscribe etc are fine)
+          tracking:
+            opens: "boolean?"              # opt-in tracking; default is provider's default
+            clicks: "boolean?"
+          tags: "string[]?"                # provider-side analytics tag (Resend tags, SendGrid categories, etc.)
+          attachments: "attachment[]?"     # attachment := { filename: string, content_base64: string }
+        output:
+          message_id: "string"             # provider's native id; opaque to skills, used by `track`
+          accepted: "string[]"              # recipients accepted by the provider for delivery
+          rejected:                        # zero entries = all accepted
+            - email: "string"
+              reason: "string"
+
+      - name: track
+        # Fetch delivery / engagement state for a previously-sent message.
+        # Implementations may return partial data — provider tracking is
+        # eventually-consistent (webhook-driven on most platforms). Skills
+        # should treat absent fields as "not yet known", not "did not happen".
+        input:
+          message_id: "string"             # from a prior send response
+        output:
+          message_id: "string"
+          status: "queued | sent | delivered | bounced | complained | unknown"
+          delivered_at: "string?"          # ISO; absent until provider confirms
+          opened: "{ count: number, last_at: string? }?"
+          clicked: "{ count: number, last_at: string? }?"
+          bounced: "{ at: string, type: string, reason: string? }?"
 
   messaging-inbound:
     stage: experimental
