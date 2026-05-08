@@ -21,6 +21,7 @@ import { join, resolve, basename } from "path";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import {
+  printOverlapWarnings,
   registerOneSkill,
   resolveWorkspaceTimezone,
   type RegisterResult,
@@ -164,6 +165,9 @@ export async function run(args: string[]) {
       } else {
         registered++;
         console.log(`  ✓ ${result.skillId} v${result.version} (${result.registered} cron trigger${result.registered === 1 ? "" : "s"})`);
+        if (result.warnings && result.warnings.length > 0) {
+          printOverlapWarnings(result.warnings, result.skillId);
+        }
       }
     }
     const elapsedMs = Date.now() - start;
