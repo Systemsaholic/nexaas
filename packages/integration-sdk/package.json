@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "description": "Authoring kit for Nexaas integrations — manifest schema, capability contracts, and shared helpers used by all integration packages (reference + adopter).",
   "type": "module",
-  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "zod": "^3.23.0"
   },

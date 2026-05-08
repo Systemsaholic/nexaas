@@ -99,6 +99,10 @@ State lives in rooms. Skills declare which rooms they read (retrieval) and write
 
 The `nexaas-worker.service` runs the BullMQ worker, outbox relay, and Bull Board dashboard.
 
+**Production runs compiled JS (#37):** the unit invokes `node --conditions=production /opt/nexaas/packages/runtime/dist/worker.js`. Each workspace package has its own `tsconfig.json` and emits to its own `dist/` via `npm run build`. Conditional `exports` in each `package.json` route cross-package imports (`@nexaas/palace`, `@nexaas/runtime`, `@nexaas/integration-sdk`) to `dist/index.js` when `--conditions=production` is set, and to `src/index.ts` otherwise. `nexaas init` and `nexaas upgrade` both run `npm run build` before (re)starting the service; `nexaas upgrade` also auto-migrates legacy tsx-based units in place.
+
+**Dev/test runs TS source via tsx:** scripts and ad-hoc invocations use `node --import tsx packages/runtime/src/worker.ts` (or `npx tsx ...`). Without `--conditions=production`, Node falls back to the `default` exports condition, which points at `src/index.ts` — tsx transforms on the fly. Test scripts under `scripts/` follow this pattern.
+
 **Critical deployment lessons (from Phoenix production):**
 - Use direct node invocation, NOT npm/npx wrappers — snap node through npm swallows stdout and escapes cgroup cleanup
 - Use `KillMode=mixed` + `ExecStopPost=fuser -k` to prevent orphan processes holding the port

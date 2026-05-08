@@ -101,6 +101,26 @@ export async function run(args: string[]) {
         exec(`cd ${nexaasRoot} && npm install --production 2>/dev/null`, { timeout: 300_000 });
         console.log("  Dependencies updated");
       }
+
+      // Step 4b: Compile TS → JS for production (#37). The systemd unit
+      // runs compiled JS via `node --conditions=production dist/worker.js`.
+      // Build is fast (<10s on a warm cache) and skipped only when no
+      // source files changed.
+      const sourceChanged = changedFiles.split("\n").some((f) => /^(packages|integrations|mcp\/servers)\/[^/]+\/(src|tsconfig)/.test(f));
+      if (sourceChanged || !existsSync(join(nexaasRoot, "packages/runtime/dist/worker.js"))) {
+        console.log("  Building production JS...");
+        exec(`cd ${nexaasRoot} && npm run build`, { timeout: 300_000 });
+        if (!existsSync(join(nexaasRoot, "packages/runtime/dist/worker.js"))) {
+          console.error("  Build failed — packages/runtime/dist/worker.js missing.");
+          process.exit(1);
+        }
+        console.log("  Build complete");
+      }
+
+      // Step 4c: Auto-migrate the systemd unit if it's still on the old
+      // tsx-based ExecStart. New installs (#37) write the compiled-JS
+      // form directly; existing installs flip on first upgrade.
+      maybeMigrateSystemdUnit(nexaasRoot);
     }
   }
 
@@ -199,6 +219,46 @@ export async function run(args: string[]) {
 
   console.log("");
   await pool.end();
+}
+
+/**
+ * Flip an existing nexaas-worker.service from the legacy tsx ExecStart
+ * to the compiled-JS form (#37). One-shot: detects the old `node tsx
+ * .../src/worker.ts` invocation and rewrites it to
+ * `node --conditions=production .../dist/worker.js`. No-op once
+ * migrated. The unit ships compiled-by-default for new installs.
+ */
+function maybeMigrateSystemdUnit(nexaasRoot: string): void {
+  const unitPath = "/etc/systemd/system/nexaas-worker.service";
+  if (!existsSync(unitPath)) return;
+
+  let unit: string;
+  try {
+    unit = readFileSync(unitPath, "utf-8");
+  } catch {
+    return; // No permission to read — leave alone.
+  }
+
+  // Already migrated.
+  if (unit.includes("--conditions=production") && unit.includes("dist/worker.js")) return;
+
+  // Match the legacy form: `ExecStart=<node> <tsx> .../packages/runtime/src/worker.ts`
+  const legacy = /^ExecStart=(\S+)\s+\S+tsx\S*\s+\S+\/packages\/runtime\/src\/worker\.ts.*$/m;
+  const m = unit.match(legacy);
+  if (!m) return; // Some other custom form — don't touch.
+
+  const nodeBin = m[1]!;
+  const newExecStart = `ExecStart=${nodeBin} --conditions=production ${nexaasRoot}/packages/runtime/dist/worker.js`;
+  const migrated = unit.replace(legacy, newExecStart);
+
+  console.log("\n  Migrating systemd unit to compiled-JS ExecStart (#37)...");
+  try {
+    exec(`sudo tee ${unitPath} > /dev/null <<'NEXAAS_UNIT_EOF'\n${migrated}\nNEXAAS_UNIT_EOF`);
+    exec("sudo systemctl daemon-reload");
+    console.log("  Systemd unit migrated");
+  } catch (e) {
+    console.error(`  Systemd unit migration failed (will retry next upgrade): ${(e as Error).message}`);
+  }
 }
 
 async function getPendingMigrations(pool: pg.Pool, nexaasRoot: string): Promise<string[]> {
