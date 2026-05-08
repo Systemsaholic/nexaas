@@ -46,6 +46,7 @@ import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
 import { startApprovalResolver } from "./tasks/approval-resolver.js";
 import { startOutputStalenessWatchdog } from "./tasks/output-staleness-watchdog.js";
 import { startSchedulerWatchdog } from "./tasks/scheduler-watchdog.js";
+import { startBatchDispatcher } from "./tasks/batch-dispatcher.js";
 import {
   registerWaitpoint as registerInboundMatch,
   getWaitpointStatus as getInboundMatchStatus,
@@ -971,6 +972,11 @@ Generate the COMPLETE modified HTML file with the requested changes applied. Out
       connection: getRedisConnectionOpts().connection,
     });
     startSchedulerWatchdog(WORKSPACE!, schedulerQueue);
+
+    // Batch dispatcher (#80) — accumulates drawers in batch.<bucket>.pending.*
+    // and fires the consumer skill when fire_when conditions match (count,
+    // age, cron, deadline). No-op when no skill declares a `batch` trigger.
+    startBatchDispatcher(WORKSPACE!);
 
     serverState = "ready";
     console.log("[nexaas] Worker ready.");
