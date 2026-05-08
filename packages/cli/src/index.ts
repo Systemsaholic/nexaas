@@ -67,6 +67,9 @@ switch (command) {
   case "gdpr":
     import("./gdpr.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "doctor":
+    import("./doctor.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -83,6 +86,7 @@ Commands:
   upgrade                              Pull latest framework + apply migrations
   create-mcp <name>                    Scaffold a new MCP server
   gdpr export|delete|redact|subjects   PII management (GDPR compliance)
+  doctor locks [--since 24h]           Concurrency-group lock contention report
   status                                Check runtime health
   verify-wal [--full]                   Verify WAL chain integrity
 
