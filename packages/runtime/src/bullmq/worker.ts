@@ -12,7 +12,7 @@ import { runSkillStep } from "../pipeline.js";
 import { runShellSkill, type ShellSkillManifest } from "../shell-skill.js";
 import { runAiSkill, type AiSkillManifest } from "../ai-skill.js";
 import { runTracker } from "../run-tracker.js";
-import { appendWal } from "@nexaas/palace";
+import { appendWal, sql } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
 import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
 import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
@@ -223,6 +223,19 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         try { await worker.close(true); } catch { /* already forced */ }
       }
     }
+    // Sweep in-flight skill_runs that didn't finish during drain (#86 Gap 3).
+    // Worker SIGTERM (status=143, OOM-adjacent kills) used to lose jobs that
+    // were `active` at exit time — they vanished from every BullMQ queue
+    // without `markStepFailed` ever firing, so silent-failure-watchdog (#69)
+    // never saw the streak. This sweep closes the loop: any skill_run still
+    // at status='running' for this workspace gets stamped failed before
+    // process.exit. Idempotent — if BullMQ later recovers the job, the
+    // normal markCompleted path overwrites this stamp with status='completed'.
+    try {
+      await sweepInFlightRuns(workspaceId, signal);
+    } catch (err) {
+      console.warn(`[nexaas] in-flight sweep error: ${(err as Error).message}`);
+    }
     // Tear down any pooled MCP subprocesses (#63). No-op when pooling is
     // disabled. Best-effort so shutdown never hangs on a misbehaving child.
     try { await shutdownMcpPool(); } catch (err) {
@@ -239,4 +252,77 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
 
 export function getWorker(): Worker | null {
   return _worker;
+}
+
+/**
+ * On worker shutdown, mark every still-`running` skill_run for this workspace
+ * as failed with `error_summary='worker-exit-during-execution'` (#86 Gap 3).
+ *
+ * Why this is needed: a SIGTERM during BullMQ's drain window can force-close
+ * the worker before active jobs run their `markStepFailed` / `markCompleted`
+ * path. Those rows then sit at status='running' forever, invisible to
+ * `silent-failure-watchdog` (#69) which only counts `failed` runs toward
+ * its streak. Without this sweep, an OOM-adjacent SIGTERM during a marketing
+ * skill run can leave the skill silently broken — exactly the failure mode
+ * documented in #86.
+ *
+ * Idempotency: BullMQ's stalled-job recovery will re-process killed jobs
+ * when the worker comes back. The normal completion path calls
+ * `markCompleted` which overwrites the stamp with `status='completed'`,
+ * so a job that recovers cleanly leaves no trace of the temporary failure
+ * stamp. A job that fails on retry stays `failed` (correct outcome).
+ *
+ * Single-worker scope: this sweeps all `running` rows for the workspace
+ * unconditionally. The Phase-2 multi-worker world (#97) will need a
+ * worker-id filter so concurrent workers don't trample each other's
+ * in-flight runs.
+ *
+ * Exported for the regression test (#86 Gap 3 test); not part of the
+ * runtime's public surface.
+ */
+export async function sweepInFlightRuns(
+  workspace: string,
+  signal: string,
+): Promise<number> {
+  const rows = await sql<{ run_id: string; current_step: string | null; skill_id: string }>(
+    `SELECT run_id, current_step, skill_id
+       FROM nexaas_memory.skill_runs
+      WHERE workspace = $1 AND status = 'running'`,
+    [workspace],
+  );
+
+  if (rows.length === 0) return 0;
+
+  let marked = 0;
+  for (const row of rows) {
+    try {
+      // markStepFailed bumps the silent-failure streak counter (#69) — so
+      // a sudden burst of worker-exit-during-execution stamps will trip
+      // the watchdog if the threshold says it should. That's the desired
+      // tie-in with #86 Gap 1; without this we'd never count toward the
+      // streak when the worker died mid-execution.
+      await runTracker.markStepFailed(
+        row.run_id,
+        row.current_step ?? "unknown",
+        "worker-exit-during-execution",
+      );
+      marked++;
+    } catch (err) {
+      console.warn(
+        `[nexaas] sweep: failed to mark run ${row.run_id} (${row.skill_id}): ${(err as Error).message}`,
+      );
+    }
+  }
+
+  console.log(`[nexaas] Shutdown sweep (${signal}): marked ${marked}/${rows.length} in-flight run(s) as failed`);
+  try {
+    await appendWal({
+      workspace,
+      op: "worker_shutdown_sweep",
+      actor: "bullmq-worker",
+      payload: { signal, total: rows.length, marked, failures: rows.length - marked },
+    });
+  } catch { /* WAL is observability; never let it block shutdown */ }
+
+  return marked;
 }
