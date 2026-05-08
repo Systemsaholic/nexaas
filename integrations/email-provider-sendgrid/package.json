@@ -1,0 +1,18 @@
+{
+  "name": "@nexaas/email-provider-sendgrid",
+  "version": "0.1.0",
+  "description": "SendGrid implementation of the Nexaas email-outbound capability. Reference integration (#88).",
+  "type": "module",
+  "main": "src/index.ts",
+  "files": [
+    "src",
+    "nexaas-integration.yaml"
+  ],
+  "dependencies": {
+    "@nexaas/integration-sdk": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.5.0"
+  }
+}

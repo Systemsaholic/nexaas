@@ -1,5 +1,5 @@
 /**
- * SendGrid provider plugin (#78 PR B).
+ * @nexaas/email-provider-sendgrid — SendGrid implementation of email-outbound.
  *
  * SendGrid's v3 API:
  *   POST /v3/mail/send                       — send (returns 202; no body)
@@ -17,9 +17,19 @@
  * without that subscription, `track` returns `status: "unknown"` after
  * confirming the message was queued. Skills needing live engagement
  * should consume webhook events.
+ *
+ * Migrated from `mcp/servers/email-outbound/src/providers/sendgrid.ts`
+ * in #88 Phase 2.
  */
 
-import type { EmailProvider, SendInput, SendOutput, TrackOutput } from "../types.js";
+import {
+  asArray,
+  withTimeout,
+  type EmailProvider,
+  type SendInput,
+  type SendOutput,
+  type TrackOutput,
+} from "@nexaas/integration-sdk";
 
 const SENDGRID_API = "https://api.sendgrid.com";
 const SEND_TIMEOUT_MS = 10_000;
@@ -33,19 +43,6 @@ interface SendGridMessageDetails {
   msg_id: string;
   status?: string;        // "processed" | "delivered" | "deferred" | "bounce" | "blocked" | "spam_report" | etc.
   last_event_time?: string;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
-    ),
-  ]);
-}
-
-function asArray<T>(v: T | T[]): T[] {
-  return Array.isArray(v) ? v : [v];
 }
 
 function normalizeStatus(status?: string): TrackOutput["status"] {
@@ -184,4 +181,12 @@ export class SendGridProvider implements EmailProvider {
     // Open / click counts come via webhook events; not exposed by this endpoint.
     return out;
   }
+}
+
+/**
+ * Stable factory export consumed by the email-outbound MCP shell and (in
+ * Phase 3) by the manifest-driven loader.
+ */
+export function createSendGridProvider(apiKey: string): EmailProvider {
+  return new SendGridProvider(apiKey);
 }

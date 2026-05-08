@@ -9,6 +9,7 @@
     "@nexaas/integration-sdk": "0.1.0",
     "@nexaas/email-provider-postmark": "0.1.0",
     "@nexaas/email-provider-resend": "0.1.0",
+    "@nexaas/email-provider-sendgrid": "0.1.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
