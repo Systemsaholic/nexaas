@@ -18,12 +18,19 @@ import { execSync } from "child_process";
 import { load as yamlLoad } from "js-yaml";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
+import parser from "cron-parser";
 
 export interface SkillManifest {
   id: string;
   version: string;
   description?: string;
   timezone?: string;
+  /**
+   * Mutex groups (#95 / #96). Skills sharing a group serialize at the
+   * worker. The CLI also uses the list at registration time to flag
+   * cron-overlap with already-registered skills (#99).
+   */
+  concurrency_groups?: string[];
   triggers?: Array<{
     type: string;
     schedule?: string;
@@ -43,6 +50,17 @@ export interface RegisterContext {
   workspaceTz: string;
 }
 
+/**
+ * One overlap detected between the skill being registered and an
+ * already-registered one — both share at least one concurrency_group
+ * and their next-1h cron fires intersect (#99).
+ */
+export interface CronOverlapWarning {
+  group: string;
+  newPattern: string;
+  conflicts: Array<{ skillId: string; pattern: string }>;
+}
+
 export interface RegisterResult {
   skillId: string;
   version: string;
@@ -50,6 +68,7 @@ export interface RegisterResult {
   cleaned: number;
   status: "registered" | "no-triggers" | "error";
   error?: string;
+  warnings?: CronOverlapWarning[];
 }
 
 const USAGE = `\
@@ -89,6 +108,114 @@ export function resolveWorkspaceTimezone(workspace: string): string {
   } catch {
     return "UTC";
   }
+}
+
+/**
+ * Compute the set of next-N cron fires for a pattern, truncated to the
+ * minute (HH:MM ISO prefix). Used by the cron-overlap detector — two
+ * patterns overlap when their next-fire sets intersect.
+ *
+ * 12 fires is the bar: covers ~1h of `*\/5` cadence, ~3h of `*\/15`,
+ * a full day of hourly. Cheap to compute, good enough to catch the
+ * cases the issue's mock output shows. cron-parser is a transitive
+ * dep via BullMQ.
+ */
+function nextFireSet(pattern: string, tz: string, count = 12): Set<string> {
+  try {
+    const it = parser.parseExpression(pattern, { tz, currentDate: new Date() });
+    const out = new Set<string>();
+    for (let i = 0; i < count; i++) {
+      out.add(it.next().toDate().toISOString().slice(0, 16));
+    }
+    return out;
+  } catch {
+    return new Set();
+  }
+}
+
+function setsIntersect(a: Set<string>, b: Set<string>): boolean {
+  for (const x of a) if (b.has(x)) return true;
+  return false;
+}
+
+/**
+ * Inspect existing job schedulers for cron overlap with the new skill (#99).
+ *
+ * "Overlap" requires both:
+ *   1. ≥1 group name in common with the new skill, AND
+ *   2. Next-1h fires that intersect at any minute.
+ *
+ * Pure pre-flight nudge — never blocks registration. False negatives are
+ * fine (a `@hourly` skill on a heavily-used group is correct as designed
+ * and we don't try to flag it). False positives are the more annoying
+ * outcome, so we only warn when both conditions hold simultaneously.
+ *
+ * Existing schedulers must have been registered with `concurrencyGroups`
+ * in their job data — schedulers from before this code shipped will be
+ * silently skipped, which means warnings light up only after each skill
+ * has been re-registered once (acceptable for a pure ergonomics feature).
+ */
+export async function findCronOverlaps(
+  queue: Queue,
+  newSkill: {
+    id: string;
+    groups: string[];
+    triggers: Array<{ pattern: string; tz: string }>;
+  },
+): Promise<CronOverlapWarning[]> {
+  if (newSkill.groups.length === 0 || newSkill.triggers.length === 0) return [];
+
+  let existing: Array<{
+    name?: string;
+    pattern?: string;
+    tz?: string;
+    template?: { data?: unknown };
+  }>;
+  try {
+    existing = await queue.getJobSchedulers();
+  } catch {
+    return [];
+  }
+
+  const newGroups = new Set(newSkill.groups);
+  const sameJobName = `cron-${newSkill.id.replace(/\//g, "-")}`;
+  const warningsByGroup = new Map<string, CronOverlapWarning>();
+
+  for (const sched of existing) {
+    if (!sched.name || sched.name === sameJobName) continue;
+    if (!sched.pattern) continue;
+
+    const data = sched.template?.data as
+      | { skillId?: string; concurrencyGroups?: string[] }
+      | undefined;
+    if (!data?.skillId || !Array.isArray(data.concurrencyGroups)) continue;
+
+    const sharedGroups = data.concurrencyGroups.filter((g) => newGroups.has(g));
+    if (sharedGroups.length === 0) continue;
+
+    const existingFires = nextFireSet(sched.pattern, sched.tz ?? "UTC");
+    if (existingFires.size === 0) continue;
+
+    for (const trig of newSkill.triggers) {
+      const newFires = nextFireSet(trig.pattern, trig.tz);
+      if (newFires.size === 0) continue;
+      if (!setsIntersect(existingFires, newFires)) continue;
+
+      for (const group of sharedGroups) {
+        const w = warningsByGroup.get(group) ?? {
+          group,
+          newPattern: trig.pattern,
+          conflicts: [],
+        };
+        if (!w.conflicts.some((c) => c.skillId === data.skillId)) {
+          w.conflicts.push({ skillId: data.skillId, pattern: sched.pattern });
+        }
+        warningsByGroup.set(group, w);
+      }
+    }
+  }
+
+  return [...warningsByGroup.values()];
 }
 
 /**
@@ -153,6 +280,32 @@ export async function registerOneSkill(
     };
   }
 
+  // Resolve every cron trigger's effective timezone up-front so the
+  // overlap check sees the same tz the scheduler will use.
+  const cronTriggers: Array<{ pattern: string; tz: string }> = [];
+  for (const trigger of manifest.triggers) {
+    if (trigger.type === "cron" && trigger.schedule) {
+      cronTriggers.push({
+        pattern: trigger.schedule,
+        tz:
+          trigger.timezone ??
+          manifest.timezone ??
+          ctx.workspaceTz ??
+          process.env.NEXAAS_TIMEZONE ??
+          "UTC",
+      });
+    }
+  }
+
+  // Pre-flight cron-overlap warning (#99) — pure ergonomics, never blocks.
+  // Quietly empty if the skill has no concurrency_groups or no cron triggers.
+  const groups = manifest.concurrency_groups ?? [];
+  const warnings = await findCronOverlaps(ctx.queue, {
+    id: manifest.id,
+    groups,
+    triggers: cronTriggers,
+  });
+
   for (const trigger of manifest.triggers) {
     if (trigger.type !== "cron" || !trigger.schedule) continue;
 
@@ -186,6 +339,9 @@ export async function registerOneSkill(
           stepId: manifest.execution?.type === "ai-skill" ? "ai-exec" : "shell-exec",
           triggerType: "cron",
           manifestPath,
+          // Stored so the next register call's overlap check (#99) can
+          // see this skill's groups without re-reading manifests from disk.
+          concurrencyGroups: groups,
         },
       },
     );
@@ -199,7 +355,24 @@ export async function registerOneSkill(
     registered,
     cleaned,
     status: registered > 0 ? "registered" : "no-triggers",
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
+}
+
+/** Print a CronOverlapWarning block (used by both single + bulk callers). */
+export function printOverlapWarnings(
+  warnings: CronOverlapWarning[],
+  newSkillId: string,
+): void {
+  for (const w of warnings) {
+    console.log(`  ⚠ Cron overlap on group '${w.group}':`);
+    for (const c of w.conflicts) {
+      console.log(`      ${c.skillId.padEnd(36)} (${c.pattern})`);
+    }
+    console.log(`      ${(newSkillId + " [NEW]").padEnd(36)} (${w.newPattern})`);
+    console.log(`    These will serialize via the group lock; expect added wait.`);
+    console.log(`    Consider offsetting one of them by a few minutes.`);
+  }
 }
 
 export async function run(args: string[]) {
@@ -248,6 +421,9 @@ export async function run(args: string[]) {
     console.log(`\n  Registering skill: ${result.skillId} v${result.version}`);
     if (result.cleaned > 0) {
       console.log(`  Cleaned ${result.cleaned} legacy repeatable(s)`);
+    }
+    if (result.warnings && result.warnings.length > 0) {
+      printOverlapWarnings(result.warnings, result.skillId);
     }
     if (result.status === "no-triggers") {
       console.log("  ⚠ No cron triggers found in this manifest");
