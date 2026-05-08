@@ -28,6 +28,9 @@ switch (command) {
   case "register-skill":
     import("./register-skill.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "register-skills":
+    import("./register-skills.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   case "trigger-skill":
     import("./trigger-skill.js").then((m) => m.run(process.argv.slice(3)));
     break;
@@ -78,6 +81,7 @@ Commands:
   init --workspace <id>                 Set up Nexaas on this VPS
   onboard --workspace <path> --id <id>  Discover and register a workspace
   register-skill <path-to-skill.yaml>  Register a skill with the scheduler
+  register-skills [<dir>]              Bulk-register every skill.yaml under <dir>
   library list|contribute|install|diff|promote  Skill library management
   propagate check|push|accept|reject   Skill update propagation
   alerts [test|config]                 View and manage notifications
