@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "description": "Palace substrate — data model, palace API, WAL, signing, verification, pgvector retrieval",
   "type": "module",
-  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "pg": "^8.20.0",
     "zod": "^3.23.0"

@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "description": "Pillar pipeline runtime — CAG, RAG, TAG, model gateway, BullMQ execution, sub-agents, Bull Board dashboard",
   "type": "module",
-  "main": "src/index.ts",
+  "exports": {
+    ".": {
+      "production": "./dist/index.js",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
     "@bull-board/api": "^6.0.0",

@@ -334,10 +334,16 @@ NEXAAS_WORKER_PORT=9090
 
   step(5, TOTAL_STEPS, "Installing services...");
 
-  // Resolve tsx path — bypass npm/npx wrapper to fix journald logging (#20)
-  // and orphan process cleanup (#18)
-  // Prefer global tsx, fall back to local
-  const tsxBin = exec("which tsx", { silent: true }) || `${NEXAAS_ROOT}/node_modules/.bin/tsx`;
+  // Build compiled JS for production (#37). The systemd unit runs
+  // `node --conditions=production dist/worker.js` so cross-package
+  // imports resolve to compiled JS rather than tsx-transpiled TS at
+  // runtime — quicker boots, lower memory, no tsx in the hot path.
+  exec(`cd ${NEXAAS_ROOT} && npm run build`);
+  if (!existsSync(join(NEXAAS_ROOT, "packages/runtime/dist/worker.js"))) {
+    fail("Build failed — packages/runtime/dist/worker.js missing. Check 'npm run build' output above.");
+  }
+  log("Production build complete");
+
   const nodeBin = exec("which node", { silent: true }) || "/usr/bin/node";
 
   const serviceContent = `[Unit]
@@ -349,7 +355,7 @@ Type=simple
 User=${dbUser}
 WorkingDirectory=${NEXAAS_ROOT}
 EnvironmentFile=${NEXAAS_ROOT}/.env
-ExecStart=${nodeBin} ${tsxBin} ${NEXAAS_ROOT}/packages/runtime/src/worker.ts
+ExecStart=${nodeBin} --conditions=production ${NEXAAS_ROOT}/packages/runtime/dist/worker.js
 ExecStopPost=/bin/sh -c 'fuser -k -TERM 9090/tcp 2>/dev/null; sleep 2; fuser -k -KILL 9090/tcp 2>/dev/null; exit 0'
 Restart=always
 RestartSec=5
