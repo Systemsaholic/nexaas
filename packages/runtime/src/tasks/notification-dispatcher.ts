@@ -31,6 +31,14 @@ const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const MAX_ATTEMPTS = 5;
 const POLL_BATCH_SIZE = 25;
 const MCP_CALL_TIMEOUT_MS = 15_000;
+/**
+ * How long a `claimed` row may sit before the reaper considers the
+ * original claimer dead and resets it to `failed` for retry. Must
+ * comfortably exceed `MCP_CALL_TIMEOUT_MS` plus typical worker-restart
+ * latency. See #94. Two minutes leaves headroom for slow MCP responses
+ * and orderly systemd restarts without false positives.
+ */
+const STALE_CLAIM_INTERVAL = "2 minutes";
 
 interface PendingDrawer {
   id: string;
@@ -146,6 +154,32 @@ function parseEnvelope(content: string): DispatchEnvelope | null {
     }
     return parsed as unknown as DispatchEnvelope;
   } catch { return null; }
+}
+
+/**
+ * Reset stuck-`claimed` rows back to `failed` so the normal retry path
+ * picks them up. See #94 — when the worker is restarted (or crashed)
+ * mid-dispatch, the row is left at `status='claimed'` indefinitely
+ * because the in-flight MCP `send` was killed before the dispatcher's
+ * try/finally reached `markDelivered` / `markFailed`. `selectPending`
+ * only considers `NULL` or `failed` rows, so stuck `claimed` rows are
+ * invisible to subsequent polls without this sweep.
+ *
+ * Returns the number of rows reaped (for the WAL emit). Best-effort —
+ * a single failed sweep doesn't halt the rest of the tick.
+ */
+async function reapStaleClaims(workspace: string): Promise<number> {
+  const reaped = await sql<{ idempotency_key: string }>(
+    `UPDATE nexaas_memory.notification_dispatches
+        SET status = 'failed',
+            last_error = COALESCE(last_error, $2)
+      WHERE workspace = $1
+        AND status = 'claimed'
+        AND claimed_at < now() - INTERVAL '${STALE_CLAIM_INTERVAL}'
+      RETURNING idempotency_key`,
+    [workspace, "reaped: claimed row exceeded stale threshold"],
+  );
+  return reaped.length;
 }
 
 async function selectPending(workspace: string): Promise<PendingDrawer[]> {
@@ -346,7 +380,27 @@ async function writeOutcomeDrawer(
 export async function dispatchPendingNotifications(
   workspace: string,
   workspaceManifest: WorkspaceManifest | null,
-): Promise<{ dispatched: number; failed: number; skipped: number }> {
+): Promise<{ dispatched: number; failed: number; skipped: number; reaped: number }> {
+  // Reap stuck-`claimed` rows from prior worker deaths (#94) before the
+  // poll, so they become eligible for `selectPending` on this same tick
+  // rather than waiting another interval.
+  let reaped = 0;
+  try {
+    reaped = await reapStaleClaims(workspace);
+    if (reaped > 0) {
+      await appendWal({
+        workspace,
+        op: "notification_reaped",
+        actor: "notification-dispatcher",
+        payload: { count: reaped, threshold: STALE_CLAIM_INTERVAL },
+      });
+    }
+  } catch (err) {
+    // Best-effort: log but don't halt the tick. A failed reap leaves
+    // stale rows for the next interval to clean up.
+    console.error("[nexaas] notification reaper error:", err);
+  }
+
   const pending = await selectPending(workspace);
   let dispatched = 0, failed = 0, skipped = 0;
 
@@ -443,7 +497,7 @@ export async function dispatchPendingNotifications(
     }
   }
 
-  return { dispatched, failed, skipped };
+  return { dispatched, failed, skipped, reaped };
 }
 
 export function startNotificationDispatcher(
@@ -460,9 +514,9 @@ export function startNotificationDispatcher(
       // Fresh manifest read each tick — framework fail-open per #41.
       const { manifest } = await loadWorkspaceManifest(workspace);
       const result = await dispatchPendingNotifications(workspace, manifest);
-      if (result.dispatched > 0 || result.failed > 0) {
+      if (result.dispatched > 0 || result.failed > 0 || result.reaped > 0) {
         console.log(
-          `[nexaas] Notification dispatcher: ${result.dispatched} delivered, ${result.failed} failed, ${result.skipped} skipped`,
+          `[nexaas] Notification dispatcher: ${result.dispatched} delivered, ${result.failed} failed, ${result.skipped} skipped, ${result.reaped} reaped`,
         );
       }
     } catch (err) {
@@ -482,6 +536,12 @@ export function startNotificationDispatcher(
  * on this. See `scripts/test-approval-render-93.mjs` for usage.
  */
 export const _renderApprovalRequest = renderApprovalRequest;
+
+/**
+ * Test-only export of the stale-claim reaper. Same convention as above.
+ * See `scripts/test-stale-claim-reaper-94.mjs` for usage.
+ */
+export const _reapStaleClaims = reapStaleClaims;
 
 export function stopNotificationDispatcher(): void {
   if (_interval) {
