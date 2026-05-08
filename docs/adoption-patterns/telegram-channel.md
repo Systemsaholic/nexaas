@@ -167,8 +167,8 @@ outputs:
 Stage 1a + 1b of TAG ([#45](https://github.com/Systemsaholic/nexaas/issues/45))
 route the agentic loop's result through the `approval_required` branch:
 waitpoint created, approval-request drawer written to
-`notifications.pending.waitpoints.<run_id>`, outbound dispatcher delivers
-with inline buttons.
+`notifications.pending.approvals` (with `run_id` in drawer content),
+outbound dispatcher delivers with inline buttons.
 
 ## Adapter requirements (workspace-owned, not framework code)
 

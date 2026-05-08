@@ -4,7 +4,7 @@
  * Closes the last leg of the approval round-trip:
  *
  *   Skill produces approval_required output  → TAG (bb93498)
- *   Approval-request drawer → notifications.pending.waitpoints.<run_id>
+ *   Approval-request drawer → notifications.pending.approvals (run_id in content)
  *   #40 outbound dispatcher  → channel adapter → human sees buttons
  *   Human taps button        → channel adapter → inbox.messaging.<role>
  *                                                drawer with action_button_click

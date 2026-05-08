@@ -190,10 +190,12 @@ export async function apply(
 
       await runTracker.markWaiting(runId);
 
-      // Approval-request drawer to notifications.pending.waitpoints.<run_id>
-      // per #45 spec. The outbound subscriber (#40) reads these and
-      // dispatches via the bound channel. Adapter writes a callback that
-      // calls palace.resolveWaitpoint(signal, ...) when the approver acts.
+      // Approval-request drawer to notifications.pending.approvals
+      // per #45 spec (#56 — room is now a semantic category; run_id
+      // lives in content). The outbound subscriber (#40) reads these
+      // and dispatches via the bound channel. Adapter writes a callback
+      // that calls palace.resolveWaitpoint(signal, ...) when the approver
+      // acts.
       if (resolved) {
         const decisions = action.approval?.decisions ?? ["approve", "reject"];
         const onTimeout = action.approval?.on_timeout ?? "deny";
@@ -202,7 +204,7 @@ export async function apply(
         const payloadPreview = payloadJson.length > 500 ? payloadJson.slice(0, 500) + "…" : payloadJson;
 
         await session.writeDrawer(
-          { wing: "notifications", hall: "pending", room: `waitpoints.${runId}` },
+          { wing: "notifications", hall: "pending", room: "approvals" },
           JSON.stringify({
             kind: "approval_request",
             run_id: runId,
