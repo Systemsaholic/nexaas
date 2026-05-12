@@ -293,7 +293,7 @@ Be helpful, context-aware, and follow the brand voice.`;
         messages: [{ role: "user", content: message.content }],
         tools: allTools,
         executeTool,
-        maxTurns: persona.maxTurns ?? 15,
+        limits: { maxTurns: persona.maxTurns ?? 15 },
         workspace,
         runId,
         skillId: `pa/${persona.id}`,
