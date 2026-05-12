@@ -316,8 +316,3 @@ export async function sendAlerts(report: HealthReport): Promise<void> {
     dedupeWindowMinutes: severity === "critical" ? 5 : 30,
   });
 }
-
-/** @deprecated Use sendAlerts() instead — kept for backward compatibility */
-export async function sendTelegramAlert(report: HealthReport, botToken: string, chatId: string): Promise<void> {
-  await sendAlerts(report);
-}

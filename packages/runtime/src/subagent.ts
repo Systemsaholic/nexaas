@@ -102,7 +102,7 @@ export async function subagent(params: {
       messages: [{ role: "user", content: userMessage }],
       tools: allTools,
       executeTool,
-      maxTurns: 10,
+      limits: { maxTurns: 10 },
       workspace,
       runId: subRunId,
       skillId: `subagent:${config.id}`,

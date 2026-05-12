@@ -207,12 +207,10 @@ export async function runAgenticLoop(params: {
   skillId: string;
   limits?: AgenticLimits;
   modelPricing?: AgenticModelPricing;
-  /** @deprecated use `limits.maxTurns` */
-  maxTurns?: number;
 }): Promise<AgenticResult> {
   const { model, system, tools, executeTool, workspace, runId, skillId, modelPricing } = params;
   const limits: AgenticLimits = params.limits ?? {};
-  const maxTurns = limits.maxTurns ?? params.maxTurns ?? DEFAULT_MAX_TURNS;
+  const maxTurns = limits.maxTurns ?? DEFAULT_MAX_TURNS;
   const maxIdentical = limits.maxConsecutiveIdenticalToolCalls ?? DEFAULT_MAX_CONSECUTIVE_IDENTICAL;
   const maxErrors = limits.maxConsecutiveErrors ?? DEFAULT_MAX_CONSECUTIVE_ERRORS;
   const maxTokensPerTurn = limits.maxOutputTokensPerTurn ?? DEFAULT_MAX_OUTPUT_TOKENS_PER_TURN;
