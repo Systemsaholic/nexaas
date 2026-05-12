@@ -41,6 +41,9 @@ import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
 import { runGitImport, gitImportPaths } from "./webstudio/git-import.js";
 import { runWebstudioEdit, resolveWebstudioMcpEntry } from "./webstudio/edit.js";
+import {
+  buildSiteArchive, runGitPush, validateCommitMessage,
+} from "./webstudio/publish.js";
 import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
@@ -729,6 +732,130 @@ async function main() {
           applied: result.applied,
         },
       });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: (e as Error).message });
+    }
+  });
+
+  // Publish: stream the working copy back as tar.gz (method=zip) or
+  // push to the origin remote (method=git_push). Replaces the
+  // dashboard's in-process ZIP build so non-Nexmatic adopters get the
+  // same flow. See #149.
+  app.post("/api/webstudio/publish", bearerAuth(), async (req, res) => {
+    try {
+      const method = req.body?.method;
+      const ws = WORKSPACE ?? "default";
+      const nexaasRoot = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
+      const session = palace.enter({ workspace: ws });
+
+      if (method === "zip") {
+        // Use the scrape site dir; if a git repo was imported, the
+        // operator can ZIP that too — it's the same shape, just a
+        // different root.
+        const gitRepoRoot = join(nexaasRoot, "web-studio", ws, "repo");
+        let root: string;
+        let hostnameHint: string | undefined;
+        if (existsSync(gitRepoRoot)) {
+          root = gitRepoRoot;
+        } else {
+          const hostname = existsSync(WS_SITE_DIR)
+            ? readdirSync(WS_SITE_DIR).find(d => !d.startsWith("."))
+            : undefined;
+          hostnameHint = hostname;
+          root = hostname ? join(WS_SITE_DIR, hostname) : WS_SITE_DIR;
+        }
+        if (!existsSync(root)) {
+          res.status(400).json({ ok: false, error: "No working copy to publish. Run /api/webstudio/import first." });
+          return;
+        }
+        const archive = buildSiteArchive(root, hostnameHint);
+        res.setHeader("Content-Type", archive.contentType);
+        res.setHeader("Content-Disposition", `attachment; filename="${archive.filename}"`);
+        archive.stream.pipe(res);
+        archive.stream.on("end", async () => {
+          await session.writeDrawer(
+            { wing: "events", hall: "web-studio", room: "publishes" },
+            JSON.stringify({
+              method: "zip",
+              workspace: ws,
+              root,
+              filename: archive.filename,
+              ts: new Date().toISOString(),
+              actor: req.body?.actor,
+            }),
+          ).catch(() => { /* best effort */ });
+        });
+        archive.stream.on("error", (err) => {
+          if (!res.headersSent) {
+            res.status(500).json({ ok: false, error: err.message });
+          } else {
+            res.end();
+          }
+        });
+        return;
+      }
+
+      if (method === "git_push") {
+        const validation = validateCommitMessage(req.body?.commitMessage);
+        if (!validation.ok) {
+          res.status(400).json({ ok: false, error: validation.error });
+          return;
+        }
+        const repoRoot = join(nexaasRoot, "web-studio", ws, "repo");
+        const deployKeyPath = join(nexaasRoot, ".ssh", `${ws}_deploy_key`);
+        const result = await runGitPush({
+          repoRoot,
+          commitMessage: validation.message,
+          deployKeyPath,
+          authorName: typeof req.body?.authorName === "string" ? req.body.authorName : undefined,
+          authorEmail: typeof req.body?.authorEmail === "string" ? req.body.authorEmail : undefined,
+        });
+        if (!result.changed) {
+          res.status(204).setHeader("X-Nexaas-Publish-Reason", "no_changes").end();
+          await session.writeDrawer(
+            { wing: "events", hall: "web-studio", room: "publishes" },
+            JSON.stringify({
+              method: "git_push",
+              workspace: ws,
+              changed: false,
+              reason: "no_changes",
+              ts: new Date().toISOString(),
+              actor: req.body?.actor,
+            }),
+          ).catch(() => { /* best effort */ });
+          return;
+        }
+        await session.writeDrawer(
+          { wing: "events", hall: "web-studio", room: "publishes" },
+          JSON.stringify({
+            method: "git_push",
+            workspace: ws,
+            changed: true,
+            branch: result.branch,
+            commit_sha: result.commitSha,
+            commit_message: validation.message,
+            ts: new Date().toISOString(),
+            actor: req.body?.actor,
+          }),
+        ).catch(() => { /* best effort */ });
+        res.json({
+          ok: true,
+          data: {
+            method: "git_push",
+            branch: result.branch,
+            commitSha: result.commitSha,
+            pushOutput: result.pushOutput,
+          },
+        });
+        return;
+      }
+
+      if (method === "ftp") {
+        res.status(400).json({ ok: false, error: "method=ftp not yet implemented" });
+        return;
+      }
+
+      res.status(400).json({ ok: false, error: `unknown method '${method}'. Use 'zip' or 'git_push'.` });
     } catch (e) {
       res.status(500).json({ ok: false, error: (e as Error).message });
     }
