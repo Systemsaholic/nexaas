@@ -106,6 +106,17 @@ If your skill needs to call external tools (email, database, API), it MUST decla
 
 ## 3. Skill Manifest Reference
 
+### Manifest filename: `skill.yaml` or `contract.yaml`
+
+The framework's CLI (`nexaas register-skill` / `nexaas register-skills`) accepts both:
+
+- **`skill.yaml`** — the framework-native shape, documented in the rest of this section. `id:`, `version:`, `triggers:[]`, `execution.timeout` (in milliseconds)
+- **`contract.yaml`** — the richer shape used by some adopters (Nexmatic skill packages, for instance). `skill: <name>` + `category: <cat>` instead of `id:`, top-level `schedule:` instead of `triggers:[]`, `execution.timeout_seconds:` instead of `execution.timeout` (ms), plus product-level fields the framework safely ignores (`produces:`, `outputs:`, `tag_defaults:`, `client_must_configure:`, etc.)
+
+`registerOneSkill` detects the contract shape by absence of `id:` + presence of `skill:` and translates it in-process. Both `nexaas register-skill <path/to/contract.yaml>` and bulk `nexaas register-skills <skills-root>` walk both filenames.
+
+When a skill directory contains both (rare; during a migration), `skill.yaml` wins as the operator-authored translation. See `normalizeManifest()` in `packages/cli/src/register-skill.ts` for the exact field-by-field translation.
+
 ### Timezone
 
 All cron schedules should declare a timezone. Without one, the system defaults to `America/Toronto` (Eastern Time). The VPS clock runs UTC but cron expressions are interpreted in the declared timezone.

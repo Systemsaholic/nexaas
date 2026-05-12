@@ -47,9 +47,17 @@ function printUsage(): void {
   process.stdout.write(USAGE);
 }
 
-/** Walk a directory tree, collect every `skill.yaml` we find. */
+/**
+ * Walk a directory tree, collect every framework-readable manifest.
+ * Matches both `skill.yaml` (framework-native) and `contract.yaml`
+ * (Nexmatic-style, #139 — normalized at load time by registerOneSkill).
+ *
+ * When a skill directory contains BOTH (rare but possible during
+ * migration), `skill.yaml` wins — the operator-authored translation
+ * is treated as the authoritative shape.
+ */
 function findManifests(dir: string): string[] {
-  const out: string[] = [];
+  const matched = new Map<string, string>();   // skill dir → preferred manifest
   const stack: string[] = [dir];
   while (stack.length > 0) {
     const cur = stack.pop()!;
@@ -64,12 +72,14 @@ function findManifests(dir: string): string[] {
       if (st.isDirectory()) {
         stack.push(path);
       } else if (basename(path) === "skill.yaml") {
-        out.push(path);
+        matched.set(cur, path);     // skill.yaml wins unconditionally
+      } else if (basename(path) === "contract.yaml" && !matched.has(cur)) {
+        matched.set(cur, path);
       }
     }
   }
   // Stable order so successive runs print the same sequence.
-  return out.sort();
+  return [...matched.values()].sort();
 }
 
 interface Options {
