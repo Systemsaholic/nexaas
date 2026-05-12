@@ -27,6 +27,12 @@ import { McpClient, loadMcpConfigs } from "../mcp/client.js";
 import { loadWorkspaceManifest } from "../schemas/load-manifest.js";
 import type { WorkspaceManifest, ChannelBinding } from "../schemas/workspace-manifest.js";
 import { reportMissingRelation } from "./_consistency-warning.js";
+import {
+  detectPaNotifyUser,
+  defaultPaNotifyDeps,
+  executePaNotify,
+  type PaNotifyInput,
+} from "../api/pa-notify.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const MAX_ATTEMPTS = 5;
@@ -378,6 +384,129 @@ async function writeOutcomeDrawer(
   );
 }
 
+/**
+ * PA-as-Router rewire path (#126 Wave 5 §5.1). Returns:
+ *   "delivered"          — rewire succeeded; caller marks the dispatch claimed+delivered
+ *   "already_delivered"  — claim short-circuited (concurrent dispatcher tick)
+ *   "fallthrough"        — user not yet migrated to v2 OR no default thread; fall back to direct path
+ *
+ * Map legacy envelope → PaNotifyInput:
+ *   content                  → content
+ *   parse_mode (HTML/Markd…) → content_format
+ *   channel_role pa_notify_X → user X, default thread_id "inbox"
+ *   idempotency_key          → idempotency_key
+ *   kind/urgency defaults    → "alert" / "normal" (legacy drawers carry neither)
+ */
+async function tryPaRewire(
+  workspace: string,
+  drawer: PendingDrawer,
+  envelope: DispatchEnvelope,
+  paUser: string,
+): Promise<"delivered" | "already_delivered" | "fallthrough"> {
+  // Cheap pre-check: does the user have any active threads at all? If not,
+  // they haven't been migrated to v2 — keep going on the direct path.
+  const activeCount = await sql<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM nexaas_memory.pa_threads
+      WHERE workspace = $1 AND user_hall = $2 AND status = 'active'`,
+    [workspace, paUser],
+  );
+  if (Number(activeCount[0]?.n ?? "0") === 0) {
+    return "fallthrough";
+  }
+
+  // No content → fall through to the legacy path. The dispatcher's
+  // renderApprovalRequest() runs there for approval-shaped envelopes; we
+  // don't reimplement that mapping in the rewire path.
+  if (!envelope.content) {
+    return "fallthrough";
+  }
+
+  const mappedFormat: PaNotifyInput["contentFormat"] =
+    envelope.parse_mode === "MarkdownV2" || envelope.parse_mode === "Markdown"
+      ? "markdown"
+      : envelope.parse_mode === "HTML"
+        ? "html"
+        : "html";
+
+  const input: PaNotifyInput = {
+    user: paUser,
+    threadId: "inbox",      // default fallback bucket per RFC Wave 5 §5.1 mapping
+    urgency: "normal",
+    kind: "alert",
+    content: envelope.content,
+    contentFormat: mappedFormat,
+    idempotencyKey: envelope.idempotency_key,
+  };
+
+  let outcome;
+  try {
+    outcome = await executePaNotify(input, defaultPaNotifyDeps(workspace));
+  } catch (err) {
+    // Rewire blew up (DB transient, etc.). Don't lose the notification —
+    // emit a warning and fall through. The direct path will retry next tick.
+    await appendWal({
+      workspace,
+      op: "pa_rewire_error",
+      actor: "notification-dispatcher",
+      payload: {
+        drawer_id: drawer.id,
+        channel_role: envelope.channel_role,
+        error: (err as Error).message.slice(0, 500),
+      },
+    });
+    return "fallthrough";
+  }
+
+  if ("error" in outcome) {
+    // 404 thread_not_found ("inbox" not declared) → fall through to direct
+    // path so the user still gets the notification while ops fixes the
+    // profile. WAL it so the misconfig is observable.
+    await appendWal({
+      workspace,
+      op: "pa_rewire_skipped",
+      actor: "notification-dispatcher",
+      payload: {
+        drawer_id: drawer.id,
+        channel_role: envelope.channel_role,
+        user: paUser,
+        reason: outcome.error,
+        details: outcome.details ?? null,
+      },
+    });
+    return "fallthrough";
+  }
+
+  // Rewire succeeded. Record the dispatch claim+delivered against the
+  // framework idempotency_key so the existing reaper / poll filter sees
+  // the row as done.
+  const claimResult = await claim(workspace, envelope, drawer.id, {
+    kind: "pa-router",
+    mcp: "pa-notify-endpoint",
+    config: {},
+  } as ChannelBinding);
+  if (claimResult === "already_delivered") {
+    return "already_delivered";
+  }
+
+  await markDelivered(workspace, envelope.idempotency_key, outcome.body.data.notification_id);
+  await appendWal({
+    workspace,
+    op: "notification_delivered_via_pa",
+    actor: "notification-dispatcher",
+    payload: {
+      drawer_id: drawer.id,
+      idempotency_key: envelope.idempotency_key,
+      channel_role: envelope.channel_role,
+      user: paUser,
+      thread_id: outcome.body.data.thread_id,
+      notification_id: outcome.body.data.notification_id,
+      idempotency_hit: outcome.body.data.idempotency_hit,
+    },
+  });
+  return "delivered";
+}
+
 export async function dispatchPendingNotifications(
   workspace: string,
   workspaceManifest: WorkspaceManifest | null,
@@ -430,6 +559,29 @@ export async function dispatchPendingNotifications(
       if (Number.isFinite(dueAt) && dueAt > Date.now()) {
         continue;
       }
+    }
+
+    // PA-as-Router rewire (RFC-0002 §3.2, Wave 5 §5.1, #126). When the
+    // envelope targets a user's PA via `channel_role: pa_notify_<user>`
+    // AND that user has declared persona threads (Wave 1 #122), route
+    // through the PA notify endpoint in-process instead of direct telegram
+    // dispatch. Users without declared threads keep the legacy direct path
+    // unchanged — the migration is opt-in by declaring a persona profile.
+    const paUser = detectPaNotifyUser(envelope.channel_role);
+    if (paUser) {
+      const rewired = await tryPaRewire(workspace, drawer, envelope, paUser);
+      if (rewired === "delivered") {
+        dispatched++;
+        continue;
+      }
+      if (rewired === "already_delivered") {
+        skipped++;
+        continue;
+      }
+      // "fallthrough" → user has no active threads OR rewire 404'd on a
+      // missing default thread. Drop through to the legacy direct path
+      // below so we don't lose the notification while the canary catches
+      // up the profile.
     }
 
     // Channel binding resolution — fail-open: log + skip if missing.
