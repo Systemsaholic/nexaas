@@ -27,6 +27,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { sql, appendWal } from "@nexaas/palace";
 
 export type Urgency = "immediate" | "normal" | "low";
 export type Kind = "alert" | "approval" | "digest";
@@ -326,4 +327,101 @@ export async function executePaNotify(
       },
     },
   };
+}
+
+/**
+ * Build the SQL-backed deps object used by the worker route and the
+ * notifications-dispatcher rewire (Wave 5 §5.1, #126). Single source of
+ * truth for the dedup window, drawer rooms, and WAL emit so both call sites
+ * stay in lockstep.
+ */
+export function defaultPaNotifyDeps(workspace: string): ExecuteDeps {
+  return {
+    workspace,
+    listActiveThreads: async (ws, user) => {
+      return await sql<{ thread_id: string; display_name: string }>(
+        `SELECT thread_id, display_name
+           FROM nexaas_memory.pa_threads
+          WHERE workspace = $1 AND user_hall = $2 AND status = 'active'
+          ORDER BY thread_id`,
+        [ws, user],
+      );
+    },
+    findRecentByIdempotency: async (ws, user, key) => {
+      const rows = await sql<{ content: string }>(
+        `SELECT content FROM nexaas_memory.events
+          WHERE workspace = $1
+            AND wing = 'notifications' AND hall = 'pending'
+            AND room LIKE 'pa-routed.%'
+            AND created_at > now() - interval '1 hour'
+            AND content::jsonb ->> 'idempotency_key' = $2
+            AND content::jsonb ->> 'user' = $3
+          ORDER BY created_at DESC
+          LIMIT 1`,
+        [ws, key, user],
+      );
+      if (rows.length === 0) return null;
+      try {
+        const c = JSON.parse(rows[0]!.content);
+        return typeof c.notification_id === "string" ? c.notification_id : null;
+      } catch {
+        return null;
+      }
+    },
+    writePendingDrawer: async (entry) => {
+      await sql(
+        `INSERT INTO nexaas_memory.events
+           (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
+         VALUES ($1, 'notifications', 'pending', $2, $3,
+                 encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
+                 $4, 1)`,
+        [
+          entry.workspace,
+          `pa-routed.${entry.threadId}`,
+          JSON.stringify(entry.payload),
+          JSON.stringify({ user: entry.user, thread_id: entry.threadId, notification_id: entry.notificationId }),
+        ],
+      );
+    },
+    writeAuditDrawer: async (entry) => {
+      await sql(
+        `INSERT INTO nexaas_memory.events
+           (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
+         VALUES ($1, 'inbox', $2, 'notifications-emitted', $3,
+                 encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
+                 $4, 1)`,
+        [
+          entry.workspace,
+          entry.user,
+          JSON.stringify(entry.payload),
+          JSON.stringify({ notification_id: entry.notificationId, thread_id: entry.threadId }),
+        ],
+      );
+      await appendWal({
+        workspace: entry.workspace,
+        op: "pa_notify_received",
+        actor: "pa-notify-endpoint",
+        payload: {
+          user: entry.user,
+          thread_id: entry.threadId,
+          notification_id: entry.notificationId,
+        },
+      });
+    },
+  };
+}
+
+/**
+ * Convention parser. Matches `pa_notify_<user>` and `pa_notify.<user>`
+ * channel-role forms used by skills that target a user's PA. Returns the
+ * user portion (e.g. `pa_notify_alice` → `alice`) or null.
+ *
+ * Mirrors `detectPaReplyUser` from persona-profile but for outbound
+ * `pa_notify_*` rather than inbound `pa_reply_*`. Kept narrow so the
+ * dispatcher rewire only catches roles it should rewrite.
+ */
+export function detectPaNotifyUser(channelRole: string | undefined): string | null {
+  if (!channelRole) return null;
+  const m = /^pa_notify[_.]([a-z0-9][a-z0-9_-]*)$/.exec(channelRole);
+  return m ? m[1]! : null;
 }

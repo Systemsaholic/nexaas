@@ -54,7 +54,7 @@ import {
   listNamedPatterns,
 } from "./tasks/inbound-match-waitpoint.js";
 import { executeTrigger, validateTriggerInput } from "./api/skills-trigger.js";
-import { executePaNotify, validatePaNotifyInput } from "./api/pa-notify.js";
+import { executePaNotify, validatePaNotifyInput, defaultPaNotifyDeps } from "./api/pa-notify.js";
 
 // Async exec for use inside HTTP handlers. Never use execSync in a route
 // handler — it blocks the Node event loop, which wedges /health, /queues,
@@ -472,83 +472,7 @@ async function main() {
         res.status(500).json({ error: "worker has no NEXAAS_WORKSPACE configured" });
         return;
       }
-      const outcome = await executePaNotify(validated, {
-        workspace: WORKSPACE,
-        listActiveThreads: async (workspace, user) => {
-          return await sql<{ thread_id: string; display_name: string }>(
-            `SELECT thread_id, display_name
-               FROM nexaas_memory.pa_threads
-              WHERE workspace = $1 AND user_hall = $2 AND status = 'active'
-              ORDER BY thread_id`,
-            [workspace, user],
-          );
-        },
-        findRecentByIdempotency: async (workspace, user, key) => {
-          // 1-hour idempotency window per RFC §3.2 dedup spec.
-          const rows = await sql<{ content: string }>(
-            `SELECT content FROM nexaas_memory.events
-              WHERE workspace = $1
-                AND wing = 'notifications' AND hall = 'pending'
-                AND room LIKE 'pa-routed.%'
-                AND created_at > now() - interval '1 hour'
-                AND content::jsonb ->> 'idempotency_key' = $2
-                AND content::jsonb ->> 'user' = $3
-              ORDER BY created_at DESC
-              LIMIT 1`,
-            [workspace, key, user],
-          );
-          if (rows.length === 0) return null;
-          try {
-            const c = JSON.parse(rows[0]!.content);
-            return typeof c.notification_id === "string" ? c.notification_id : null;
-          } catch {
-            return null;
-          }
-        },
-        writePendingDrawer: async (entry) => {
-          // Direct INSERT (rather than going through a PalaceSession) keeps
-          // this endpoint independent of run/skill context — the request
-          // isn't tied to a skill run.
-          await sql(
-            `INSERT INTO nexaas_memory.events
-               (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
-             VALUES ($1, 'notifications', 'pending', $2, $3,
-                     encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
-                     $4, 1)`,
-            [
-              entry.workspace,
-              `pa-routed.${entry.threadId}`,
-              JSON.stringify(entry.payload),
-              JSON.stringify({ user: entry.user, thread_id: entry.threadId, notification_id: entry.notificationId }),
-            ],
-          );
-        },
-        writeAuditDrawer: async (entry) => {
-          await sql(
-            `INSERT INTO nexaas_memory.events
-               (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
-             VALUES ($1, 'inbox', $2, 'notifications-emitted', $3,
-                     encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
-                     $4, 1)`,
-            [
-              entry.workspace,
-              entry.user,
-              JSON.stringify(entry.payload),
-              JSON.stringify({ notification_id: entry.notificationId, thread_id: entry.threadId }),
-            ],
-          );
-          await appendWal({
-            workspace: entry.workspace,
-            op: "pa_notify_received",
-            actor: "pa-notify-endpoint",
-            payload: {
-              user: entry.user,
-              thread_id: entry.threadId,
-              notification_id: entry.notificationId,
-            },
-          });
-        },
-      });
+      const outcome = await executePaNotify(validated, defaultPaNotifyDeps(WORKSPACE));
       if ("error" in outcome) {
         res.status(outcome.status).json({ error: outcome.error, details: outcome.details });
         return;
