@@ -90,10 +90,51 @@ The consumer's run receives `triggerPayload.batch_items` as an array:
 | `oldest_age_at_least: "1h"` | duration string (`s`/`m`/`h`/`d`) or seconds | Fires when the oldest pending item exceeds the threshold |
 | `cron: "0 9 * * MON"` | standard 5- or 6-field cron expression | Fires when the cron crosses, evaluated each poll tick |
 | `at: "2026-05-15T00:00:00Z"` | ISO-8601 timestamp | One-shot deadline; fires the first poll after the time passes |
+| `at_from_field: "scheduled_for"` | identifier naming a top-level field in drawer content | **Per-item deadline.** The dispatcher reads each pending drawer's value at that field, parses it as ISO 8601, and fires the item individually once its deadline passes. Each due drawer fires as a length-1 batch. Use for skills that schedule per-payload actions (delayed email broadcasts, T+N hour onboarding nudges, sequenced outreach) without needing to write a polling skill. |
 
 Multiple conditions in `any_of` fire on whichever matches first. Use
 `fire_when.any_of` exclusively in v1; `all_of` semantics aren't supported
 (file an issue if needed).
+
+### `at_from_field` semantics
+
+Unlike the bucket-wide conditions (`count_at_least`, `oldest_age_at_least`,
+`cron`, `at`), `at_from_field` is evaluated **per item**. Each pending drawer's
+content is read; the value at the named field is parsed as ISO 8601; the
+drawer fires the first poll after that timestamp passes.
+
+```yaml
+# Skill that sends an email at the per-recipient scheduled time.
+triggers:
+  - type: batch
+    bucket: email-broadcasts
+    fire_when:
+      any_of:
+        - at_from_field: "scheduled_for"   # per-payload deadline
+        - count_at_least: 100              # safety: drain if 100 pile up
+```
+
+```jsonc
+// Producer writes a drawer like:
+{
+  "wing": "batch",
+  "hall": "email-broadcasts",
+  "room": "pending.<uuid>",
+  "content": {
+    "to": "user@example.com",
+    "subject": "Welcome",
+    "scheduled_for": "2026-05-15T09:00:00Z"   // <-- the framework reads this
+  }
+}
+```
+
+Items where the field is missing, not a string, or not a parseable timestamp
+are skipped (they wait for another condition like `count_at_least` to fire).
+The field name must be a plain identifier (`[a-zA-Z_][a-zA-Z0-9_]*$`) — no
+JSONPath, no nested traversal in v1.
+
+Mixing `at_from_field` with bucket-wide conditions is supported: per-item
+firing happens first; bucket-wide firing then evaluates the *remainder*.
 
 ## `on_empty` policy
 

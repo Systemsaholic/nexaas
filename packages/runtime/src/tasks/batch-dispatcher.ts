@@ -81,7 +81,16 @@ type BatchCondition =
   | { kind: "count_at_least"; n: number }
   | { kind: "oldest_age_at_least"; seconds: number }
   | { kind: "cron"; expression: string; lastEvaluatedAt: number }
-  | { kind: "at"; iso: string };
+  | { kind: "at"; iso: string }
+  /**
+   * Per-item deadline (#136). `field` names a top-level key in drawer
+   * content (parsed as JSON). The dispatcher reads each pending drawer's
+   * value at that key, parses as ISO 8601, and fires the item individually
+   * once its deadline is past. Unlike the bucket-wide conditions, this
+   * fires one batch per due drawer (item_drawer_ids length-1), letting
+   * skills declare per-payload scheduled actions without a polling skill.
+   */
+  | { kind: "at_from_field"; field: string };
 
 /** bucket → subscribers (only one supported in v1; flagged in #80 follow-up) */
 type BatchIndex = Map<string, BatchTriggerSubscriber>;
@@ -133,7 +142,31 @@ function parseCondition(raw: Record<string, unknown>): BatchCondition | null {
     if (!iso || !Number.isFinite(Date.parse(iso))) return null;
     return { kind: "at", iso };
   }
+  if ("at_from_field" in raw) {
+    const field = typeof raw.at_from_field === "string" ? raw.at_from_field.trim() : "";
+    // Constrain to a plain identifier — no JSONPath, no nested traversal.
+    // Keeps the schema validatable + the SQL ->> path simple. The 95% case
+    // is a single top-level field like "scheduled_for"; nested paths can
+    // ship in a follow-up if a real adopter asks (per issue §"Why this matters").
+    if (!field || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return null;
+    return { kind: "at_from_field", field };
+  }
   return null;
+}
+
+/**
+ * Extract a per-item deadline from a drawer's JSON content (#136). Returns
+ * the epoch ms when the item is due, or null when the field is missing /
+ * unparseable / not a valid timestamp. Pure — no SQL.
+ */
+export function extractItemDeadlineMs(content: string, field: string): number | null {
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { return null; }
+  if (!parsed || typeof parsed !== "object") return null;
+  const v = (parsed as Record<string, unknown>)[field];
+  if (typeof v !== "string") return null;
+  const ms = Date.parse(v);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function findSkillManifests(skillsRoot: string): string[] {
@@ -311,9 +344,44 @@ function evaluateFireWhen(items: PendingItem[], sub: BatchTriggerSubscriber, now
         if (Number.isFinite(dueAt) && dueAt <= now) return { fire: true, reason: `at:${c.iso}` };
         break;
       }
+      case "at_from_field":
+        // Per-item condition (#136) — handled separately by findPerItemDue
+        // before this function is called. evaluateFireWhen only decides on
+        // bucket-wide fires; per-item firing fires one batch per drawer.
+        break;
     }
   }
   return { fire: false, reason: "no_condition_matched" };
+}
+
+/**
+ * Return the subset of pending items that are individually due per any
+ * `at_from_field` condition on the subscriber (#136). Items returned here
+ * fire as length-1 batches; the bucket-wide evaluator then runs on the
+ * remainder for any other conditions in the same `any_of` block.
+ */
+export function findPerItemDue(
+  items: PendingItem[],
+  sub: BatchTriggerSubscriber,
+  now: number,
+): Array<{ item: PendingItem; field: string }> {
+  const fieldConds = sub.conditions.filter(
+    (c): c is { kind: "at_from_field"; field: string } => c.kind === "at_from_field",
+  );
+  if (fieldConds.length === 0) return [];
+
+  const out: Array<{ item: PendingItem; field: string }> = [];
+  for (const item of items) {
+    for (const c of fieldConds) {
+      const dueAt = extractItemDeadlineMs(item.content, c.field);
+      if (dueAt !== null && dueAt <= now) {
+        out.push({ item, field: c.field });
+        break; // one match is enough — don't double-fire when multiple
+               // at_from_field conditions are declared (rare but defensible)
+      }
+    }
+  }
+  return out;
 }
 
 async function claimBatch(
@@ -356,6 +424,78 @@ async function markDispatched(workspace: string, batchId: string): Promise<void>
   );
 }
 
+/**
+ * Claim + enqueue a single batch. Shared between bucket-wide firing
+ * and per-item (`at_from_field`) firing. Returns true on success.
+ */
+async function claimAndDispatch(
+  workspace: string,
+  bucket: string,
+  sub: BatchTriggerSubscriber,
+  itemsForBatch: PendingItem[],
+  fireReason: string,
+): Promise<boolean> {
+  const itemIds = itemsForBatch.map((i) => i.id);
+  const batchId = await claimBatch(workspace, bucket, sub.skillId, itemIds, fireReason);
+  if (!batchId) return false;
+
+  const runId = randomUUID();
+  const jobData: SkillJobData & { manifestPath?: string } = {
+    workspace,
+    runId,
+    skillId: sub.skillId,
+    stepId: sub.execType,
+    triggerType: "batch",
+    triggerPayload: {
+      bucket,
+      batch_id: batchId,
+      fire_reason: fireReason,
+      items: itemsForBatch.map((i) => ({
+        drawer_id: i.id,
+        content: i.content,
+        created_at: i.created_at,
+      })),
+    },
+    manifestPath: sub.manifestPath,
+  };
+
+  try {
+    await enqueueSkillStep(jobData);
+    await markDispatched(workspace, batchId);
+    await appendWal({
+      workspace,
+      op: "batch_dispatched",
+      actor: "batch-dispatcher",
+      payload: {
+        bucket,
+        batch_id: batchId,
+        skill_id: sub.skillId,
+        run_id: runId,
+        fire_reason: fireReason,
+        item_count: itemsForBatch.length,
+      },
+    });
+    return true;
+  } catch (err) {
+    // Enqueue failed AFTER claim — leave the dispatch in 'claimed' so it's
+    // visible; reaper / operator can clear it. The items remain associated
+    // via item_drawer_ids so they don't re-fire under another batch_id.
+    await sql(
+      `UPDATE nexaas_memory.batch_dispatches
+          SET status = 'failed', last_error = $3
+        WHERE workspace = $1 AND batch_id = $2`,
+      [workspace, batchId, (err as Error).message.slice(0, 1000)],
+    ).catch(() => { /* best effort */ });
+    await appendWal({
+      workspace,
+      op: "batch_consumer_failed",
+      actor: "batch-dispatcher",
+      payload: { bucket, batch_id: batchId, error: (err as Error).message.slice(0, 200) },
+    }).catch(() => { /* best effort */ });
+    return false;
+  }
+}
+
 export async function dispatchPendingBatches(workspace: string): Promise<{
   evaluated: number;
   fired: number;
@@ -368,68 +508,38 @@ export async function dispatchPendingBatches(workspace: string): Promise<{
   for (const [bucket, sub] of index) {
     evaluated++;
     const items = await selectPendingItems(workspace, bucket, sub.ordering, MAX_BATCH_SIZE);
-    const decision = evaluateFireWhen(items, sub, now);
-    if (!decision.fire) { skipped++; continue; }
 
-    const itemIds = items.map((i) => i.id);
-    const batchId = await claimBatch(workspace, bucket, sub.skillId, itemIds, decision.reason);
-    if (!batchId) { skipped++; continue; }
-
-    const runId = randomUUID();
-    const jobData: SkillJobData & { manifestPath?: string } = {
-      workspace,
-      runId,
-      skillId: sub.skillId,
-      stepId: sub.execType,
-      triggerType: "batch",
-      triggerPayload: {
-        bucket,
-        batch_id: batchId,
-        fire_reason: decision.reason,
-        items: items.map((i) => ({
-          drawer_id: i.id,
-          content: i.content,
-          created_at: i.created_at,
-        })),
-      },
-      manifestPath: sub.manifestPath,
-    };
-
-    try {
-      await enqueueSkillStep(jobData);
-      await markDispatched(workspace, batchId);
-      await appendWal({
-        workspace,
-        op: "batch_dispatched",
-        actor: "batch-dispatcher",
-        payload: {
-          bucket,
-          batch_id: batchId,
-          skill_id: sub.skillId,
-          run_id: runId,
-          fire_reason: decision.reason,
-          item_count: items.length,
-        },
-      });
-      fired++;
-    } catch (err) {
-      // Enqueue failed AFTER claim — leave the dispatch in 'claimed' so it's
-      // visible; reaper / operator can clear it. The items remain associated
-      // via item_drawer_ids so they don't re-fire under another batch_id.
-      await sql(
-        `UPDATE nexaas_memory.batch_dispatches
-            SET status = 'failed', last_error = $3
-          WHERE workspace = $1 AND batch_id = $2`,
-        [workspace, batchId, (err as Error).message.slice(0, 1000)],
-      ).catch(() => { /* best effort */ });
-      await appendWal({
-        workspace,
-        op: "batch_consumer_failed",
-        actor: "batch-dispatcher",
-        payload: { bucket, batch_id: batchId, error: (err as Error).message.slice(0, 200) },
-      }).catch(() => { /* best effort */ });
-      skipped++;
+    // Per-item due (#136) — fire one length-1 batch per drawer whose
+    // `at_from_field` deadline has passed. Bucket-wide evaluation then
+    // runs on the remainder for any other `any_of` conditions.
+    const perItemDue = findPerItemDue(items, sub, now);
+    const perItemFiredIds = new Set<string>();
+    for (const due of perItemDue) {
+      const ok = await claimAndDispatch(
+        workspace, bucket, sub, [due.item],
+        `at_from_field:${due.field}`,
+      );
+      if (ok) {
+        fired++;
+        perItemFiredIds.add(due.item.id);
+      } else {
+        skipped++;
+      }
     }
+
+    const remaining = perItemFiredIds.size === 0
+      ? items
+      : items.filter((i) => !perItemFiredIds.has(i.id));
+
+    const decision = evaluateFireWhen(remaining, sub, now);
+    if (!decision.fire) {
+      if (perItemDue.length === 0) skipped++;
+      continue;
+    }
+
+    const ok = await claimAndDispatch(workspace, bucket, sub, remaining, decision.reason);
+    if (ok) fired++;
+    else skipped++;
   }
 
   return { evaluated, fired, skipped };
