@@ -17,7 +17,7 @@ import type { SkillJobData } from "./queues.js";
 import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
 import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
 import { shutdownMcpPool } from "../mcp/pool.js";
-import { withGroups } from "../concurrency-groups.js";
+import { withGroups, resolveConcurrencyGroups } from "../concurrency-groups.js";
 import { readFileSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { randomUUID } from "crypto";
@@ -70,8 +70,15 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         // RFC #95 — skill-declared concurrency groups serialize across
         // shared resources (e.g. sqlite:data/onboarding.db). Skills
         // without `concurrency_groups` bypass the semaphore entirely.
-        const groups = (manifest as { concurrency_groups?: string[] })
+        // #135 — `{field}` placeholders in group names are substituted
+        // from trigger payload at dispatch time, letting a manifest
+        // declare per-payload isolation like `pa-notify:{user}:{thread_id}`.
+        const rawGroups = (manifest as { concurrency_groups?: string[] })
           .concurrency_groups;
+        const groups = resolveConcurrencyGroups(
+          rawGroups,
+          data.triggerPayload as Record<string, unknown> | undefined,
+        );
         const lockMeta = {
           workspace: data.workspace,
           skillId: data.skillId,
