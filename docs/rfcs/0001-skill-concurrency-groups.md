@@ -46,6 +46,24 @@ Free-form strings. Two reserved prefixes for clarity, neither enforced by the ru
 
 Workspaces can invent their own (`mailbox:info@`, `cdn:r2-uploads`).
 
+### Template interpolation (#135)
+
+Group names may include `{field_name}` placeholders that are substituted from the trigger payload at dispatch time. This lets a single manifest declaration produce per-payload isolation without writing a custom dispatcher:
+
+```yaml
+concurrency_groups:
+  - "pa-notify:{user}:{thread_id}"     # serialize per (user, thread)
+  - "entity:{entity_id}"               # serialize per entity
+```
+
+At dispatch with `triggerPayload: { user: "alice", thread_id: "hr" }`, the resolved group becomes `pa-notify:alice:hr`. A different `(user, thread)` pair gets a different group name → runs in parallel.
+
+**Substitution rules:**
+- `{field_name}` matches `^[a-zA-Z_][a-zA-Z0-9_]*$` identifiers only — no nesting, no JSONPath in v1
+- Values must be string / number / boolean primitives (coerced via `String()`); objects, arrays, null, undefined cause the group to be **dropped** with a warning rather than locked under a malformed name
+- Groups with no placeholders pass through unchanged
+- Substitution is fed from the job's `triggerPayload`; for cron-triggered jobs the payload is typically empty so templates only resolve from inbound/HTTP-trigger payloads
+
 ## 3. Design
 
 ### 3.1 Single-worker (Phoenix today)

@@ -25,6 +25,62 @@ import { appendWal } from "@nexaas/palace";
 
 const locks = new Map<string, Promise<void>>();
 
+/**
+ * Substitute `{field_name}` placeholders in concurrency-group declarations
+ * with values lifted from the trigger payload (#135). Lets a skill declare
+ * per-payload isolation without writing a custom dispatcher:
+ *
+ *   concurrency_groups: ["pa-notify:{user}:{thread_id}"]
+ *
+ * At dispatch time, with triggerPayload `{ user: "alice", thread_id: "hr" }`,
+ * the resolved group becomes `pa-notify:alice:hr`. Two concurrent jobs for
+ * the same (user, thread) serialize via the existing semaphore; jobs for
+ * different threads (or different users) run in parallel.
+ *
+ * Substitution rules:
+ *   - `{field_name}` is replaced by `triggerPayload[field_name]` when present
+ *     and a string-like primitive (string, number, boolean — coerced to str)
+ *   - A group whose template has any unresolved placeholder is **dropped**
+ *     from the resolved list with a one-line warning. Dropping is safer
+ *     than locking under a literal `{thread_id}` group name nothing else
+ *     would match — the alternative would silently serialize jobs that
+ *     should run in parallel.
+ *   - Groups with no placeholders pass through unchanged
+ */
+export function resolveConcurrencyGroups(
+  groups: string[] | undefined,
+  payload: Record<string, unknown> | undefined,
+): string[] {
+  if (!groups || groups.length === 0) return [];
+  const out: string[] = [];
+  const placeholder = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+
+  for (const g of groups) {
+    let unresolved: string | null = null;
+    const resolved = g.replace(placeholder, (_match, field: string) => {
+      const v = payload?.[field];
+      if (v === undefined || v === null) {
+        unresolved ??= field;
+        return "";
+      }
+      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+        return String(v);
+      }
+      // Non-primitive (object/array) — can't go in a group name. Drop.
+      unresolved ??= field;
+      return "";
+    });
+    if (unresolved !== null) {
+      console.warn(
+        `[nexaas] concurrency_group '${g}' dropped — unresolved placeholder '{${unresolved}}' (not a string/number in trigger payload)`,
+      );
+      continue;
+    }
+    out.push(resolved);
+  }
+  return out;
+}
+
 export interface LockMeta {
   workspace?: string;
   skillId?: string;
