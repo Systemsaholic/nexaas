@@ -30,3 +30,17 @@ export {
 } from "./bullmq/index.js";
 export { runCompaction } from "./tasks/closet-compaction.js";
 export { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
+
+// PA-as-Router persona profile (RFC-0002 Wave 1, #122)
+export {
+  PersonaProfileSchema,
+  PersonaThreadSchema,
+  MAX_THREADS_PER_PERSONA,
+  loadPersonaProfile,
+  upsertPaThreads,
+  detectPaReplyUser,
+  type PersonaProfile,
+  type PersonaThread,
+  type ProfileLoadResult,
+  type UpsertSummary,
+} from "./schemas/persona-profile.js";

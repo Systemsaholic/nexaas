@@ -13,12 +13,18 @@
  */
 
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { resolve, dirname, join } from "path";
 import { execSync } from "child_process";
 import { load as yamlLoad } from "js-yaml";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import parser from "cron-parser";
+import {
+  loadPersonaProfile,
+  upsertPaThreads,
+  detectPaReplyUser,
+  type UpsertSummary,
+} from "@nexaas/runtime";
 
 export interface SkillManifest {
   id: string;
@@ -35,6 +41,7 @@ export interface SkillManifest {
     type: string;
     schedule?: string;
     timezone?: string;
+    channel_role?: string;            // for type=inbound-message; e.g. "pa_reply_<user>"
   }>;
   execution?: {
     type: string;
@@ -69,6 +76,12 @@ export interface RegisterResult {
   status: "registered" | "no-triggers" | "error";
   error?: string;
   warnings?: CronOverlapWarning[];
+  /** PA-as-Router (#122). Set when this skill is a PA conversation-turn skill. */
+  paProfile?: {
+    userHall: string;
+    profilePath: string;
+    summary: UpsertSummary;
+  };
 }
 
 const USAGE = `\
@@ -269,6 +282,7 @@ export async function registerOneSkill(
 
   let registered = 0;
   let cleaned = 0;
+  let paProfile: RegisterResult["paProfile"];
 
   if (!manifest.triggers || manifest.triggers.length === 0) {
     return {
@@ -278,6 +292,33 @@ export async function registerOneSkill(
       cleaned: 0,
       status: "no-triggers",
     };
+  }
+
+  // PA-as-Router (#122 Wave 1) — when a skill declares an inbound-message
+  // trigger with channel_role `pa_reply_<user>`, locate the persona profile
+  // at agents/pa/sub-agents/<user>/profile.yaml relative to the manifest's
+  // workspace root, validate it, and project its `threads:` block into
+  // pa_threads. Hard-fail registration on missing or malformed profile —
+  // a PA without a thread declaration would route nothing.
+  for (const trigger of manifest.triggers) {
+    if (trigger.type !== "inbound-message") continue;
+    const userHall = detectPaReplyUser(trigger.channel_role);
+    if (!userHall) continue;
+    const profilePath = locatePersonaProfile(manifestPath, userHall);
+    const loaded = loadPersonaProfile(profilePath);
+    if (!loaded.ok) {
+      return {
+        skillId: manifest.id,
+        version: manifest.version,
+        registered: 0,
+        cleaned: 0,
+        status: "error",
+        error: `${loaded.error} (expected at ${profilePath})`,
+      };
+    }
+    const summary = await upsertPaThreads(ctx.workspace, userHall, loaded.profile);
+    paProfile = { userHall, profilePath, summary };
+    break; // one PA profile per skill — first match wins
   }
 
   // Resolve every cron trigger's effective timezone up-front so the
@@ -354,9 +395,39 @@ export async function registerOneSkill(
     version: manifest.version,
     registered,
     cleaned,
-    status: registered > 0 ? "registered" : "no-triggers",
+    status: registered > 0 || paProfile ? "registered" : "no-triggers",
     warnings: warnings.length > 0 ? warnings : undefined,
+    paProfile,
   };
+}
+
+/**
+ * Resolve a PA persona profile path from a skill manifest path. Convention:
+ *   <workspace_root>/agents/pa/sub-agents/<user>/profile.yaml
+ *
+ * The skill manifest typically lives somewhere under
+ * `<workspace_root>/nexaas-skills/...`, so we walk up to find the workspace
+ * root (the nearest ancestor containing `agents/` and `nexaas-skills/`),
+ * then descend to the persona path. Falls back to NEXAAS_WORKSPACE_ROOT
+ * when set.
+ */
+function locatePersonaProfile(manifestPath: string, userHall: string): string {
+  const explicit = process.env.NEXAAS_WORKSPACE_ROOT;
+  if (explicit) {
+    return join(explicit, "agents", "pa", "sub-agents", userHall, "profile.yaml");
+  }
+  let dir = dirname(resolve(manifestPath));
+  // Walk up at most 6 levels looking for a workspace-root marker.
+  for (let i = 0; i < 6; i++) {
+    if (existsSync(join(dir, "agents")) && existsSync(join(dir, "nexaas-skills"))) {
+      return join(dir, "agents", "pa", "sub-agents", userHall, "profile.yaml");
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Last-resort guess relative to manifest's dir.
+  return join(dirname(resolve(manifestPath)), "..", "..", "..", "agents", "pa", "sub-agents", userHall, "profile.yaml");
 }
 
 /** Print a CronOverlapWarning block (used by both single + bulk callers). */
@@ -425,9 +496,18 @@ export async function run(args: string[]) {
     if (result.warnings && result.warnings.length > 0) {
       printOverlapWarnings(result.warnings, result.skillId);
     }
+    if (result.paProfile) {
+      const { userHall, summary } = result.paProfile;
+      const parts: string[] = [];
+      if (summary.added.length > 0) parts.push(`${summary.added.length} added`);
+      if (summary.updated.length > 0) parts.push(`${summary.updated.length} updated`);
+      if (summary.unchanged.length > 0) parts.push(`${summary.unchanged.length} unchanged`);
+      if (summary.paused.length > 0) parts.push(`${summary.paused.length} paused`);
+      console.log(`  ✓ PA persona '${userHall}' threads: ${parts.join(", ") || "no changes"}`);
+    }
     if (result.status === "no-triggers") {
       console.log("  ⚠ No cron triggers found in this manifest");
-    } else {
+    } else if (result.registered > 0) {
       console.log(`  ✓ ${result.registered} cron trigger(s) registered`);
     }
     console.log(`\n  Skill registered. Next fire will appear in Bull Board at /queues\n`);
