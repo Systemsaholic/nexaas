@@ -40,6 +40,7 @@ import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
 import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
 import { runGitImport, gitImportPaths } from "./webstudio/git-import.js";
+import { runWebstudioEdit, resolveWebstudioMcpEntry } from "./webstudio/edit.js";
 import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
@@ -677,101 +678,57 @@ async function main() {
     }
   });
 
-  // Edit: AI modifies files in the working copy
-  app.post("/api/webstudio/edit", async (req, res) => {
+  // Edit: PA modifies files in the working copy via the webstudio MCP
+  // server (#148). Resolves the working copy in this priority:
+  //   1. git import (#147): web-studio/<workspace>/repo/
+  //   2. scrape: web-studio/<workspace>/site/<hostname>/  (or site/)
+  app.post("/api/webstudio/edit", bearerAuth(), async (req, res) => {
     try {
       const { instruction, senderName } = req.body;
       if (!instruction) { res.status(400).json({ error: "instruction required" }); return; }
 
+      const nexaasRoot = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
+      const ws = WORKSPACE ?? "default";
+      const gitRepoRoot = join(nexaasRoot, "web-studio", ws, "repo");
+      let repoRoot: string;
+      if (existsSync(gitRepoRoot)) {
+        repoRoot = gitRepoRoot;
+      } else {
+        // Fall back to the scrape layout. Use the hostname subdir if
+        // wget created one (its usual behavior); otherwise the bare site
+        // dir.
+        const hostname = existsSync(WS_SITE_DIR)
+          ? readdirSync(WS_SITE_DIR).find(d => !d.startsWith("."))
+          : undefined;
+        repoRoot = hostname ? join(WS_SITE_DIR, hostname) : WS_SITE_DIR;
+      }
 
-      // Find the site root
-      const hostname = readdirSync(WS_SITE_DIR).find(d => !d.startsWith("."));
-      const siteRoot = hostname ? join(WS_SITE_DIR, hostname) : WS_SITE_DIR;
-
-      // List HTML files
-      const htmlFiles: string[] = [];
-      const walkHtml = (dir: string, prefix = ""): void => {
-        try {
-          for (const entry of readdirSync(dir, { withFileTypes: true })) {
-            const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-            if (entry.isDirectory() && !entry.name.startsWith(".")) walkHtml(join(dir, entry.name), rel);
-            else if (entry.name.endsWith(".html") || entry.name.endsWith(".htm")) htmlFiles.push(rel);
-          }
-        } catch {}
-      };
-      walkHtml(siteRoot);
-
-      // Read the main HTML file (index.html or first found)
-      const mainFile = htmlFiles.find(f => f === "index.html") ?? htmlFiles[0];
-      if (!mainFile) {
-        res.json({ ok: false, error: "No HTML files found in working copy" });
+      if (!existsSync(repoRoot)) {
+        res.status(400).json({
+          ok: false,
+          error: "No working copy found. Run /api/webstudio/import first.",
+        });
         return;
       }
 
-      const mainContent = readFileSync(join(siteRoot, mainFile), "utf-8");
-
-      // Use the PA to generate the edit
-      const result = await handlePaMessage(WORKSPACE!, {
-        id: "webstudio-editor",
-        displayName: "WebStudio Editor",
-        type: "human-facing" as const,
-        owner: senderName ?? "user",
-        modelTier: "good",
-        systemPrompt: `You are a web developer assistant. The user wants to modify their website.
-
-Current HTML file (${mainFile}):
-\`\`\`html
-${mainContent.slice(0, 15000)}
-\`\`\`
-
-${htmlFiles.length > 1 ? `Other files: ${htmlFiles.join(", ")}` : ""}
-
-The user's instruction: "${instruction}"
-
-Generate the COMPLETE modified HTML file with the requested changes applied. Output ONLY the full HTML — no explanations, no markdown code blocks, just the raw HTML that should replace the file.`,
-        mcpServers: [],
-        palaceAccess: { read: ["*"], deny: [] },
-        channels: ["web-studio"],
-        maxTurns: 3,
-      }, {
-        channel: "web-studio",
-        senderId: "webstudio",
-        senderName: senderName ?? "User",
-        content: instruction,
+      const mcpEntry = resolveWebstudioMcpEntry(nexaasRoot);
+      const result = await runWebstudioEdit(ws, repoRoot, mcpEntry, {
+        instruction,
+        senderName,
       });
 
-      // Extract the HTML from the response
-      let newHtml = result.response;
-
-      // Clean up — remove markdown code fences if present
-      const htmlMatch = newHtml.match(/```html?\n([\s\S]*?)```/);
-      if (htmlMatch) newHtml = htmlMatch[1];
-
-      // If it looks like complete HTML, write it
-      if (newHtml.includes("<") && newHtml.includes(">")) {
-        writeFileSync(join(siteRoot, mainFile), newHtml);
-
-        res.json({
-          ok: true,
-          data: {
-            file: mainFile,
-            description: instruction,
-            previewUrl: `http://localhost:${WS_PORT}`,
-            applied: true,
-          },
-        });
-      } else {
-        res.json({
-          ok: true,
-          data: {
-            file: mainFile,
-            description: result.response.slice(0, 200),
-            previewUrl: `http://localhost:${WS_PORT}`,
-            applied: false,
-            response: result.response,
-          },
-        });
-      }
+      res.json({
+        ok: true,
+        data: {
+          previewUrl: `http://localhost:${WS_PORT}`,
+          response: result.response,
+          turns: result.turns,
+          toolCalls: result.toolCalls,
+          filesWritten: result.filesWritten,
+          filesRead: result.filesRead,
+          applied: result.applied,
+        },
+      });
     } catch (e) {
       res.status(500).json({ ok: false, error: (e as Error).message });
     }
