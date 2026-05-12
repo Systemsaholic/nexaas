@@ -209,9 +209,118 @@ export async function resolveWaitpoint(
     payload: { signal, resolution, drawer_id: drawer.id },
   });
 
+  // PA-as-Router shadow drawer (RFC-0002 §3.5 / Wave 3, #124).
+  //
+  // When the resolved waitpoint was created for an approval flow (has
+  // `action_kind` AND `channel_role` in its state, the shape written by
+  // `engine/apply.ts` for TAG approval_required outputs), emit one extra
+  // drawer to `notifications.delivered.telegram` so the user's PA can
+  // observe the decision and log it in-thread.
+  //
+  // Inbound-match waitpoints, raw timeout-only waitpoints, and anything
+  // else that doesn't carry channel_role get skipped — they aren't
+  // user-facing and the PA doesn't need to know.
+  //
+  // Failures here are swallowed (logged only). The waitpoint's own
+  // callbacks have already completed; a shadow-drawer write failure
+  // mustn't roll back the real resolution.
+  try {
+    await emitApprovalShadowDrawer(drawer, signal, resolution, actor);
+  } catch (err) {
+    console.error("[nexaas] approval shadow drawer emit failed (non-fatal):", err);
+  }
+
   return {
     runId: drawer.run_id!,
     skillId: drawer.skill_id!,
     stepId: drawer.step_id!,
   };
+}
+
+/**
+ * Parse the waitpoint's content and determine whether it looks like a
+ * TAG approval waitpoint. Approval state carries both `action_kind` and
+ * `channel_role` (see `engine/apply.ts` createWaitpoint call). Anything
+ * else returns null and the caller skips the shadow emit.
+ */
+function detectApprovalState(content: string | null | undefined): { channel_role: string; action_kind?: string; payload?: unknown } | null {
+  if (!content) return null;
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { return null; }
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.channel_role !== "string" || obj.channel_role.length === 0) return null;
+  // action_kind is the strongest signal — engine/apply.ts always sets it
+  // for approvals. Be tolerant if it's absent (e.g. future approval shapes
+  // that omit it); presence of channel_role is enough to indicate "this
+  // was a user-facing waitpoint that the PA may care about".
+  return {
+    channel_role: obj.channel_role,
+    action_kind: typeof obj.action_kind === "string" ? obj.action_kind : undefined,
+    payload: obj.payload,
+  };
+}
+
+async function emitApprovalShadowDrawer(
+  drawer: Drawer,
+  signal: string,
+  resolution: Record<string, unknown>,
+  actor: string,
+): Promise<void> {
+  const approval = detectApprovalState((drawer as unknown as { content: string }).content);
+  if (!approval) return;
+
+  // `decision` is the most natural surface — resolution.decision when the
+  // adapter follows the convention, otherwise the full resolution payload
+  // (preserves info for non-decision approvals like "approve with edits").
+  const decision =
+    typeof (resolution as { decision?: unknown }).decision === "string"
+      ? (resolution as { decision: string }).decision
+      : resolution;
+
+  // Channel-keyed room. v1 ships Telegram only (RFC §3.8); future
+  // channels add their own (e.g. `notifications/delivered/email`).
+  // We infer telegram from channel_role naming convention; if a future
+  // role uses a different prefix, this needs explicit channel_kind from
+  // the workspace manifest — left as a Wave 5 / future-channel concern.
+  const channelKind = approval.channel_role.startsWith("pa_") || approval.channel_role.startsWith("telegram_")
+    ? "telegram"
+    : "telegram"; // single-channel v1; widen when more land
+
+  const session = createSession({
+    workspace: drawer.workspace,
+    runId: drawer.run_id,
+    skillId: drawer.skill_id,
+  });
+
+  await session.writeDrawer(
+    { wing: "notifications", hall: "delivered", room: channelKind },
+    JSON.stringify({
+      kind: "approval_resolved",
+      waitpoint_signal: signal,
+      decision,
+      resolved_at: new Date().toISOString(),
+      resolved_by: actor,
+      channel_role: approval.channel_role,
+      action_kind: approval.action_kind,
+      // original_notification_id is populated when the approval came through
+      // POST /api/pa/<user>/notify (Wave 2's audit field). Legacy direct-path
+      // approvals don't carry it; the PA gracefully skips correlation.
+      original_notification_id:
+        (drawer as unknown as { content: string }).content && (() => {
+          try {
+            const c = JSON.parse((drawer as unknown as { content: string }).content);
+            return typeof c.original_notification_id === "string" ? c.original_notification_id : null;
+          } catch { return null; }
+        })(),
+    }),
+    { run_id: drawer.run_id, step_id: drawer.step_id } as DrawerMeta,
+  );
+
+  await appendWal({
+    workspace: drawer.workspace,
+    op: "approval_shadow_emit",
+    actor,
+    payload: { signal, channel_role: approval.channel_role, drawer_id: drawer.id },
+  });
 }
