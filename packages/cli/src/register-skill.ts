@@ -51,6 +51,81 @@ export interface SkillManifest {
   };
 }
 
+/**
+ * Normalize a YAML-parsed manifest into the framework's `SkillManifest`
+ * shape (#139). Accepts both:
+ *
+ *   1. The framework's `skill.yaml` format — `id:`, `version:`, `triggers:[]`,
+ *      `execution.timeout` (ms). Pass-through.
+ *
+ *   2. The richer `contract.yaml` format used by some adopters (Nexmatic
+ *      skill packages, for instance) — `skill:` + `category:` instead of
+ *      `id:`, top-level `schedule:` instead of `triggers:[]`,
+ *      `execution.timeout_seconds:` instead of `execution.timeout` (ms).
+ *      Plus product-level fields (`produces:`, `outputs:`, `tag_defaults:`,
+ *      `client_must_configure:`, etc.) the framework already ignores as
+ *      unknown fields.
+ *
+ * Detection heuristic: missing `id` AND present `skill` → contract shape.
+ * Otherwise treated as native skill.yaml.
+ *
+ * Pure helper: no I/O, no side effects. Tested in
+ * `scripts/test-manifest-normalize-139.mjs`.
+ */
+export function normalizeManifest(raw: Record<string, unknown> | null): SkillManifest {
+  if (!raw || typeof raw !== "object") {
+    return {} as SkillManifest;
+  }
+  const r = raw as Record<string, unknown>;
+  const isContract = typeof r.id !== "string" && typeof r.skill === "string";
+  if (!isContract) {
+    return r as unknown as SkillManifest;
+  }
+
+  // ── contract.yaml → skill.yaml translation ────────────────────────
+  const skill = String(r.skill);
+  // If `skill:` already contains a slash, skip the category prefix.
+  // Otherwise, prepend `category:` when present.
+  const id = skill.includes("/")
+    ? skill
+    : typeof r.category === "string" && r.category.length > 0
+      ? `${r.category}/${skill}`
+      : skill;
+
+  // Triggers: prefer explicit `triggers:[]` when present; otherwise lift
+  // top-level `schedule:` into a cron trigger.
+  let triggers = Array.isArray(r.triggers) ? (r.triggers as SkillManifest["triggers"]) : undefined;
+  if (!triggers && typeof r.schedule === "string" && r.schedule.length > 0) {
+    triggers = [{ type: "cron", schedule: r.schedule }];
+  }
+
+  // Execution: prefer `execution.timeout` (ms) when present; otherwise
+  // convert `execution.timeout_seconds` (s) → ms.
+  const execIn = (r.execution as Record<string, unknown> | undefined) ?? undefined;
+  let execution: SkillManifest["execution"] | undefined;
+  if (execIn) {
+    const timeoutMs = typeof execIn.timeout === "number"
+      ? (execIn.timeout as number)
+      : typeof execIn.timeout_seconds === "number"
+        ? Math.floor((execIn.timeout_seconds as number) * 1000)
+        : undefined;
+    execution = {
+      type: typeof execIn.type === "string" ? (execIn.type as string) : "shell",
+      ...(typeof execIn.command === "string" ? { command: execIn.command as string } : {}),
+      ...(typeof timeoutMs === "number" ? { timeout: timeoutMs } : {}),
+      ...(typeof execIn.working_directory === "string" ? { working_directory: execIn.working_directory as string } : {}),
+    };
+  }
+
+  return {
+    ...r,
+    id,
+    version: typeof r.version === "string" ? r.version : "0",
+    ...(triggers ? { triggers } : {}),
+    ...(execution ? { execution } : {}),
+  } as unknown as SkillManifest;
+}
+
 export interface RegisterContext {
   queue: Queue;
   workspace: string;
@@ -258,7 +333,8 @@ export async function registerOneSkill(
   let manifest: SkillManifest;
   try {
     const content = readFileSync(manifestPath, "utf-8");
-    manifest = yamlLoad(content) as SkillManifest;
+    const raw = yamlLoad(content) as Record<string, unknown> | null;
+    manifest = normalizeManifest(raw);
     if (!manifest?.id || !manifest?.version) {
       return {
         skillId: manifestPath,
