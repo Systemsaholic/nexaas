@@ -1,21 +1,50 @@
 /**
- * MCP Client — connects to stdio-based MCP servers on the VPS.
+ * MCP Client — connects to MCP servers on the VPS.
  *
- * Reads server configs from the workspace's .mcp.json, spawns the
- * MCP server as a child process, and provides tool listing + invocation.
+ * Two transports are supported:
+ *
+ *   - **stdio** (default): spawn the MCP server as a child process and
+ *     speak hand-rolled JSON-RPC over the pipes. Original implementation;
+ *     used by every shipping server today.
+ *
+ *   - **streamable-http** (#143): connect to a hosted MCP endpoint over
+ *     HTTP POST + SSE using the official MCP SDK's transport. Unblocks
+ *     hosted services like Zernio that ship a remote endpoint instead of
+ *     a local stdio binary.
+ *
+ * Server configs come from the workspace's .mcp.json. The shape is
+ * discriminated by the presence of `transport`:
+ *
+ *   { "command": "uvx", "args": ["zernio-mcp"], "env": { ... } }              // stdio
+ *   { "transport": "streamable-http", "url": "https://...", "headers": {} }   // http
  */
 
 import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import { Client as SdkClient } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpTool } from "../models/agentic-loop.js";
 
-interface McpServerConfig {
+export type StdioMcpServerConfig = {
   command: string;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+};
+
+export type HttpMcpServerConfig = {
+  transport: "streamable-http" | "http";
+  url: string;
+  headers?: Record<string, string>;
+};
+
+export type McpServerConfig = StdioMcpServerConfig | HttpMcpServerConfig;
+
+export function isHttpConfig(config: McpServerConfig): config is HttpMcpServerConfig {
+  return (config as HttpMcpServerConfig).transport === "streamable-http"
+      || (config as HttpMcpServerConfig).transport === "http";
 }
 
 interface JsonRpcRequest {
@@ -32,13 +61,26 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
+// Shape of a tool result returned by either transport — both speak the
+// same MCP wire format, so callers see the same structure regardless.
+interface ToolCallResult {
+  content?: Array<{ type: string; text?: string }>;
+  isError?: boolean;
+}
+
 export class McpClient {
+  // stdio state
   private process: ChildProcess | null = null;
   private buffer = "";
   private pendingRequests = new Map<string, {
     resolve: (value: unknown) => void;
     reject: (reason: Error) => void;
   }>();
+
+  // http state
+  private sdkClient: SdkClient | null = null;
+  private sdkTransport: StreamableHTTPClientTransport | null = null;
+
   private tools: McpTool[] = [];
   private disposed = false;
 
@@ -48,16 +90,24 @@ export class McpClient {
   ) {}
 
   async connect(): Promise<void> {
+    if (isHttpConfig(this.config)) {
+      await this.connectHttp(this.config);
+    } else {
+      await this.connectStdio(this.config);
+    }
+  }
+
+  private async connectStdio(config: StdioMcpServerConfig): Promise<void> {
     const env = {
       ...process.env,
-      ...this.config.env,
+      ...config.env,
     };
 
     this.process = spawn(
-      this.config.command,
-      this.config.args ?? [],
+      config.command,
+      config.args ?? [],
       {
-        cwd: this.config.cwd,
+        cwd: config.cwd,
         env,
         stdio: ["pipe", "pipe", "pipe"],
       },
@@ -88,17 +138,17 @@ export class McpClient {
 
     try {
       // Initialize the MCP connection
-      await this.send("initialize", {
+      await this.sendStdio("initialize", {
         protocolVersion: "2024-11-05",
         capabilities: {},
         clientInfo: { name: "nexaas-runtime", version: "0.1.0" },
       });
 
       // Send initialized notification
-      this.sendNotification("notifications/initialized", {});
+      this.sendNotificationStdio("notifications/initialized", {});
 
       // List available tools and normalize schema field names
-      const toolsResult = await this.send("tools/list", {}) as {
+      const toolsResult = await this.sendStdio("tools/list", {}) as {
         tools: Array<{
           name: string;
           description: string;
@@ -114,6 +164,48 @@ export class McpClient {
       }));
     } catch (err) {
       // Abort the partial connection so we don't leave a child running.
+      await this.disconnect().catch(() => { /* best effort */ });
+      throw err;
+    }
+  }
+
+  private async connectHttp(config: HttpMcpServerConfig): Promise<void> {
+    let url: URL;
+    try {
+      url = new URL(config.url);
+    } catch {
+      throw new Error(`MCP server ${this.serverName}: invalid url '${config.url}'`);
+    }
+
+    this.sdkTransport = new StreamableHTTPClientTransport(url, {
+      requestInit: config.headers ? { headers: config.headers } : undefined,
+    });
+
+    // Mirror stdio: any error after construction must flip `disposed` so
+    // the pool's isHealthy() probe drops the client instead of reusing it.
+    this.sdkTransport.onerror = (err) => {
+      this.disposed = true;
+      console.warn(`[nexaas] MCP HTTP transport error for ${this.serverName}: ${err.message}`);
+    };
+    this.sdkTransport.onclose = () => {
+      this.disposed = true;
+    };
+
+    this.sdkClient = new SdkClient(
+      { name: "nexaas-runtime", version: "0.1.0" },
+      { capabilities: {} },
+    );
+
+    try {
+      await this.sdkClient.connect(this.sdkTransport);
+
+      const toolsResult = await this.sdkClient.listTools();
+      this.tools = (toolsResult.tools ?? []).map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        input_schema: t.inputSchema ?? { type: "object", properties: {} },
+      }));
+    } catch (err) {
       await this.disconnect().catch(() => { /* best effort */ });
       throw err;
     }
@@ -135,11 +227,15 @@ export class McpClient {
   }
 
   // Used by the pool (#63) to decide whether to reuse a cached client or
-  // respawn. `disposed` flips on spawn error, stdin write failure, and child
-  // exit — any of those means the subprocess is no longer usable even if it
+  // respawn. `disposed` flips on transport failure (stdio: spawn error,
+  // stdin write failure, child exit; http: transport onerror/onclose) —
+  // any of those means the connection is no longer usable even if it
   // hasn't been explicitly disconnected.
   isHealthy(): boolean {
     if (this.disposed) return false;
+    if (isHttpConfig(this.config)) {
+      return this.sdkClient !== null;
+    }
     if (!this.process) return false;
     if (this.process.killed) return false;
     if (this.process.exitCode !== null) return false;
@@ -147,14 +243,8 @@ export class McpClient {
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<string> {
-    const result = await this.send("tools/call", { name, arguments: args }) as {
-      content: Array<{ type: string; text?: string }>;
-      isError?: boolean;
-    };
-
-    const text = (result.content && Array.isArray(result.content))
-      ? result.content.filter((c) => c.type === "text" && c.text).map((c) => c.text!).join("\n")
-      : JSON.stringify(result);
+    const result = await this.invokeTool(name, args);
+    const text = extractText(result);
 
     // MCP protocol: `isError: true` at the tool-result level signals the
     // tool itself failed (Pydantic validation, runtime error, etc.). Before
@@ -181,18 +271,40 @@ export class McpClient {
     isError: boolean;
     text: string;
   }> {
-    const result = await this.send("tools/call", { name, arguments: args }) as {
-      content: Array<{ type: string; text?: string }>;
-      isError?: boolean;
-    };
-    const text = (result.content && Array.isArray(result.content))
-      ? result.content.filter((c) => c.type === "text" && c.text).map((c) => c.text!).join("\n")
-      : JSON.stringify(result);
+    const result = await this.invokeTool(name, args);
+    const text = extractText(result);
     return { content: result.content ?? [], isError: result.isError === true, text };
+  }
+
+  private async invokeTool(name: string, args: Record<string, unknown>): Promise<ToolCallResult> {
+    if (this.sdkClient) {
+      // SDK's callTool returns a union — the CallToolResult variant has
+      // `content` + `isError`, the legacy `toolResult` variant doesn't.
+      // We only support the modern shape; servers using the legacy shape
+      // are extremely rare and would have failed under the old stdio code
+      // too.
+      const result = await this.sdkClient.callTool({ name, arguments: args }) as ToolCallResult;
+      return result;
+    }
+    return await this.sendStdio("tools/call", { name, arguments: args }) as ToolCallResult;
   }
 
   async disconnect(): Promise<void> {
     this.disposed = true;
+
+    if (this.sdkClient || this.sdkTransport) {
+      const client = this.sdkClient;
+      const transport = this.sdkTransport;
+      this.sdkClient = null;
+      this.sdkTransport = null;
+      try {
+        if (client) await client.close();
+        else if (transport) await transport.close();
+      } catch { /* best effort */ }
+      this.rejectAllPending(new Error(`MCP client ${this.serverName} disconnected`));
+      return;
+    }
+
     const proc = this.process;
     this.process = null;
     if (!proc || proc.killed || proc.exitCode !== null) return;
@@ -217,7 +329,7 @@ export class McpClient {
     this.rejectAllPending(new Error(`MCP client ${this.serverName} disconnected`));
   }
 
-  private async send(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async sendStdio(method: string, params: Record<string, unknown>): Promise<unknown> {
     if (this.disposed || !this.process || this.process.exitCode !== null) {
       throw new Error(`MCP client ${this.serverName} is not connected`);
     }
@@ -251,7 +363,7 @@ export class McpClient {
     });
   }
 
-  private sendNotification(method: string, params: Record<string, unknown>): void {
+  private sendNotificationStdio(method: string, params: Record<string, unknown>): void {
     if (this.disposed || !this.process || this.process.exitCode !== null) return;
     const notification = {
       jsonrpc: "2.0",
@@ -283,6 +395,16 @@ export class McpClient {
       }
     }
   }
+}
+
+function extractText(result: ToolCallResult): string {
+  if (result.content && Array.isArray(result.content)) {
+    return result.content
+      .filter((c) => c.type === "text" && c.text)
+      .map((c) => c.text!)
+      .join("\n");
+  }
+  return JSON.stringify(result);
 }
 
 /**

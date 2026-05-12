@@ -28,14 +28,7 @@
  * reload without worker restart. Those can land after we see it behave.
  */
 
-import { McpClient } from "./client.js";
-
-interface McpServerConfig {
-  command: string;
-  args?: string[];
-  cwd?: string;
-  env?: Record<string, string>;
-}
+import { McpClient, type McpServerConfig } from "./client.js";
 
 export function isPoolEnabled(): boolean {
   return process.env.NEXAAS_MCP_POOL_ENABLED === "true"
