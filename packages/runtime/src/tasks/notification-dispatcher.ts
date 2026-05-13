@@ -429,14 +429,28 @@ async function tryPaRewire(
         ? "html"
         : "html";
 
+  // Map legacy `inline_buttons[{text, button_id}]` → v2 `actions[{label, button_id}]`.
+  // Without this, legacy `send_telegram_sync(buttons=...)` callers (e.g.
+  // Phoenix's join-webhook) silently lost their approval buttons after
+  // the PA-Router rewire — content arrived as a passive alert and the
+  // downstream skill waiting on the button reply never got a path
+  // forward. See #153.
+  const mappedActions = envelope.inline_buttons
+    ?.filter((b) => b && b.button_id && b.text)
+    .map((b) => ({ label: b.text, button_id: b.button_id }));
+
   const input: PaNotifyInput = {
     user: paUser,
     threadId: "inbox",      // default fallback bucket per RFC Wave 5 §5.1 mapping
     urgency: "normal",
-    kind: "alert",
+    // Switch to "approval" when actions are present so the receiver
+    // renders the decision UI instead of a passive alert.
+    // validatePaNotifyInput() enforces "actions required when kind=approval".
+    kind: mappedActions && mappedActions.length > 0 ? "approval" : "alert",
     content: envelope.content,
     contentFormat: mappedFormat,
     idempotencyKey: envelope.idempotency_key,
+    ...(mappedActions && mappedActions.length > 0 ? { actions: mappedActions } : {}),
   };
 
   let outcome;

@@ -55,15 +55,22 @@ async function tryPaRewire(workspace, envelope) {
     return { decision: "fallthrough", reason: "missing_content" };
   }
 
+  // Mirror production's inline_buttons → actions mapping (#153). Without
+  // this, legacy callers that pass buttons silently lose them on rewire.
+  const mappedActions = envelope.inline_buttons
+    ?.filter((b) => b && b.button_id && b.text)
+    .map((b) => ({ label: b.text, button_id: b.button_id }));
+
   const outcome = await executePaNotify(
     {
       user: paUser,
       threadId: "inbox",
       urgency: "normal",
-      kind: "alert",
+      kind: mappedActions && mappedActions.length > 0 ? "approval" : "alert",
       content: envelope.content,
       contentFormat: "html",
       idempotencyKey: envelope.idempotency_key,
+      ...(mappedActions && mappedActions.length > 0 ? { actions: mappedActions } : {}),
     },
     defaultPaNotifyDeps(workspace),
   );
@@ -168,6 +175,70 @@ await sql(
   });
   assert(out.decision === "fallthrough", `decision=fallthrough (got ${out.decision})`);
   assert(out.reason === "missing_content", "reason captured");
+}
+
+// ── Test 7: inline_buttons → actions mapping (#153) ──────────────
+console.log("\n7. Legacy inline_buttons → v2 actions mapped + kind flips to 'approval'");
+{
+  const out = await tryPaRewire(WORKSPACE, {
+    channel_role: "pa_notify_bob",
+    content: "Approve onboarding for Sam Burton?",
+    idempotency_key: "k7",
+    inline_buttons: [
+      { text: "Approve", button_id: "onboarding_review:approve:sam-123" },
+      { text: "Reject",  button_id: "onboarding_review:reject:sam-123" },
+      { text: "Need Info", button_id: "onboarding_review:info:sam-123" },
+    ],
+  });
+  assert(out.decision === "delivered", `decision=delivered (got ${out.decision})`);
+
+  const rows = await sql(
+    `SELECT content::jsonb AS payload FROM nexaas_memory.events
+      WHERE workspace = $1 AND wing = 'notifications' AND hall = 'pending'
+        AND room LIKE 'pa-routed.%' AND content::jsonb ->> 'user' = 'bob'
+        AND content::jsonb ->> 'idempotency_key' = 'k7'
+      LIMIT 1`,
+    [WORKSPACE],
+  );
+  const payload = rows[0]?.payload;
+  assert(payload != null, "pa-routed drawer landed for bob");
+  assert(payload?.kind === "approval", `kind=approval (got ${payload?.kind})`);
+  assert(Array.isArray(payload?.actions), "actions is an array");
+  assert(payload?.actions?.length === 3, `actions has 3 entries (got ${payload?.actions?.length})`);
+  assert(payload?.actions?.[0]?.label === "Approve" && payload?.actions?.[0]?.button_id === "onboarding_review:approve:sam-123",
+    "first action mapped text→label, button_id preserved");
+}
+
+// ── Test 8: empty/garbage inline_buttons → kind stays 'alert' ─────
+console.log("\n8. Empty / malformed inline_buttons → no actions, kind stays 'alert'");
+await sql(
+  `INSERT INTO nexaas_memory.pa_threads (workspace, user_hall, thread_id, display_name, status)
+   VALUES ($1, 'carol', 'inbox', 'Inbox', 'active')`,
+  [WORKSPACE],
+);
+{
+  const out = await tryPaRewire(WORKSPACE, {
+    channel_role: "pa_notify_carol",
+    content: "FYI",
+    idempotency_key: "k8",
+    inline_buttons: [
+      { text: "", button_id: "bad" },          // empty label — filtered
+      { text: "valid-but-no-id" },              // missing button_id — filtered
+      null,                                      // null — filtered
+    ],
+  });
+  assert(out.decision === "delivered", `decision=delivered (got ${out.decision})`);
+  const rows = await sql(
+    `SELECT content::jsonb AS payload FROM nexaas_memory.events
+      WHERE workspace = $1 AND wing = 'notifications' AND hall = 'pending'
+        AND room LIKE 'pa-routed.%' AND content::jsonb ->> 'user' = 'carol'
+      LIMIT 1`,
+    [WORKSPACE],
+  );
+  const payload = rows[0]?.payload;
+  assert(payload?.kind === "alert", `kind=alert (got ${payload?.kind})`);
+  assert(payload?.actions === null || payload?.actions === undefined,
+    `actions absent (got ${JSON.stringify(payload?.actions)})`);
 }
 
 await sql(`DELETE FROM nexaas_memory.events WHERE workspace = $1`, [WORKSPACE]);
