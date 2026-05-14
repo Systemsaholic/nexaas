@@ -39,6 +39,7 @@ import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-r
 import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
 import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
+import { runGitImport, gitImportPaths } from "./webstudio/git-import.js";
 import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
@@ -584,14 +585,35 @@ async function main() {
   const WS_SITE_DIR = join(process.env.NEXAAS_ROOT ?? "/opt/nexaas", "web-studio", WORKSPACE ?? "default", "site");
   const WS_PORT = 3002;
 
-  // Import: download site with wget
-  app.post("/api/webstudio/import", async (req, res) => {
+  // Import: download site with wget (method=scrape) or clone a git
+  // repo + spawn its dev server (method=git, #147).
+  app.post("/api/webstudio/import", bearerAuth(), async (req, res) => {
     try {
       const { url, method } = req.body;
       if (!url) { res.status(400).json({ error: "url required" }); return; }
 
 
       mkdirSync(WS_SITE_DIR, { recursive: true });
+
+      if (method === "git") {
+        const paths = gitImportPaths(
+          process.env.NEXAAS_ROOT ?? "/opt/nexaas",
+          WORKSPACE ?? "default",
+        );
+        try {
+          const result = await runGitImport({
+            url,
+            branch: typeof req.body.branch === "string" ? req.body.branch : undefined,
+            deployKey: typeof req.body.deployKey === "string" ? req.body.deployKey : undefined,
+            auth: req.body.auth,
+          }, paths);
+          console.log(`[webstudio] Git import: ${url}@${result.branch} (${result.framework}), pid=${result.devServerPid}`);
+          res.json({ ok: true, data: { ...result, method: "git" } });
+        } catch (err) {
+          res.status(400).json({ ok: false, error: (err as Error).message });
+        }
+        return;
+      }
 
       if (method === "scrape" || !method) {
         // Download site with wget mirror — async so we don't wedge the
@@ -648,7 +670,7 @@ async function main() {
           },
         });
       } else {
-        res.status(400).json({ error: `Import method '${method}' not yet implemented` });
+        res.status(400).json({ error: `Import method '${method}' not supported (use 'scrape' or 'git')` });
       }
     } catch (e) {
       res.status(500).json({ ok: false, error: (e as Error).message });
