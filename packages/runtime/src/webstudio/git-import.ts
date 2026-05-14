@@ -70,6 +70,10 @@ export async function runGitImport(
   paths: GitImportPaths,
 ): Promise<GitImportResult> {
   if (!input.url) throw new Error("git import: url required");
+  // Reject URLs starting with `-` so they can't masquerade as a git flag
+  // (e.g. `--upload-pack=...` is a remote-code-execution vector via git
+  // clone). Defense-in-depth alongside the `--` separator below.
+  if (input.url.startsWith("-")) throw new Error("git import: url must not start with '-'");
   const branch = input.branch ?? "main";
 
   // 1. Wipe any prior clone — re-importing the same workspace should
@@ -95,7 +99,7 @@ export async function runGitImport(
   // 3. Clone.
   try {
     await execAsync(
-      `git clone --depth=1 --branch=${shellEscape(branch)} ${shellEscape(input.url)} ${shellEscape(paths.repoRoot)}`,
+      `git clone --depth=1 --branch=${shellEscape(branch)} -- ${shellEscape(input.url)} ${shellEscape(paths.repoRoot)}`,
       { env: gitEnv, timeout: 120_000 },
     );
   } catch (err) {
