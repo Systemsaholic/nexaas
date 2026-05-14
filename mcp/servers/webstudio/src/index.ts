@@ -26,7 +26,8 @@ import { spawnSync } from "child_process";
 import {
   existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync,
 } from "fs";
-import { dirname, isAbsolute, join, normalize, relative, resolve as resolvePath } from "path";
+import { dirname, join, relative, resolve as resolvePath } from "path";
+import { createSafePath, FORBIDDEN_DIRS } from "./safe-path.js";
 
 const REPO_ROOT = process.env.WEBSTUDIO_REPO_ROOT;
 if (!REPO_ROOT) {
@@ -40,12 +41,10 @@ if (!existsSync(ROOT)) {
   process.exit(1);
 }
 
+const safePath = createSafePath(ROOT);
+
 const READ_CAP_BYTES = 100 * 1024; // 100KB per the spec
 const WRITE_CAP_BYTES = 5 * 1024 * 1024; // 5MB ceiling on individual writes
-
-// Hard-block directories. These never make sense for a content-edit
-// loop and writing into them silently corrupts the working copy.
-const FORBIDDEN_DIRS = [".git", "node_modules", ".next", "dist", "build", ".nuxt", ".svelte-kit"];
 
 // Defaults applied when there's no .webstudioignore. Tighter than
 // gitignore so the model sees a useful slice of the project even on
@@ -76,36 +75,6 @@ function jsonResult(data: unknown): { content: Array<{ type: "text"; text: strin
 
 function textResult(text: string): { content: Array<{ type: "text"; text: string }> } {
   return { content: [{ type: "text" as const, text }] };
-}
-
-// Resolve a model-supplied relative path against ROOT. Rejects:
-//   - absolute paths
-//   - paths that escape ROOT via `..`
-//   - paths that land in a forbidden directory
-function safePath(input: string): string {
-  if (typeof input !== "string" || input.length === 0) {
-    throw new Error("path must be a non-empty string");
-  }
-  if (isAbsolute(input)) {
-    throw new Error(`path must be relative to repo root: '${input}'`);
-  }
-  const normalized = normalize(input);
-  if (normalized.startsWith("..") || normalized.includes(`${"/"}..${"/"}`)) {
-    throw new Error(`path escapes repo root: '${input}'`);
-  }
-  const abs = resolvePath(ROOT, normalized);
-  // Resolve symlinks would be safer, but we don't follow them — the
-  // string-prefix check below is sufficient because resolvePath
-  // canonicalizes the joined path.
-  if (abs !== ROOT && !abs.startsWith(ROOT + "/")) {
-    throw new Error(`path escapes repo root: '${input}'`);
-  }
-  // First path segment must not be forbidden.
-  const firstSegment = normalized.split("/")[0];
-  if (firstSegment && FORBIDDEN_DIRS.includes(firstSegment)) {
-    throw new Error(`writes to '${firstSegment}/' are forbidden`);
-  }
-  return abs;
 }
 
 function isInGitRepo(): boolean {
