@@ -97,6 +97,22 @@ export async function run(args: string[]) {
   if (!commandExists("node")) {
     fail("Node.js not found. Install Node.js >= 20: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash - && sudo apt-get install -y nodejs");
   }
+  // Snap-installed Node intercepts CLI flag parsing on classic snaps and
+  // rejects --conditions=production (the flag the worker unit relies on
+  // for compiled-JS routing). Refusing here avoids a silent crash-loop
+  // after install completes.
+  const nodeBinPath = exec("which node", { silent: true });
+  if (nodeBinPath.startsWith("/snap/")) {
+    fail(
+      `Detected snap-installed Node at ${nodeBinPath}.\n` +
+      `  Snap's classic confinement rejects --conditions=production, which the worker\n` +
+      `  service requires for compiled-JS routing. Reinstall Node via NodeSource apt:\n\n` +
+      `    sudo snap remove node\n` +
+      `    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo bash -\n` +
+      `    sudo apt-get install -y nodejs\n\n` +
+      `  Then rerun nexaas init.`,
+    );
+  }
   const nodeVersion = exec("node -v", { silent: true });
   const nodeMajor = parseInt(nodeVersion.replace("v", "").split(".")[0]!, 10);
   if (nodeMajor < 20) {
@@ -334,6 +350,15 @@ NEXAAS_WORKER_PORT=9090
 
   step(5, TOTAL_STEPS, "Installing services...");
 
+  // Install dependencies including devDeps — every workspace package's
+  // `build` script runs `tsc` directly, and TypeScript is a devDep. A
+  // prior `npm install --omit=dev` (or installing from a deploy script
+  // that defaults to production-only) leaves `tsc: not found` for every
+  // package and the build below 127s. Idempotent when devDeps are
+  // already present.
+  log("Installing dependencies (including devDeps for build)...");
+  exec(`cd ${NEXAAS_ROOT} && npm install --include=dev`);
+
   // Build compiled JS for production (#37). The systemd unit runs
   // `node --conditions=production dist/worker.js` so cross-package
   // imports resolve to compiled JS rather than tsx-transpiled TS at
@@ -372,10 +397,29 @@ WantedBy=multi-user.target
 `;
 
   const servicePath = "/etc/systemd/system/nexaas-worker.service";
+  // Unmask any pre-existing /dev/null override before writing. Some
+  // Ubuntu base images (cloud-init defaults, OVH templates) ship a
+  // masked nexaas-worker.service symlink to /dev/null. Without this,
+  // `sudo tee` silently writes to /dev/null and the systemctl ops
+  // below fail invisibly because exec() swallows non-zero exits.
+  exec("sudo systemctl unmask nexaas-worker.service 2>/dev/null || true", { silent: true });
   exec(`echo '${serviceContent}' | sudo tee ${servicePath} > /dev/null`);
-  exec("sudo systemctl daemon-reload");
-  exec("sudo systemctl enable nexaas-worker");
-  exec("sudo systemctl start nexaas-worker");
+  // Verify the write landed. Without this check, a misconfigured sudo or
+  // a still-masked path would let init continue silently to enable/start.
+  if (!existsSync(servicePath) || readFileSync(servicePath, "utf-8").length < 100) {
+    fail(`Failed to write ${servicePath}. Check sudo permissions and systemctl unmask status.`);
+  }
+  // Promote enable/start failures from warnings to fatals. exec()'s
+  // swallow-and-return-empty behavior demotes masking errors (and
+  // similar) to "Worker may not have started" warnings — failures here
+  // mean the worker won't run and need to surface immediately.
+  try {
+    execSync("sudo systemctl daemon-reload", { stdio: "inherit" });
+    execSync("sudo systemctl enable nexaas-worker", { stdio: "inherit" });
+    execSync("sudo systemctl start nexaas-worker", { stdio: "inherit" });
+  } catch (e) {
+    fail(`systemctl operation failed: ${(e as Error).message}. Run with sudo journalctl -xe for details.`);
+  }
 
   // Wait a moment for the worker to start
   await new Promise((resolve) => setTimeout(resolve, 3000));
