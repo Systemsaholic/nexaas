@@ -90,6 +90,28 @@ export const ModelPolicy = z.object({
 }).passthrough();
 
 /**
+ * pa_routing — Wave 5 cutover flag (RFC-0002 §9).
+ *
+ * Controls whether `pa_notify_<user>` envelopes get rewired through the
+ * /api/pa/<user>/notify endpoint (v2) or stay on the legacy notifications-
+ * dispatcher direct path (v1). Lets workspaces stagger their canary
+ * (per-user override) and keeps a kill-switch (default = "v1") for
+ * emergency rollback.
+ *
+ * Framework default: "v2". Absence of `pa_routing` on a manifest
+ * preserves the de-facto current behavior — if a user has declared
+ * persona threads, their envelopes get rewired.
+ *
+ * Per-user override semantics: pinning a user to "v1" routes their
+ * envelopes via the legacy direct path. That path requires their
+ * `pa_notify_<user>` entry in `channel_bindings` to still resolve.
+ */
+export const PaRoutingPolicy = z.object({
+  default: z.enum(["v1", "v2"]).default("v2"),
+  users: z.record(z.string(), z.enum(["v1", "v2"])).default({}),
+}).passthrough();
+
+/**
  * custom_domains — client-owned domains routed to this workspace VPS.
  * Self-service per architecture.md §17 (network topology).
  */
@@ -126,6 +148,7 @@ export const WorkspaceManifest = z.object({
     overrides: [],
   }),
   custom_domains: z.array(CustomDomain).default([]),
+  pa_routing: PaRoutingPolicy.default({ default: "v2", users: {} }),
 }).passthrough();
 
 export type WorkspaceManifest = z.infer<typeof WorkspaceManifest>;
@@ -133,6 +156,21 @@ export type CapabilityBinding = z.infer<typeof CapabilityBinding>;
 export type ChannelBinding = z.infer<typeof ChannelBinding>;
 export type BehavioralContract = z.infer<typeof BehavioralContract>;
 export type ModelPolicy = z.infer<typeof ModelPolicy>;
+export type PaRoutingPolicy = z.infer<typeof PaRoutingPolicy>;
+
+/**
+ * Resolve the PA routing version for a given user. Returns "v2" when the
+ * manifest is missing entirely so a fresh deployment preserves the de-
+ * facto current behavior of "if threads exist, rewire".
+ */
+export function resolvePaRoutingVersion(
+  manifest: WorkspaceManifest | null,
+  user: string,
+): "v1" | "v2" {
+  return manifest?.pa_routing?.users?.[user]
+    ?? manifest?.pa_routing?.default
+    ?? "v2";
+}
 
 /**
  * Validation result — warnings are non-fatal, errors indicate the manifest
