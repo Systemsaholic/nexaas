@@ -25,7 +25,7 @@
 import { sql, appendWal, palace } from "@nexaas/palace";
 import { McpClient, loadMcpConfigs } from "../mcp/client.js";
 import { loadWorkspaceManifest } from "../schemas/load-manifest.js";
-import type { WorkspaceManifest, ChannelBinding } from "../schemas/workspace-manifest.js";
+import { resolvePaRoutingVersion, type WorkspaceManifest, type ChannelBinding } from "../schemas/workspace-manifest.js";
 import { reportMissingRelation } from "./_consistency-warning.js";
 import {
   detectPaNotifyUser,
@@ -399,10 +399,30 @@ async function writeOutcomeDrawer(
  */
 async function tryPaRewire(
   workspace: string,
+  manifest: WorkspaceManifest | null,
   drawer: PendingDrawer,
   envelope: DispatchEnvelope,
   paUser: string,
 ): Promise<"delivered" | "already_delivered" | "fallthrough"> {
+  // Wave 5 cutover flag — workspace-manifest pa_routing controls whether
+  // this user's envelopes get rewired (v2) or stay on the legacy direct
+  // path (v1). Per-user override lets ops stagger a canary without
+  // flipping every PA at once. See RFC-0002 §9.
+  if (resolvePaRoutingVersion(manifest, paUser) === "v1") {
+    await appendWal({
+      workspace,
+      op: "pa_rewire_skipped",
+      actor: "notification-dispatcher",
+      payload: {
+        drawer_id: drawer.id,
+        channel_role: envelope.channel_role,
+        user: paUser,
+        reason: "v1_pinned",
+      },
+    });
+    return "fallthrough";
+  }
+
   // Cheap pre-check: does the user have any active threads at all? If not,
   // they haven't been migrated to v2 — keep going on the direct path.
   const activeCount = await sql<{ n: string }>(
@@ -583,7 +603,7 @@ export async function dispatchPendingNotifications(
     // unchanged — the migration is opt-in by declaring a persona profile.
     const paUser = detectPaNotifyUser(envelope.channel_role);
     if (paUser) {
-      const rewired = await tryPaRewire(workspace, drawer, envelope, paUser);
+      const rewired = await tryPaRewire(workspace, workspaceManifest, drawer, envelope, paUser);
       if (rewired === "delivered") {
         dispatched++;
         continue;
