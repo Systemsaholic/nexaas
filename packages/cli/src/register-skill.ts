@@ -270,7 +270,10 @@ export async function findCronOverlaps(
   const warningsByGroup = new Map<string, CronOverlapWarning>();
 
   for (const sched of existing) {
-    if (!sched.name || sched.name === sameJobName) continue;
+    // BullMQ's getJobSchedulers() can return entries with undefined fields
+    // (sparse-array quirk observed when a scheduler is mid-deletion). Skip
+    // any malformed entry rather than crashing the whole register-skill run.
+    if (!sched || !sched.name || sched.name === sameJobName) continue;
     if (!sched.pattern) continue;
 
     const data = sched.template?.data as
