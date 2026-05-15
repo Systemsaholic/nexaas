@@ -477,7 +477,11 @@ async function main() {
         res.status(500).json({ error: "worker has no NEXAAS_WORKSPACE configured" });
         return;
       }
-      const outcome = await executePaNotify(validated, defaultPaNotifyDeps(WORKSPACE));
+      const outcome = await executePaNotify(validated, defaultPaNotifyDeps(WORKSPACE), {
+        source: "direct",
+        decision: "delivered",
+        reason: "success",
+      });
       if ("error" in outcome) {
         res.status(outcome.status).json({ error: outcome.error, details: outcome.details });
         return;

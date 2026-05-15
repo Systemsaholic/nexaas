@@ -32,7 +32,9 @@ import {
   detectPaNotifyUser,
   defaultPaNotifyDeps,
   executePaNotify,
+  writeSkipAuditDrawer,
   type PaNotifyInput,
+  type PaRoutingMeta,
 } from "../api/pa-notify.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -421,6 +423,20 @@ async function tryPaRewire(
         reason: "v1_pinned",
       },
     });
+    // Stub audit drawer so dashboards over notifications-emitted see
+    // every routing decision, not just successful deliveries. The legacy
+    // direct-dispatch path still runs after we return fallthrough.
+    await writeSkipAuditDrawer(defaultPaNotifyDeps(workspace), {
+      user: paUser,
+      channelRole: envelope.channel_role,
+      idempotencyKey: envelope.idempotency_key,
+      routing: {
+        version: "v1",
+        source: "rewire",
+        decision: "skipped",
+        reason: "v1_pinned",
+      },
+    });
     return "fallthrough";
   }
 
@@ -474,9 +490,15 @@ async function tryPaRewire(
     ...(mappedActions && mappedActions.length > 0 ? { actions: mappedActions } : {}),
   };
 
+  const rewireRouting: PaRoutingMeta = {
+    version: "v2",
+    source: "rewire",
+    decision: "delivered",
+    reason: "success",
+  };
   let outcome;
   try {
-    outcome = await executePaNotify(input, defaultPaNotifyDeps(workspace));
+    outcome = await executePaNotify(input, defaultPaNotifyDeps(workspace), rewireRouting);
   } catch (err) {
     // Rewire blew up (DB transient, etc.). Don't lose the notification —
     // emit a warning and fall through. The direct path will retry next tick.
