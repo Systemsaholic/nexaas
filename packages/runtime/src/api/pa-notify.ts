@@ -243,16 +243,44 @@ export interface ExecuteDeps {
 }
 
 /**
+ * Routing-decision metadata stamped onto the audit drawer so workspace
+ * dashboards can answer "which path did this notification take" without
+ * cross-referencing WAL. Optional on the call — callers that don't care
+ * about observability (e.g. tests) can omit it; the audit drawer just
+ * carries `routing: null` in that case.
+ *
+ *   version  — resolved per-user pa_routing flag at decision time.
+ *              "v2" when the call came through the rewire (which only
+ *              fires when the flag is v2). Omitted (null) for direct
+ *              calls since the gate isn't on that path.
+ *   source   — "rewire" when the notifications-dispatcher invoked us
+ *              for a `pa_notify_<user>` envelope; "direct" when a skill
+ *              called `/api/pa/<user>/notify` itself.
+ *   decision — "delivered" on the happy path; "skipped" for paths that
+ *              didn't actually queue a delivery (e.g. v1_pinned).
+ *   reason   — free-form short string detailing the decision. "success"
+ *              when delivered; otherwise one of the documented skip
+ *              reasons (v1_pinned, dedup_hit, etc.).
+ */
+export interface PaRoutingMeta {
+  version?: "v1" | "v2";
+  source: "rewire" | "direct";
+  decision: "delivered" | "skipped";
+  reason: string;
+}
+
+/**
  * End-to-end PA notify flow:
  *   1. Resolve user's active threads
  *   2. 404 if requested thread isn't among them
  *   3. Idempotency check — return original notification_id on hit
  *   4. Mint notification_id + write pending-routed drawer (PA picks up)
- *   5. Best-effort audit drawer
+ *   5. Best-effort audit drawer with routing-decision metadata
  */
 export async function executePaNotify(
   input: PaNotifyInput,
   deps: ExecuteDeps,
+  routing?: PaRoutingMeta,
 ): Promise<PaNotifyOutcome> {
   const threads = await deps.listActiveThreads(deps.workspace, input.user);
   const matching = threads.find((t) => t.thread_id === input.threadId);
@@ -337,6 +365,7 @@ export async function executePaNotify(
       payload: {
         ...corePayload,
         delivery_status: "queued",
+        routing: routing ?? null,
       },
     });
   } catch (err) {
@@ -355,6 +384,46 @@ export async function executePaNotify(
       },
     },
   };
+}
+
+/**
+ * Write a stub audit-drawer entry for a notification that the dispatcher
+ * declined to rewire (e.g. v1_pinned). Lets dashboard queries over
+ * `inbox/<user>/notifications-emitted` see EVERY routing decision,
+ * including skips that never minted a notification_id.
+ *
+ * The legacy direct-dispatch path still runs after this — the audit
+ * record is purely observability, not a delivery commitment.
+ */
+export async function writeSkipAuditDrawer(
+  deps: ExecuteDeps,
+  entry: {
+    user: string;
+    channelRole: string;
+    idempotencyKey?: string;
+    routing: PaRoutingMeta;
+  },
+): Promise<void> {
+  try {
+    await deps.writeAuditDrawer({
+      workspace: deps.workspace,
+      user: entry.user,
+      // No notification_id minted for a skip — use a stable, queryable
+      // sentinel so downstream queries can filter it out if needed.
+      notificationId: "skip",
+      threadId: "",
+      payload: {
+        delivery_status: "skipped",
+        user: entry.user,
+        channel_role: entry.channelRole,
+        idempotency_key: entry.idempotencyKey ?? null,
+        received_at: new Date().toISOString(),
+        routing: entry.routing,
+      },
+    });
+  } catch (err) {
+    console.error("[nexaas] pa-notify skip audit drawer write failed (non-fatal):", err);
+  }
 }
 
 /**
