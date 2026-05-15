@@ -28,6 +28,7 @@
 
 import { randomUUID } from "crypto";
 import { sql, appendWal } from "@nexaas/palace";
+import { enqueueDelivery } from "../pa/delivery.js";
 
 export type Urgency = "immediate" | "normal" | "low";
 export type Kind = "alert" | "approval" | "digest";
@@ -205,8 +206,8 @@ export interface ExecuteDeps {
   findRecentByIdempotency: (workspace: string, user: string, key: string) => Promise<string | null>;
   /**
    * Write the pending-routed drawer (the queue surface the PA consumes via
-   * its inbound-message trigger). Returns the drawer id (used as
-   * notification_id).
+   * its inbound-message trigger). Returns the drawer's events-table id so
+   * the caller can record it on the pa_delivery_marker sidecar.
    */
   writePendingDrawer: (entry: {
     workspace: string;
@@ -214,6 +215,18 @@ export interface ExecuteDeps {
     threadId: string;
     notificationId: string;
     payload: Record<string, unknown>;
+  }) => Promise<{ drawer_id: string }>;
+  /**
+   * Insert a pa_delivery_marker row for at-least-once outbound delivery.
+   * Auto-called by executePaNotify after writePendingDrawer succeeds, so
+   * any workspace consumer using the framework's delivery helpers picks
+   * up the row without a separate enqueue step.
+   */
+  enqueueDeliveryMarker: (entry: {
+    workspace: string;
+    drawerId: string;
+    user: string;
+    threadId: string;
   }) => Promise<void>;
   /**
    * Write the audit drawer to `inbox/<user>/notifications-emitted`. The PA
@@ -292,13 +305,28 @@ export async function executePaNotify(
     received_at: new Date().toISOString(),
   };
 
-  await deps.writePendingDrawer({
+  const { drawer_id } = await deps.writePendingDrawer({
     workspace: deps.workspace,
     user: input.user,
     threadId: input.threadId,
     notificationId,
     payload: corePayload,
   });
+
+  // Sidecar row that the workspace's delivery skill claims via the
+  // framework's delivery helpers. Best-effort: a marker write failure
+  // shouldn't fail the notify call — the pending drawer is the source
+  // of truth and a backfill query could rebuild markers if needed.
+  try {
+    await deps.enqueueDeliveryMarker({
+      workspace: deps.workspace,
+      drawerId: drawer_id,
+      user: input.user,
+      threadId: input.threadId,
+    });
+  } catch (err) {
+    console.error("[nexaas] pa-notify delivery marker insert failed (non-fatal):", err);
+  }
 
   try {
     await deps.writeAuditDrawer({
@@ -369,12 +397,13 @@ export function defaultPaNotifyDeps(workspace: string): ExecuteDeps {
       }
     },
     writePendingDrawer: async (entry) => {
-      await sql(
+      const rows = await sql<{ id: string }>(
         `INSERT INTO nexaas_memory.events
            (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
          VALUES ($1, 'notifications', 'pending', $2, $3,
                  encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
-                 $4, 1)`,
+                 $4, 1)
+         RETURNING id`,
         [
           entry.workspace,
           `pa-routed.${entry.threadId}`,
@@ -382,6 +411,10 @@ export function defaultPaNotifyDeps(workspace: string): ExecuteDeps {
           JSON.stringify({ user: entry.user, thread_id: entry.threadId, notification_id: entry.notificationId }),
         ],
       );
+      return { drawer_id: rows[0]!.id };
+    },
+    enqueueDeliveryMarker: async (entry) => {
+      await enqueueDelivery(entry.workspace, entry.drawerId, entry.user, entry.threadId);
     },
     writeAuditDrawer: async (entry) => {
       await sql(

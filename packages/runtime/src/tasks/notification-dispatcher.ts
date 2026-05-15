@@ -26,6 +26,7 @@ import { sql, appendWal, palace } from "@nexaas/palace";
 import { McpClient, loadMcpConfigs } from "../mcp/client.js";
 import { loadWorkspaceManifest } from "../schemas/load-manifest.js";
 import { resolvePaRoutingVersion, type WorkspaceManifest, type ChannelBinding } from "../schemas/workspace-manifest.js";
+import { reapStaleDeliveryClaims } from "../pa/delivery.js";
 import { reportMissingRelation } from "./_consistency-warning.js";
 import {
   detectPaNotifyUser,
@@ -557,6 +558,18 @@ export async function dispatchPendingNotifications(
         op: "notification_reaped",
         actor: "notification-dispatcher",
         payload: { count: reaped, threshold: STALE_CLAIM_INTERVAL },
+      });
+    }
+    // PA delivery marker reaper — resets stale 'claimed' rows whose
+    // consumer crashed mid-send. Cheap query; piggybacks the existing
+    // dispatcher tick so no separate scheduler is required.
+    const paReaped = await reapStaleDeliveryClaims(workspace);
+    if (paReaped > 0) {
+      await appendWal({
+        workspace,
+        op: "pa_delivery_reaped",
+        actor: "notification-dispatcher",
+        payload: { count: paReaped },
       });
     }
   } catch (err) {
