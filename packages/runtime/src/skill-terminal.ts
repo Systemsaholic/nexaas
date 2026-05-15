@@ -79,6 +79,54 @@ export function buildTerminalDrawerPayload(
 export const STREAM_PREVIEW_CAP_BYTES = 2048;
 
 /**
+ * Detect whether a thrown error represents a prompt-overflow rejection from
+ * the model provider (e.g. Anthropic returns 400 with a body that includes
+ * "prompt is too long: <N> tokens > <M> maximum" when the assembled request
+ * exceeds the context window).
+ *
+ * Used by the ai-skill catch block to classify the terminal_reason as
+ * `prompt_overflow` rather than the generic `failed`, so dashboards and
+ * watchdog skills can render this distinct failure mode (#173).
+ *
+ * Heuristic — Anthropic doesn't ship a typed error class for context
+ * overflow, just a 400 with the message above. We match the message
+ * pattern conservatively: must be a 400 AND mention "prompt is too long"
+ * OR the broader "context length"/"context window" phrasing. False
+ * positives are preferable to false negatives here — the worst case is
+ * a non-overflow 400 mislabeled as overflow on the drawer, which still
+ * surfaces as a failure (terminal_reason will be `prompt_overflow`
+ * instead of `failed`, but `success` is false either way).
+ */
+export function isPromptOverflowError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const status = (err as { status?: number }).status;
+  const message = (err as { message?: string }).message ?? "";
+  if (status !== 400) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("prompt is too long") ||
+    lower.includes("context length") ||
+    lower.includes("context window") ||
+    lower.includes("maximum context")
+  );
+}
+
+/**
+ * Parse the token-count numbers out of Anthropic's prompt-overflow message
+ * shape ("prompt is too long: 220148 tokens > 200000 maximum"). Returns
+ * undefined when the message doesn't carry the pattern — the caller should
+ * fall back to the plain error message in that case.
+ */
+export function extractPromptOverflowTokens(message: string): { estimated: number; maximum: number } | undefined {
+  const match = message.match(/(\d{4,})\s*tokens?\s*>\s*(\d{4,})/i);
+  if (!match || !match[1] || !match[2]) return undefined;
+  const estimated = Number.parseInt(match[1], 10);
+  const maximum = Number.parseInt(match[2], 10);
+  if (Number.isNaN(estimated) || Number.isNaN(maximum)) return undefined;
+  return { estimated, maximum };
+}
+
+/**
  * Map the agentic loop's stop reason (defined in models/agentic-loop.ts as
  * a deliberately narrow union) to the framework-wide TerminalReason.
  *

@@ -34,6 +34,8 @@ import {
 import {
   buildTerminalDrawerPayload,
   terminalReasonFromAgenticStopReason,
+  isPromptOverflowError,
+  extractPromptOverflowTokens,
 } from "./skill-terminal.js";
 
 export interface AiSkillManifest {
@@ -632,7 +634,28 @@ export async function runAiSkill(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const status = (err as { status?: number }).status;
-    const terminalReason = status === 429 ? "rate_limited" : "failed";
+    // Classify the failure: 429 → rate_limited; "prompt is too long" 400 →
+    // prompt_overflow (#173); everything else → failed. Order matters —
+    // prompt_overflow check runs before the generic 'failed' fallthrough.
+    const promptOverflow = isPromptOverflowError(err);
+    const terminalReason = status === 429
+      ? "rate_limited"
+      : promptOverflow
+        ? "prompt_overflow"
+        : "failed";
+
+    // Tool-def overflow diagnostics — when the model rejected the request
+    // as too long, surface the tool count and (when parseable) the
+    // estimated-vs-max token numbers from the provider's error message.
+    // Helps operators correlate the failure with which MCP servers a
+    // skill declared, without re-running with verbose logging.
+    const promptOverflowExtras = promptOverflow
+      ? {
+          tool_count: allTools.length,
+          mcp_servers: manifest.mcp_servers ?? [],
+          ...(extractPromptOverflowTokens(message) ?? {}),
+        }
+      : {};
 
     // Terminal drawer for the exception path — previously only the WAL
     // got an entry, so a 429 / model-API error / MCP transport error
@@ -643,7 +666,11 @@ export async function runAiSkill(
       const room = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
       await session.writeDrawer(room, JSON.stringify(buildTerminalDrawerPayload(
         { skill: manifest.id, terminal_reason: terminalReason },
-        { error: message.slice(0, 2048), status: status ?? null },
+        {
+          error: message.slice(0, 2048),
+          status: status ?? null,
+          ...promptOverflowExtras,
+        },
       )));
     } catch (drawerErr) {
       // If the drawer write itself fails (e.g. DB connection lost) we
@@ -653,9 +680,13 @@ export async function runAiSkill(
 
     await appendWal({
       workspace,
-      op: status === 429 ? "ai_skill_rate_limited" : "ai_skill_failed",
+      op: status === 429
+        ? "ai_skill_rate_limited"
+        : promptOverflow
+          ? "ai_skill_prompt_overflow"
+          : "ai_skill_failed",
       actor: `skill:${manifest.id}`,
-      payload: { run_id: runId, error: message, status, terminal_reason: terminalReason },
+      payload: { run_id: runId, error: message, status, terminal_reason: terminalReason, ...promptOverflowExtras },
     });
 
     await runTracker.markStepFailed(runId, stepId, err);
