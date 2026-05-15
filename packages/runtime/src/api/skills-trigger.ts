@@ -57,15 +57,21 @@ export interface ManifestSlim {
   execution?: { type?: string };
 }
 
+/** Canonical manifest filenames in resolution order. `skill.yaml` is the
+ *  legacy framework name; `contract.yaml` is the format register-skill
+ *  accepts natively as of #139/#141. Both are valid storage shapes — the
+ *  trigger lookup needs to find whichever one the skill author ships. */
+const MANIFEST_FILENAMES = ["skill.yaml", "contract.yaml"] as const;
+
 /**
  * Resolve a skill_id into an absolute manifest path under the workspace's
  * skills root, rejecting any input that would escape the root.
  *
- * Matches the convention used by `nexaas register-skill` and the worker's
- * scheduler self-heal: `<root>/nexaas-skills/<category>/<name>/skill.yaml`.
- *
- * Returns null for inputs that look like path-traversal attempts. The
- * caller surfaces a 400; we don't try to be clever about partial matches.
+ * Returns the first existing manifest file from MANIFEST_FILENAMES at
+ * `<root>/nexaas-skills/<category>/<name>/`. Falls back to the first
+ * candidate (skill.yaml) if neither exists so the caller's 404 message
+ * names a sensible path. Returns null only for path-traversal attempts
+ * (caller surfaces a 400).
  */
 export function resolveSkillManifestPath(
   skillId: string,
@@ -76,14 +82,20 @@ export function resolveSkillManifestPath(
   if (!/^[a-zA-Z0-9_-]+(\/[a-zA-Z0-9_-]+)*$/.test(skillId)) return null;
 
   const skillsRoot = resolve(workspaceRoot, "nexaas-skills");
-  const candidate = resolve(skillsRoot, skillId, "skill.yaml");
+  const skillDir = resolve(skillsRoot, skillId);
 
   // Defense in depth — even though the regex above blocks `..`, verify
   // the resolved path is genuinely under the skills root before touching
   // the filesystem. Catches e.g. symlinked categories.
-  if (!candidate.startsWith(skillsRoot + sep)) return null;
+  if (!skillDir.startsWith(skillsRoot + sep)) return null;
 
-  return candidate;
+  for (const filename of MANIFEST_FILENAMES) {
+    const candidate = resolve(skillDir, filename);
+    if (existsSync(candidate)) return candidate;
+  }
+  // Neither variant exists — return the legacy name so the 404 message
+  // points operators at the conventional location.
+  return resolve(skillDir, MANIFEST_FILENAMES[0]);
 }
 
 export function loadSkillManifest(path: string): ManifestSlim | null {
