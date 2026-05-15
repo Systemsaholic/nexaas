@@ -31,6 +31,10 @@ import {
   isFrameworkTool,
   type FrameworkToolContext,
 } from "./ai-skill-framework-tools.js";
+import {
+  buildTerminalDrawerPayload,
+  terminalReasonFromAgenticStopReason,
+} from "./skill-terminal.js";
 
 export interface AiSkillManifest {
   id: string;
@@ -203,6 +207,14 @@ export async function runAiSkill(
       return { success: true, turns: 0, toolCalls: 0, content: `skipped: ${reason}` };
     } else {
       const errSummary = (stderr.trim() || stdout.trim() || `preflight exited ${exitCode}`).slice(0, 500);
+      // Terminal drawer for the preflight-failure surface — previously only
+      // the WAL got an entry, leaving palace empty and dashboards blind.
+      // Companion silent-failure fix to #174 in the same file.
+      const room = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
+      await session.writeDrawer(room, JSON.stringify(buildTerminalDrawerPayload(
+        { skill: manifest.id, terminal_reason: "failed", duration_ms: preflightMs },
+        { preflight_exit_code: exitCode, error: errSummary },
+      )));
       await appendWal({
         workspace,
         op: "ai_skill_preflight_failed",
@@ -389,20 +401,36 @@ export async function runAiSkill(
       modelPricing,
     });
 
-    // Record the result as a palace drawer
+    // Record the result as a palace drawer. Shape uses the framework-wide
+    // terminal_reason discriminator (#171 helper) so dashboards and
+    // watchdog skills can render any abort reason without ai-skill-specific
+    // knowledge. The `aborted` and `stop_reason` fields are kept as extras
+    // for backward compatibility with consumers built before #174.
     const primaryRoom = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
-    const primaryDrawerPayload = {
-      skill: manifest.id,
-      success: !result.aborted,
-      stop_reason: result.stopReason,
-      aborted: result.aborted,
-      turns: result.turns,
-      tool_calls: result.toolCalls.length,
-      content_preview: result.content.slice(0, 500),
-      input_tokens: result.inputTokens,
-      output_tokens: result.outputTokens,
-      cost_usd: result.costUsd,
-    };
+    const terminalReason = terminalReasonFromAgenticStopReason(result.stopReason);
+    const primaryDrawerPayload = buildTerminalDrawerPayload(
+      { skill: manifest.id, terminal_reason: terminalReason },
+      {
+        // Legacy fields retained for existing consumers.
+        stop_reason: result.stopReason,
+        aborted: result.aborted,
+        turns: result.turns,
+        tool_calls: result.toolCalls.length,
+        content_preview: result.content.slice(0, 500),
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
+        cost_usd: result.costUsd,
+        // Surface the configured cap alongside the actual cost when the
+        // run aborted on spend — dashboards can render an "actual vs cap"
+        // delta without re-reading the manifest (#174 repro).
+        ...(terminalReason === "spend_cap" && agenticLimits.maxSpendUsd !== undefined
+          ? { spend_cap_usd: agenticLimits.maxSpendUsd, spend_actual_usd: result.costUsd }
+          : {}),
+        ...(terminalReason === "max_turns" && agenticLimits.maxTurns !== undefined
+          ? { max_turns: agenticLimits.maxTurns }
+          : {}),
+      },
+    );
 
     // #45 Stage 1b — TAG bridge. If the manifest declares a
     // primary_output pointing at an outputs[] entry, route the agentic
@@ -604,12 +632,30 @@ export async function runAiSkill(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const status = (err as { status?: number }).status;
+    const terminalReason = status === 429 ? "rate_limited" : "failed";
+
+    // Terminal drawer for the exception path — previously only the WAL
+    // got an entry, so a 429 / model-API error / MCP transport error
+    // produced a "phantom run" (job completes, palace empty). #174 closes
+    // the spend_cap variant of this surface; the same fix applies to every
+    // exception terminating ai-skill execution.
+    try {
+      const room = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
+      await session.writeDrawer(room, JSON.stringify(buildTerminalDrawerPayload(
+        { skill: manifest.id, terminal_reason: terminalReason },
+        { error: message.slice(0, 2048), status: status ?? null },
+      )));
+    } catch (drawerErr) {
+      // If the drawer write itself fails (e.g. DB connection lost) we
+      // still want the rethrow / return path below to run. Log and move on.
+      console.error(`[nexaas] AI skill '${manifest.id}' terminal-drawer write failed:`, drawerErr);
+    }
 
     await appendWal({
       workspace,
       op: status === 429 ? "ai_skill_rate_limited" : "ai_skill_failed",
       actor: `skill:${manifest.id}`,
-      payload: { run_id: runId, error: message, status },
+      payload: { run_id: runId, error: message, status, terminal_reason: terminalReason },
     });
 
     await runTracker.markStepFailed(runId, stepId, err);

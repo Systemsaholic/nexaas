@@ -77,3 +77,34 @@ export function buildTerminalDrawerPayload(
  *  big enough for a typical traceback or warning paragraph and still small
  *  enough that drawer payloads stay rendering-friendly. */
 export const STREAM_PREVIEW_CAP_BYTES = 2048;
+
+/**
+ * Map the agentic loop's stop reason (defined in models/agentic-loop.ts as
+ * a deliberately narrow union) to the framework-wide TerminalReason.
+ *
+ * `end_turn` is the only stop reason that indicates a successful completion;
+ * every other value is an abort. The narrow loop union is intentional — the
+ * loop only knows about its own limits — so this adapter sits at the
+ * ai-skill executor boundary where loop-internal reasons become framework
+ * terminal states.
+ */
+export function terminalReasonFromAgenticStopReason(
+  stopReason:
+    | "end_turn"
+    | "max_turns"
+    | "spend_cap"
+    | "input_token_cap"
+    | "output_token_cap"
+    | "repetition"
+    | "error_streak",
+): TerminalReason {
+  switch (stopReason) {
+    case "end_turn":         return "ok";
+    case "max_turns":        return "max_turns";
+    case "spend_cap":        return "spend_cap";
+    case "input_token_cap":  return "input_token_cap";
+    case "output_token_cap": return "output_token_cap";
+    case "repetition":       return "repetition";
+    case "error_streak":     return "error_streak";
+  }
+}
