@@ -216,12 +216,24 @@ export async function run(args: string[]) {
     if (voyageKey === "skip") voyageKey = "";
   }
 
+  // Workspace files (skills, MCP configs, manifests) live separately from
+  // the framework install. Default the workspace root to NEXAAS_ROOT for
+  // direct-adopter deployments where they're co-located; operator-managed
+  // deployments (Nexmatic) pre-export NEXAAS_WORKSPACE_ROOT to /home/<user>/
+  // <workspace>/ or similar before invoking init, and we persist whatever's
+  // in the process env. Critical for the worker's skill-trigger lookup at
+  // ${NEXAAS_WORKSPACE_ROOT}/nexaas-skills/<id>/skill.yaml — without this
+  // write, the env var is undefined at systemd-launch time and the worker
+  // falls back to /opt/nexaas, missing operator-placed skills.
+  const workspaceRoot = process.env.NEXAAS_WORKSPACE_ROOT ?? NEXAAS_ROOT;
+
   const envContent = `# Nexaas Framework Configuration
 # Generated: ${new Date().toISOString()}
 # Workspace: ${workspaceId}
 
 NEXAAS_WORKSPACE=${workspaceId}
 NEXAAS_ROOT=${NEXAAS_ROOT}
+NEXAAS_WORKSPACE_ROOT=${workspaceRoot}
 DATABASE_URL=${databaseUrl}
 REDIS_URL=redis://localhost:6379
 
