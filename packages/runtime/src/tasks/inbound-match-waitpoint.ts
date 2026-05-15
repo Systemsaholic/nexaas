@@ -410,17 +410,16 @@ interface InboundDrawer {
 }
 
 /**
- * First-match-wins check against all open waitpoints for this workspace.
- * Called by the inbound-dispatcher for each new `inbox.messaging.*` drawer.
- * Resolves at most one waitpoint per drawer. Skill fanout continues
- * regardless of match (drawer is observable by both paths).
+ * Load all open inbound-match waitpoints for a workspace. Pulled out of
+ * matchDrawerAgainstWaitpoints so the inbound-dispatcher can do this
+ * SELECT once per tick instead of once per drawer (#54 mitigation #3).
+ *
+ * Ordering: ascending by creation so the dispatcher's first-match-wins
+ * iteration is deterministic across calls. The partial index from
+ * migration 018 keeps this O(log N) regardless of total events size.
  */
-export async function matchDrawerAgainstWaitpoints(
-  workspace: string,
-  drawer: InboundDrawer,
-): Promise<{ matched: boolean; waitpoint_id?: string }> {
-  // Open waitpoints for this workspace, ordered by creation — first-match-wins.
-  const openWaitpoints = await sql<WaitpointRow>(
+export async function selectOpenWaitpoints(workspace: string): Promise<WaitpointRow[]> {
+  return await sql<WaitpointRow>(
     `SELECT id, workspace, content, dormant_signal,
             dormant_until::text AS dormant_until,
             created_at::text AS created_at
@@ -431,6 +430,27 @@ export async function matchDrawerAgainstWaitpoints(
       ORDER BY created_at ASC`,
     [workspace, WAITPOINT_ROOM.wing, WAITPOINT_ROOM.hall, WAITPOINT_ROOM.room],
   );
+}
+
+/**
+ * First-match-wins check against all open waitpoints for this workspace.
+ * Called by the inbound-dispatcher for each new `inbox.messaging.*` drawer.
+ * Resolves at most one waitpoint per drawer. Skill fanout continues
+ * regardless of match (drawer is observable by both paths).
+ *
+ * `preloadedWaitpoints` — optional. When the dispatcher batches its tick,
+ * it pre-loads via selectOpenWaitpoints and passes the list in to avoid
+ * a SELECT per drawer. A race where another tick resolves a waitpoint in
+ * the meantime is safe: resolveWaitpoint below catches the "already
+ * resolved" error and continues scanning. Callers without preload (tests,
+ * out-of-band callers) get the original "load + match" behavior.
+ */
+export async function matchDrawerAgainstWaitpoints(
+  workspace: string,
+  drawer: InboundDrawer,
+  preloadedWaitpoints?: WaitpointRow[],
+): Promise<{ matched: boolean; waitpoint_id?: string }> {
+  const openWaitpoints = preloadedWaitpoints ?? await selectOpenWaitpoints(workspace);
 
   let drawerPayload: Record<string, unknown>;
   try { drawerPayload = JSON.parse(drawer.content); } catch { drawerPayload = {}; }

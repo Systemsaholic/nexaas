@@ -41,7 +41,7 @@ import { randomUUID } from "crypto";
 import { load as yamlLoad } from "js-yaml";
 import { sql, appendWal } from "@nexaas/palace";
 import { enqueueSkillStep, type SkillJobData } from "../bullmq/queues.js";
-import { matchDrawerAgainstWaitpoints } from "./inbound-match-waitpoint.js";
+import { matchDrawerAgainstWaitpoints, selectOpenWaitpoints } from "./inbound-match-waitpoint.js";
 import { reportMissingRelation } from "./_consistency-warning.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 3_000;
@@ -169,6 +169,27 @@ async function recordDispatch(
   );
 }
 
+// Soft canary for the scalability watchpoint on inbound-match. Emits once
+// per process per workspace when the open-waitpoints count crosses a
+// threshold so operators get a heads-up before p99 match-duration starts
+// approaching the trigger value (~50ms in PG slow-query log). The
+// threshold is intentionally well below the level where the per-drawer
+// SELECT loop becomes a bottleneck — by then, an in-memory cache is the
+// real fix and the warning gives ops time to plan the upgrade.
+const WAITPOINT_HIGH_COUNT_THRESHOLD = 50;
+const _highCountWarned = new Set<string>();
+function maybeWarnOnHighWaitpointCount(workspace: string, count: number): void {
+  if (count < WAITPOINT_HIGH_COUNT_THRESHOLD) return;
+  if (_highCountWarned.has(workspace)) return;
+  _highCountWarned.add(workspace);
+  console.warn(
+    `[nexaas] inbound-match: workspace '${workspace}' has ${count} open waitpoints ` +
+    `(threshold ${WAITPOINT_HIGH_COUNT_THRESHOLD}). The per-tick SELECT stays cheap up to ` +
+    `a few hundred via the partial index, but at sustained 500+ the in-memory cache ` +
+    `mitigation should land. Watch for slow-query log entries on the SELECT below 50ms p99.`,
+  );
+}
+
 export async function dispatchPendingInbound(workspace: string): Promise<{
   drawers: number;
   dispatches: number;
@@ -180,22 +201,33 @@ export async function dispatchPendingInbound(workspace: string): Promise<{
 
   let drawers = 0, dispatches = 0, failed = 0, noSubscriber = 0;
 
+  // Load open waitpoints once per tick instead of once per drawer
+  // (mitigation #3 from the scalability watchpoint). Pass the list into
+  // each per-drawer match call. Skip the load entirely when there are
+  // no drawers to evaluate — saves a roundtrip in idle workspaces.
+  const openWaitpoints = pending.length > 0 ? await selectOpenWaitpoints(workspace) : [];
+  maybeWarnOnHighWaitpointCount(workspace, openWaitpoints.length);
+
   for (const drawer of pending) {
     drawers++;
     // Room = channel_role. Adapters MUST use this convention so the
     // dispatcher can route without scanning drawer content.
     const channelRole = drawer.room;
 
-    // #49 — check inbound-match waitpoints first (first-match-wins).
-    // Match does NOT short-circuit skill fanout; drawer is observable
-    // by both paths. Errors here don't block skill firing either.
+    // First-match-wins inbound-match check. Does NOT short-circuit
+    // skill fanout; drawer is observable by both paths. Errors here
+    // don't block skill firing either.
     try {
-      await matchDrawerAgainstWaitpoints(workspace, {
-        id: drawer.id,
-        room: drawer.room,
-        content: drawer.content,
-        created_at: drawer.created_at,
-      });
+      await matchDrawerAgainstWaitpoints(
+        workspace,
+        {
+          id: drawer.id,
+          room: drawer.room,
+          content: drawer.content,
+          created_at: drawer.created_at,
+        },
+        openWaitpoints,
+      );
     } catch (err) {
       console.warn(
         `[nexaas] inbound-match check failed for drawer ${drawer.id}: ${(err as Error).message}`,
