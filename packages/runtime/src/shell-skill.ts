@@ -14,6 +14,10 @@ import { spawn } from "child_process";
 import { palace, appendWal } from "@nexaas/palace";
 import { runTracker } from "./run-tracker.js";
 import { randomUUID } from "crypto";
+import {
+  buildTerminalDrawerPayload,
+  STREAM_PREVIEW_CAP_BYTES,
+} from "./skill-terminal.js";
 
 interface ShellRunResult {
   stdout: string;
@@ -181,7 +185,7 @@ export async function runShellSkill(
   try {
     const timeoutMs = (manifest.execution.timeout ?? 120) * 1000;
 
-    const { stdout } = await runShellWithGroupTimeout(
+    const { stdout, stderr } = await runShellWithGroupTimeout(
       manifest.execution.command,
       {
         cwd: manifest.execution.working_directory,
@@ -214,16 +218,20 @@ export async function runShellSkill(
 
     const durationMs = Date.now() - startTime;
 
-    // Write result drawer
+    // Capture BOTH streams on success too — scripts often emit non-fatal
+    // diagnostics (rate-limit retries, degraded-mode warnings) on stdout or
+    // stderr before exiting 0. Without symmetry the drawer hides whichever
+    // stream the script used (#171).
     const room = manifest.rooms?.primary ?? { wing: "operations", hall: "shell", room: manifest.id };
-    await session.writeDrawer(room, JSON.stringify({
-      skill: manifest.id,
-      command: manifest.execution.command,
-      success: true,
-      exit_code: 0,
-      duration_ms: durationMs,
-      stdout_preview: stdout.slice(0, 500),
-    }));
+    await session.writeDrawer(room, JSON.stringify(buildTerminalDrawerPayload(
+      { skill: manifest.id, terminal_reason: "ok", duration_ms: durationMs },
+      {
+        command: manifest.execution.command,
+        exit_code: 0,
+        stdout_preview: stdout.slice(0, STREAM_PREVIEW_CAP_BYTES),
+        stderr_preview: stderr.slice(0, STREAM_PREVIEW_CAP_BYTES),
+      },
+    )));
 
     await appendWal({
       workspace,
@@ -240,7 +248,7 @@ export async function runShellSkill(
     await runTracker.markStepCompleted(runId, stepId);
     await runTracker.markCompleted(runId);
 
-    return { success: true, exitCode: 0, stdout, stderr: "", durationMs };
+    return { success: true, exitCode: 0, stdout, stderr, durationMs };
   } catch (err: unknown) {
     const durationMs = Date.now() - startTime;
     // Promisified `exec` throws an error with `code` (exit code), `signal`,
@@ -258,15 +266,22 @@ export async function runShellSkill(
       ? execErr.code
       : (execErr.status ?? 1);
 
+    // `killed` is set by runShellWithGroupTimeout when the group-SIGKILL
+    // path fires. Treat that as a distinct terminal reason so the dashboard
+    // can render a "timed out" badge instead of a generic non-zero exit.
+    const killed = (execErr as { killed?: boolean }).killed === true;
+    const terminalReason = killed ? "timeout" : "failed";
+
     const room = manifest.rooms?.primary ?? { wing: "operations", hall: "shell", room: manifest.id };
-    await session.writeDrawer(room, JSON.stringify({
-      skill: manifest.id,
-      command: manifest.execution.command,
-      success: false,
-      exit_code: exitCode,
-      duration_ms: durationMs,
-      stderr_preview: (execErr.stderr ?? execErr.message ?? "").slice(0, 500),
-    }));
+    await session.writeDrawer(room, JSON.stringify(buildTerminalDrawerPayload(
+      { skill: manifest.id, terminal_reason: terminalReason, duration_ms: durationMs },
+      {
+        command: manifest.execution.command,
+        exit_code: exitCode,
+        stdout_preview: (execErr.stdout ?? "").slice(0, STREAM_PREVIEW_CAP_BYTES),
+        stderr_preview: (execErr.stderr ?? execErr.message ?? "").slice(0, STREAM_PREVIEW_CAP_BYTES),
+      },
+    )));
 
     await appendWal({
       workspace,
@@ -277,7 +292,8 @@ export async function runShellSkill(
         command: manifest.execution.command,
         exit_code: exitCode,
         duration_ms: durationMs,
-        error: (execErr.stderr ?? execErr.message ?? "").slice(0, 500),
+        terminal_reason: terminalReason,
+        error: (execErr.stderr ?? execErr.message ?? "").slice(0, STREAM_PREVIEW_CAP_BYTES),
       },
     });
 
