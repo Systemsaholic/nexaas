@@ -157,6 +157,9 @@ Set in `.env` (never committed):
 - `NEXAAS_FLEET_ENDPOINT` + `NEXAAS_FLEET_TOKEN` — fleet-heartbeat target (operator-managed only; leave unset for direct adopters — sender becomes a silent no-op)
 - `NEXAAS_PA_TIMEOUT_MS` — per-request PA handler timeout (default: 120000 = 2 min)
 - `NEXAAS_PA_MAX_RETRIES` — max delivery attempts for a PA-routed pending drawer before the marker transitions to `dead` and an `ops_alert` is emitted (default: 3; minimum: 1)
+- `NEXAAS_PA_NORMAL_HOLD_MINUTES` — hold duration for `urgency: normal` PA notifications before they become claimable. Lets workspaces batch/digest if they choose (default: 15)
+- `NEXAAS_PA_LOW_RELEASE_HOUR` — local-time hour at which `urgency: low` PA notifications become claimable (default: 7, i.e. 07:xx)
+- `NEXAAS_PA_LOW_RELEASE_MINUTE` — minute within the configured hour for low-tier release (default: 30, i.e. 07:30 by default)
 - `NEXAAS_WAL_RETENTION_DAYS` — enable WAL retention policy (default: unset = keep forever)
 - `NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS` — upper bound on inbound-match waitpoint timeouts (default: 1 day). Raise for state-machine hold patterns (e.g. `7` for week-scale approval loops). See #66.
 - `NEXAAS_SILENT_FAILURE_THRESHOLD` — consecutive-failure count that triggers a silent-failure alert (default: 5; minimum: 2). See #69.

@@ -221,12 +221,17 @@ export interface ExecuteDeps {
    * Auto-called by executePaNotify after writePendingDrawer succeeds, so
    * any workspace consumer using the framework's delivery helpers picks
    * up the row without a separate enqueue step.
+   *
+   * `urgency` flows through to release_at gating — immediate releases
+   * now; normal holds for the configured window; low releases at the
+   * next configured wall-clock time.
    */
   enqueueDeliveryMarker: (entry: {
     workspace: string;
     drawerId: string;
     user: string;
     threadId: string;
+    urgency: "immediate" | "normal" | "low";
   }) => Promise<void>;
   /**
    * Write the audit drawer to `inbox/<user>/notifications-emitted`. The PA
@@ -351,6 +356,7 @@ export async function executePaNotify(
       drawerId: drawer_id,
       user: input.user,
       threadId: input.threadId,
+      urgency: input.urgency,
     });
   } catch (err) {
     console.error("[nexaas] pa-notify delivery marker insert failed (non-fatal):", err);
@@ -483,7 +489,7 @@ export function defaultPaNotifyDeps(workspace: string): ExecuteDeps {
       return { drawer_id: rows[0]!.id };
     },
     enqueueDeliveryMarker: async (entry) => {
-      await enqueueDelivery(entry.workspace, entry.drawerId, entry.user, entry.threadId);
+      await enqueueDelivery(entry.workspace, entry.drawerId, entry.user, entry.threadId, entry.urgency);
     },
     writeAuditDrawer: async (entry) => {
       await sql(
