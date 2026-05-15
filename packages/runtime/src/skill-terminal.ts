@@ -79,6 +79,41 @@ export function buildTerminalDrawerPayload(
 export const STREAM_PREVIEW_CAP_BYTES = 2048;
 
 /**
+ * Filesystem path prefixes that indicate ephemeral storage. Manifests stored
+ * under these are liable to vanish across reboots, systemd-tmpfiles cleanup,
+ * or OOM-prompted /tmp sweeps — leaving the BullMQ scheduler ticking on a
+ * dead repeatable that produces no run, no log, no drawer (#172).
+ *
+ * Trailing slash is intentional — without it `/tmpfoo` would falsely match.
+ */
+export const EPHEMERAL_PATH_PREFIXES = [
+  "/tmp/",
+  "/var/tmp/",
+  "/run/",
+  "/dev/shm/",
+] as const;
+
+/**
+ * Returns true when the absolute path lives under an ephemeral filesystem
+ * prefix. Also checks `$XDG_RUNTIME_DIR` at call time so container and
+ * desktop-session configurations with non-default runtime dirs are caught.
+ *
+ * Caller is responsible for resolving relative paths first — we compare
+ * against absolute prefixes, so passing `./tmp/foo` would not match.
+ */
+export function isEphemeralPath(absPath: string): boolean {
+  if (!absPath) return false;
+  for (const prefix of EPHEMERAL_PATH_PREFIXES) {
+    if (absPath.startsWith(prefix)) return true;
+  }
+  const xdgRuntime = process.env.XDG_RUNTIME_DIR;
+  if (xdgRuntime && absPath.startsWith(xdgRuntime.endsWith("/") ? xdgRuntime : xdgRuntime + "/")) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Detect whether a thrown error represents a prompt-overflow rejection from
  * the model provider (e.g. Anthropic returns 400 with a body that includes
  * "prompt is too long: <N> tokens > <M> maximum" when the assembled request

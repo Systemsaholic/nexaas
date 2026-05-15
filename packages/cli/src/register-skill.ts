@@ -23,6 +23,7 @@ import {
   loadPersonaProfile,
   upsertPaThreads,
   detectPaReplyUser,
+  isEphemeralPath,
   type UpsertSummary,
 } from "@nexaas/runtime";
 
@@ -130,6 +131,19 @@ export interface RegisterContext {
   queue: Queue;
   workspace: string;
   workspaceTz: string;
+  /**
+   * Allow registering a manifest stored under an ephemeral filesystem path
+   * (`/tmp`, `/run`, `/var/tmp`, `/dev/shm`, `$XDG_RUNTIME_DIR`). Default
+   * `false` — those paths get garbage-collected by systemd-tmpfiles, the
+   * kernel on boot, or OOM-prompted /tmp sweeps, leaving the BullMQ
+   * scheduler ticking on a phantom skill (#172).
+   *
+   * The CLI exposes this as `--allow-ephemeral`. Library/programmatic
+   * callers can pass `true` when they explicitly know the storage layer
+   * (e.g. integration tests writing to a tmpdir they control for the
+   * duration of the run).
+   */
+  allowEphemeral?: boolean;
 }
 
 /**
@@ -160,12 +174,18 @@ export interface RegisterResult {
 }
 
 const USAGE = `\
-Usage: nexaas register-skill <path-to-skill.yaml>
+Usage: nexaas register-skill <path-to-skill.yaml> [--allow-ephemeral]
 
 Registers a skill manifest with the BullMQ scheduler. Reads the manifest,
 upserts every cron trigger as a repeatable BullMQ job, and prints a
 confirmation. Existing repeatables for the same skill ID are cleaned up
 before the new one is upserted.
+
+Flags:
+  --allow-ephemeral   Permit registering a manifest stored under /tmp,
+                      /run, /var/tmp, /dev/shm, or \$XDG_RUNTIME_DIR.
+                      Refused by default — those paths get cleaned and
+                      leave the scheduler firing on a phantom skill.
 
 Bulk equivalent:
   nexaas register-skills <dir>           Register every skill.yaml under <dir>
@@ -330,6 +350,23 @@ export async function registerOneSkill(
       cleaned: 0,
       status: "error",
       error: `manifest not found at '${manifestPath}' — pass an absolute path or run from $NEXAAS_WORKSPACE_ROOT`,
+    };
+  }
+
+  // Refuse manifests stored on ephemeral paths — they get cleaned up by
+  // systemd-tmpfiles or kernel /tmp sweeps, leaving the scheduler firing
+  // on a dead repeatable with no observable signal (#172). Operators with
+  // a legitimate use (integration tests, throwaway dry-runs) pass
+  // `--allow-ephemeral`.
+  const absolutePath = resolve(manifestPath);
+  if (!ctx.allowEphemeral && isEphemeralPath(absolutePath)) {
+    return {
+      skillId: manifestPath,
+      version: "?",
+      registered: 0,
+      cleaned: 0,
+      status: "error",
+      error: `manifest path '${absolutePath}' is ephemeral (under /tmp, /run, /var/tmp, /dev/shm, or $XDG_RUNTIME_DIR). The scheduler would tick forever on a vanishing file. Move it under $NEXAAS_WORKSPACE_ROOT/nexaas-skills/ or pass --allow-ephemeral if you know what you're doing.`,
     };
   }
 
@@ -533,7 +570,12 @@ export async function run(args: string[]) {
     return;
   }
 
-  const manifestPath = args[0];
+  // Strip flags so positional args[0] is the manifest path regardless of
+  // ordering. Currently we only support --allow-ephemeral (#172); add to
+  // the filter as more flags arrive.
+  const allowEphemeral = args.includes("--allow-ephemeral");
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const manifestPath = positional[0];
   if (!manifestPath) {
     console.error(USAGE);
     process.exit(1);
@@ -561,7 +603,7 @@ export async function run(args: string[]) {
   const workspaceTz = resolveWorkspaceTimezone(workspace);
 
   try {
-    const result = await registerOneSkill(resolved, { queue, workspace, workspaceTz });
+    const result = await registerOneSkill(resolved, { queue, workspace, workspaceTz, allowEphemeral });
 
     if (result.status === "error") {
       console.error(`  ✗ ${result.error}`);

@@ -31,6 +31,19 @@ export {
 export { runCompaction } from "./tasks/closet-compaction.js";
 export { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
 
+// Skill terminal-state primitives (#171–#174 silent-failure arc)
+export {
+  type TerminalReason,
+  type TerminalDrawerPayload,
+  buildTerminalDrawerPayload,
+  terminalReasonFromAgenticStopReason,
+  isPromptOverflowError,
+  extractPromptOverflowTokens,
+  isEphemeralPath,
+  EPHEMERAL_PATH_PREFIXES,
+  STREAM_PREVIEW_CAP_BYTES,
+} from "./skill-terminal.js";
+
 // PA-as-Router persona profile (RFC-0002 Wave 1, #122)
 export {
   PersonaProfileSchema,

@@ -12,15 +12,16 @@ import { runSkillStep } from "../pipeline.js";
 import { runShellSkill, type ShellSkillManifest } from "../shell-skill.js";
 import { runAiSkill, type AiSkillManifest } from "../ai-skill.js";
 import { runTracker } from "../run-tracker.js";
-import { appendWal, sql } from "@nexaas/palace";
+import { palace, appendWal, sql } from "@nexaas/palace";
 import type { SkillJobData } from "./queues.js";
 import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit.js";
 import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
 import { shutdownMcpPool } from "../mcp/pool.js";
 import { withGroups, resolveConcurrencyGroups } from "../concurrency-groups.js";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { load as yamlLoad } from "js-yaml";
 import { randomUUID } from "crypto";
+import { buildTerminalDrawerPayload, isEphemeralPath } from "../skill-terminal.js";
 
 let _worker: Worker | null = null;
 
@@ -52,6 +53,21 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
       // Shell/AI skill executors create their own run records
       const jobData = data as SkillJobData & { manifestPath?: string };
       if (jobData.manifestPath) {
+        // Phantom-skill guard (#172): the scheduler stored an absolute
+        // manifestPath at registration time, but the file may have been
+        // deleted, moved, or never persisted across a /tmp cleanup. Before
+        // this guard, `readFileSync` threw ENOENT, BullMQ failed the job,
+        // and no drawer / no skill_run row was ever produced — the
+        // canonical "scheduler fires forever into the void" failure.
+        // Now we synthesize a failed run + terminal drawer so dashboards
+        // and silent-failure-watchdog (#69) see the event.
+        if (!existsSync(jobData.manifestPath)) {
+          await handleManifestMissing(data, jobData.manifestPath);
+          // Throw so BullMQ marks the job failed and stops retrying the
+          // same vanishing path forever. The job_failed listener below
+          // will append its own WAL row.
+          throw new Error(`manifest_missing: ${jobData.manifestPath}`);
+        }
         const manifestContent = readFileSync(jobData.manifestPath, "utf-8");
         const manifest = yamlLoad(manifestContent) as Record<string, unknown>;
         const execType = (manifest.execution as Record<string, unknown>)?.type;
@@ -259,6 +275,103 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
 
 export function getWorker(): Worker | null {
   return _worker;
+}
+
+/**
+ * Phantom-skill terminal drawer (#172). Fired when a job arrives carrying
+ * a manifestPath that no longer exists on disk — register-skill may have
+ * persisted an ephemeral path that got cleaned up, or the workspace moved
+ * the file without re-registering.
+ *
+ * Synthesizes a complete failure trail so downstream watchers don't have
+ * to special-case "scheduler tick with no run":
+ *   1. skill_run row created + marked failed (silent-failure-watchdog #69
+ *      counts toward its streak)
+ *   2. Terminal drawer written to a sensible default room — operators
+ *      reading the dashboard see the failure with the missing path and
+ *      a hint when the path was ephemeral
+ *   3. WAL entry tagged `skill_manifest_missing`
+ *
+ * Each step is wrapped in its own try/catch — we want maximum signal even
+ * if one writer is broken (e.g. DB lost). The caller throws afterward so
+ * BullMQ marks the job failed and stops retrying.
+ */
+async function handleManifestMissing(
+  data: SkillJobData,
+  manifestPath: string,
+): Promise<void> {
+  const workspace = data.workspace;
+  const runId = data.runId ?? randomUUID();
+  const skillId = data.skillId ?? "unknown";
+  const stepId = data.stepId ?? "fire";
+  const ephemeral = isEphemeralPath(manifestPath);
+
+  // 1. Skill run row + marked failed. Wrapped because the workspace may
+  // have a stale schema or DB connection issue we don't want to mask
+  // the drawer write.
+  try {
+    await runTracker.createRun({
+      runId,
+      workspace,
+      skillId,
+      skillVersion: data.skillVersion,
+      triggerType: data.triggerType ?? "cron",
+      triggerPayload: data.triggerPayload as Record<string, unknown> | undefined,
+    });
+  } catch (err) {
+    const pgErr = err as { code?: string };
+    // 23505 duplicate PK is fine — another path created the row already.
+    if (pgErr.code !== "23505") {
+      console.warn(`[nexaas] manifest_missing: createRun failed for ${skillId}: ${(err as Error).message}`);
+    }
+  }
+  try {
+    await runTracker.markStepFailed(runId, stepId, `manifest_missing: ${manifestPath}`);
+  } catch (err) {
+    console.warn(`[nexaas] manifest_missing: markStepFailed failed for ${skillId}: ${(err as Error).message}`);
+  }
+
+  // 2. Terminal drawer. Default room is `ops.scheduler.<skillId>` — the
+  // skill's declared primary room is unknowable without the manifest, and
+  // ops.scheduler is where phantom-skill failures naturally belong.
+  try {
+    const session = palace.enter({ workspace, runId, skillId, stepId });
+    await session.writeDrawer(
+      { wing: "ops", hall: "scheduler", room: skillId.replace(/\//g, "-") },
+      JSON.stringify(buildTerminalDrawerPayload(
+        { skill: skillId, terminal_reason: "manifest_missing" },
+        {
+          manifest_path: manifestPath,
+          was_ephemeral_path: ephemeral,
+          trigger_type: data.triggerType ?? "cron",
+        },
+      )),
+    );
+  } catch (err) {
+    console.error(`[nexaas] manifest_missing: drawer write failed for ${skillId}: ${(err as Error).message}`);
+  }
+
+  // 3. WAL entry. Best-effort like everything in this handler.
+  try {
+    await appendWal({
+      workspace,
+      op: "skill_manifest_missing",
+      actor: "bullmq-worker",
+      payload: {
+        run_id: runId,
+        skill_id: skillId,
+        manifest_path: manifestPath,
+        was_ephemeral_path: ephemeral,
+      },
+    });
+  } catch (err) {
+    console.warn(`[nexaas] manifest_missing: WAL append failed for ${skillId}: ${(err as Error).message}`);
+  }
+
+  console.error(
+    `[nexaas] PHANTOM SKILL: '${skillId}' fired but manifest is gone at ${manifestPath}` +
+      (ephemeral ? " (ephemeral path — register without --allow-ephemeral)" : ""),
+  );
 }
 
 /**
