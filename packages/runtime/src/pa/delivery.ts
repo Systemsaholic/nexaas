@@ -19,8 +19,18 @@
  *
  * Workspace consumers written before these helpers can migrate at
  * their own cadence — helpers are opt-in and operate against the same
- * table schema. The framework writes 'queued' rows; consumers using
- * the old query patterns continue to work.
+ * table schema. enqueueDelivery writes status=NULL (not 'queued') so
+ * both consumer patterns work against the same row:
+ *
+ *   - Framework consumers using claimNextDelivery() see NULL and 'failed'
+ *     rows as eligible and transition them to 'claimed' → 'sent'.
+ *   - Pre-helper workspace consumers using the LEFT-JOIN-NULL pattern
+ *     (`WHERE m.status IS NULL OR m.status='failed'`) see the same row
+ *     and can deliver via their own upsert path.
+ *
+ * The earlier behavior — enqueueDelivery writing status='queued' — was
+ * incompatible with LEFT-JOIN-NULL consumers (the 'queued' filter
+ * silently excluded pre-seeded rows). See #182.
  */
 
 import { sql, sqlOne, appendWal } from "@nexaas/palace";
@@ -94,6 +104,12 @@ export interface DeliveryClaim {
  * with the same drawer_id is a no-op (allows the caller to safely
  * retry after a transient db failure).
  *
+ * The marker is inserted with status=NULL so both framework consumers
+ * (claimNextDelivery, which treats NULL/queued/failed as eligible) and
+ * pre-helper workspace consumers (LEFT-JOIN-NULL pattern) see it. See
+ * #182 for the previous 'queued'-write bug that silently dropped
+ * drawers for LEFT-JOIN-NULL consumers.
+ *
  * The marker's release_at is computed from the urgency tier so
  * claimNextDelivery can gate dispatch without the consumer having to
  * implement tier-aware scheduling itself. `immediate` releases now;
@@ -111,7 +127,7 @@ export async function enqueueDelivery(
   await sql(
     `INSERT INTO nexaas_memory.pa_delivery_marker
        (workspace, drawer_id, user_hall, thread_id, status, release_at)
-     VALUES ($1, $2, $3, $4, 'queued', $5)
+     VALUES ($1, $2, $3, $4, NULL, $5)
      ON CONFLICT (workspace, drawer_id) DO NOTHING`,
     [workspace, drawer_id, user_hall, thread_id, releaseAt],
   );
@@ -122,9 +138,11 @@ export async function enqueueDelivery(
  * if no eligible row exists. Concurrent callers for the same thread
  * serialize via SKIP LOCKED; different threads can claim in parallel.
  *
- * Eligible = status in ('queued', 'failed') AND retries < MAX_RETRIES.
- * Rows above MAX_RETRIES are moved to 'dead' by markDeliveryFailed and
- * stop being eligible.
+ * Eligible = status IS NULL OR status IN ('queued', 'failed') AND
+ * retries < MAX_RETRIES. NULL is the post-#182 default for freshly
+ * enqueued markers; 'queued' is preserved for legacy rows. Rows above
+ * MAX_RETRIES are moved to 'dead' by markDeliveryFailed and stop being
+ * eligible.
  */
 export async function claimNextDelivery(
   workspace: string,
@@ -142,7 +160,7 @@ export async function claimNextDelivery(
         WHERE workspace = $1
           AND user_hall = $2
           AND thread_id = $3
-          AND status IN ('queued', 'failed')
+          AND (status IS NULL OR status IN ('queued', 'failed'))
           AND retries < $4
           AND release_at <= now()
         ORDER BY claimed_at ASC
