@@ -130,6 +130,35 @@ export async function apply(
         break;
       }
 
+      // Chain-signal kind (#180) — multi-skill chains use this to emit a
+      // next-stage trigger that an inbound-message-triggered skill picks up.
+      // The inbound-dispatcher polls `inbox.messaging.<channel_role>` and
+      // by convention `channel_role === output_id`, so we write to that
+      // exact room. The agent's payload becomes the drawer content; the
+      // downstream skill receives it via triggerPayload.
+      if (action.output_kind === "chain_signal") {
+        const channelRole = action.action.kind; // produce_output sets kind = output.id
+        await session.writeDrawer(
+          { wing: "inbox", hall: "messaging", room: channelRole },
+          JSON.stringify(action.action.payload ?? {}),
+          { run_id: runId, step_id: stepId },
+        );
+        await appendWal({
+          workspace,
+          op: "action_auto_executed",
+          actor: `skill:${session.ctx.skillId}`,
+          payload: {
+            run_id: runId,
+            step_id: stepId,
+            action_kind: action.action.kind,
+            output_kind: "chain_signal",
+            channel_role: channelRole,
+            source: action.source,
+          },
+        });
+        break;
+      }
+
       // Default path — non-notification kinds write to events.skill.executed
       // as before. Palace_write / external_send / mcp_tool_call / etc. go
       // through this branch; future stages add their own kind-specific

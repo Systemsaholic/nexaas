@@ -36,7 +36,8 @@ export type TerminalReason =
   | "prompt_overflow"  // model rejected request as too long (#173)
   | "rate_limited"     // 429 from model provider
   | "manifest_missing" // scheduler fired but manifest file is gone (#172)
-  | "verification_failed"; // ai-skill output verification failed required checks
+  | "verification_failed" // ai-skill output verification failed required checks
+  | "required_output_missing"; // ai-skill ended without producing a required output (#180)
 
 export interface TerminalDrawerPayload {
   skill: string;

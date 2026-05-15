@@ -29,6 +29,7 @@ export type OutputKind =
   | "palace_write"          // drawer write (committing a decision)
   | "subagent_invocation"   // spawning a sub-agent run
   | "mcp_tool_call"         // arbitrary MCP tool dispatch
+  | "chain_signal"          // emit the next-stage signal for a multi-skill chain (#180)
   | (string & {});           // allow custom kinds without narrowing
 
 export interface ManifestNotifyConfig {
@@ -76,6 +77,19 @@ export interface ManifestOutput {
   approval?: ManifestApproval;
   overridable?: boolean;
   overridable_to?: RoutingDecision[];
+  /**
+   * When true, the ai-skill executor verifies the agent called
+   * `framework__produce_output` for this output id before declaring
+   * end_turn. If not, the run terminates with
+   * `terminal_reason: "required_output_missing"` and a drawer naming the
+   * missing output (#180).
+   *
+   * Used by multi-skill chains: declare the next-stage signal as a
+   * required output of `kind: chain_signal` so a hallucinated success
+   * (agent says "signal emitted" but didn't actually call the tool)
+   * surfaces as a structured failure instead of a stalled chain.
+   */
+  required?: boolean;
   notify?: ManifestNotifyConfig;                     // legacy field; prefer `approval.channel_role` for approval flows
   conditions?: Array<{                               // reserved for future stages; evaluator stub
     if: string;

@@ -81,6 +81,13 @@ export interface AiSkillManifest {
     notify?: { channel_role: string; timeout?: string };
     verify?: OutputVerification;
     /**
+     * When true, the executor verifies the agent called
+     * `framework__produce_output(id, ...)` for this output before end_turn.
+     * If not, the run terminates with `terminal_reason: "required_output_missing"`
+     * — closes the silent-stall failure mode in multi-skill chains (#180).
+     */
+    required?: boolean;
+    /**
      * Per-output format hint for `kind: notification` outputs routed via
      * the primary_output auto-map (#61). Values: "plain" | "markdown"
      * | "html" — framework-canonical per messaging-outbound v0.2 (#38).
@@ -558,6 +565,46 @@ export async function runAiSkill(
     } catch { /* non-fatal — billing table may not exist on all installs */ }
 
     await runTracker.markStepCompleted(runId, stepId);
+
+    // Required-output check (#180) — multi-skill chains declare the
+    // next-stage signal as `outputs[].required: true` so a hallucinated
+    // success (agent says "signal emitted" but didn't call produce_output)
+    // surfaces as a structured failure instead of a silently-stalled chain.
+    // Runs only when the loop completed cleanly — aborts already block the
+    // chain via the existing terminal_reason discriminator.
+    const missingRequired: string[] = !result.aborted
+      ? (manifest.outputs ?? [])
+          .filter((o) => o.required === true)
+          .map((o) => o.id)
+          .filter((id) => !frameworkToolsState.producedOutputs.includes(id))
+      : [];
+    if (missingRequired.length > 0) {
+      const summary = `required output(s) not produced: ${missingRequired.join(", ")}`;
+      await session.writeDrawer(
+        primaryRoom,
+        JSON.stringify(buildTerminalDrawerPayload(
+          { skill: manifest.id, terminal_reason: "required_output_missing" },
+          {
+            missing_outputs: missingRequired,
+            produced_outputs: frameworkToolsState.producedOutputs,
+            turns: result.turns,
+          },
+        )),
+      );
+      await appendWal({
+        workspace,
+        op: "ai_skill_required_output_missing",
+        actor: `skill:${manifest.id}`,
+        payload: {
+          run_id: runId,
+          missing: missingRequired,
+          produced: frameworkToolsState.producedOutputs,
+        },
+      });
+      await runTracker.markStepFailed(runId, stepId, summary);
+      console.warn(`[nexaas] AI skill '${manifest.id}' ${summary}`);
+      return { success: false, turns: result.turns, toolCalls: result.toolCalls.length, content: result.content };
+    }
 
     // Output verification (#28) — only when the loop wasn't already aborted.
     // A skill that declares `outputs[].verify` gets checked here before the
