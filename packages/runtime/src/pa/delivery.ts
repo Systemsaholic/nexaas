@@ -35,6 +35,50 @@ const MAX_RETRIES = (() => {
  *  abandoned by a dead consumer and gets reset to 'failed' for re-pickup. */
 const STALE_CLAIM_INTERVAL = "2 minutes";
 
+/** Hold duration for normal-tier notifications before they become
+ *  claimable. Lets workspaces batch/digest if they choose; the framework
+ *  primitive just enforces the hold. */
+const NORMAL_HOLD_MINUTES = (() => {
+  const raw = parseInt(process.env.NEXAAS_PA_NORMAL_HOLD_MINUTES ?? "15", 10);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 15;
+})();
+
+/** Wall-clock release point for low-tier notifications. Two env vars so
+ *  ops can shift the morning rollup independently of the dispatcher tick. */
+const LOW_RELEASE_HOUR = (() => {
+  const raw = parseInt(process.env.NEXAAS_PA_LOW_RELEASE_HOUR ?? "7", 10);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 23 ? raw : 7;
+})();
+const LOW_RELEASE_MINUTE = (() => {
+  const raw = parseInt(process.env.NEXAAS_PA_LOW_RELEASE_MINUTE ?? "30", 10);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 59 ? raw : 30;
+})();
+
+export type Urgency = "immediate" | "normal" | "low";
+
+/**
+ * Compute the release timestamp for a marker given its urgency tier.
+ * `immediate` → now (released right away). `normal` → now + hold.
+ * `low` → next occurrence of the configured release hour/minute in
+ * the worker's local timezone. Exported for tests; not part of the
+ * stable runtime API.
+ */
+export function computeReleaseAt(urgency: Urgency, now: Date = new Date()): Date {
+  if (urgency === "immediate") return now;
+  if (urgency === "normal") {
+    return new Date(now.getTime() + NORMAL_HOLD_MINUTES * 60_000);
+  }
+  // low → next wall-clock occurrence of LOW_RELEASE_HOUR:MINUTE in
+  // local timezone. If we've already passed it today, schedule for
+  // tomorrow.
+  const target = new Date(now);
+  target.setHours(LOW_RELEASE_HOUR, LOW_RELEASE_MINUTE, 0, 0);
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target;
+}
+
 export interface DeliveryClaim {
   workspace: string;
   drawer_id: string;
@@ -49,19 +93,27 @@ export interface DeliveryClaim {
  * Insert a marker row for a pending delivery. Idempotent — re-running
  * with the same drawer_id is a no-op (allows the caller to safely
  * retry after a transient db failure).
+ *
+ * The marker's release_at is computed from the urgency tier so
+ * claimNextDelivery can gate dispatch without the consumer having to
+ * implement tier-aware scheduling itself. `immediate` releases now;
+ * `normal` holds for the configured window; `low` releases at the next
+ * configured wall-clock time.
  */
 export async function enqueueDelivery(
   workspace: string,
   drawer_id: string,
   user_hall: string,
   thread_id: string,
+  urgency: Urgency = "normal",
 ): Promise<void> {
+  const releaseAt = computeReleaseAt(urgency);
   await sql(
     `INSERT INTO nexaas_memory.pa_delivery_marker
-       (workspace, drawer_id, user_hall, thread_id, status)
-     VALUES ($1, $2, $3, $4, 'queued')
+       (workspace, drawer_id, user_hall, thread_id, status, release_at)
+     VALUES ($1, $2, $3, $4, 'queued', $5)
      ON CONFLICT (workspace, drawer_id) DO NOTHING`,
-    [workspace, drawer_id, user_hall, thread_id],
+    [workspace, drawer_id, user_hall, thread_id, releaseAt],
   );
 }
 
@@ -92,6 +144,7 @@ export async function claimNextDelivery(
           AND thread_id = $3
           AND status IN ('queued', 'failed')
           AND retries < $4
+          AND release_at <= now()
         ORDER BY claimed_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
