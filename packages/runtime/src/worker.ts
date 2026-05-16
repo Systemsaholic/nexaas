@@ -1,8 +1,12 @@
 /**
  * Nexaas worker entry point — starts BullMQ worker + outbox relay + Bull Board dashboard.
  *
- * This is what the nexaas-worker systemd service runs:
- *   ExecStart=/snap/bin/node /opt/nexaas/node_modules/.bin/tsx /opt/nexaas/packages/runtime/src/worker.ts
+ * This is what the nexaas-worker systemd service runs in production:
+ *   ExecStart=/usr/bin/node --conditions=production /opt/nexaas/packages/runtime/dist/worker.js
+ *
+ * Snap-installed node and tsx wrapping are both refused at startup — see PR
+ * #162 + #185. Dev/test runs that legitimately go through tsx can opt out
+ * with NEXAAS_ALLOW_DEV_LAUNCH=1.
  *
  * It starts:
  * 1. The BullMQ skill step worker (processes jobs through the pillar pipeline)
@@ -74,6 +78,41 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 
 if (!WORKSPACE) {
   console.error("NEXAAS_WORKSPACE is required");
+  process.exit(1);
+}
+
+// Runtime self-checks — refuse to start on the launch patterns the framework
+// already rejects elsewhere (PR #162 covered nexaas init; this enforces at
+// worker boot so adopters can't silently regress).
+//
+// Snap-installed node is unconditional: it swallows journald stdout, escapes
+// cgroup cleanup, and rejects --conditions=production. There is no
+// legitimate reason for the worker to run under /snap/bin/node.
+if (process.execPath.startsWith("/snap/")) {
+  console.error(
+    `[nexaas] refusing to start: process.execPath=${process.execPath} (snap-installed node). ` +
+      `See PR #162. Install NodeSource node and run from /usr/bin/node.`,
+  );
+  process.exit(1);
+}
+
+// tsx-wrapped launches are refused in production but opt-outable for dev/test.
+// In production the unit MUST run the compiled dist/worker.js so Node's
+// --conditions=production routes cross-package imports through dist/ rather
+// than src/ via tsx transforms. NEXAAS_ALLOW_DEV_LAUNCH=1 bypasses for scripts
+// that knowingly invoke `node --import tsx packages/runtime/src/worker.ts`.
+const entryArg = process.argv[1] ?? "";
+const launchedViaTsx =
+  entryArg.endsWith("/tsx") ||
+  entryArg.includes("/tsx/") ||
+  entryArg.endsWith("worker.ts");
+if (launchedViaTsx && process.env.NEXAAS_ALLOW_DEV_LAUNCH !== "1") {
+  console.error(
+    `[nexaas] refusing to start: launched via tsx (argv[1]=${entryArg}). ` +
+      `Production must run compiled JS: ` +
+      `'node --conditions=production /opt/nexaas/packages/runtime/dist/worker.js'. ` +
+      `Set NEXAAS_ALLOW_DEV_LAUNCH=1 for dev/test runs that knowingly go through tsx.`,
+  );
   process.exit(1);
 }
 
