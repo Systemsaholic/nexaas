@@ -244,8 +244,26 @@ async function reconcileSkillSchedulers(workspace: string): Promise<{
       const cronTriggers = (manifest.triggers ?? []).filter((t) => t.type === "cron" && t.schedule);
       if (cronTriggers.length === 0) { skipped++; continue; }
 
-      for (const trigger of cronTriggers) {
-        const jobName = `cron-${manifest.id.replace(/\//g, "-")}`;
+      const baseJobName = `cron-${manifest.id.replace(/\//g, "-")}`;
+      const multiCron = cronTriggers.length > 1;
+
+      // #193: when a manifest has multiple cron triggers, each registers as
+      // `${baseJobName}-${idx}` so they don't collapse onto the same key.
+      // Migrating a previously-buggy registration (single `baseJobName` key
+      // carrying the last cron's pattern) requires explicitly removing the
+      // legacy single-key entry; the new idx-suffixed upserts wouldn't replace
+      // it. Single-cron manifests keep `baseJobName` as before — no migration.
+      if (multiCron) {
+        try {
+          const existing = await queue.getRepeatableJobs();
+          for (const r of existing.filter((j) => j.name === baseJobName)) {
+            await queue.removeRepeatableByKey(r.key);
+          }
+        } catch { /* non-fatal — cleanup is opportunistic */ }
+      }
+
+      for (const [idx, trigger] of cronTriggers.entries()) {
+        const jobName = multiCron ? `${baseJobName}-${idx}` : baseJobName;
         const tz = trigger.timezone ?? manifest.timezone ?? workspaceTz;
         const stepId = manifest.execution?.type === "ai-skill" ? "ai-exec" : "shell-exec";
 
@@ -267,7 +285,7 @@ async function reconcileSkillSchedulers(workspace: string): Promise<{
           );
           registered++;
         } catch (err) {
-          console.warn(`[nexaas] failed to upsert scheduler for ${manifest.id}: ${(err as Error).message}`);
+          console.warn(`[nexaas] failed to upsert scheduler for ${manifest.id} (trigger ${idx}): ${(err as Error).message}`);
           errors++;
         }
       }
@@ -965,13 +983,17 @@ async function main() {
           }
         }
       } else {
-        // Disable: remove scheduler entries (keep files for now)
+        // Disable: remove scheduler entries (keep files for now). Prefix
+        // match handles multi-cron manifests where each trigger registers
+        // as `${baseJobName}-${idx}` (#193).
         for (const skillId of skills) {
           try {
-            const jobName = `cron-${skillId.replace(/\//g, "-")}`;
+            const baseJobName = `cron-${skillId.replace(/\//g, "-")}`;
             const q = new Queue(`nexaas-skills-${WORKSPACE}`, getRedisConnectionOpts());
             const repeatables = await q.getRepeatableJobs();
-            for (const r of repeatables.filter(j => j.name === jobName)) {
+            for (const r of repeatables.filter(j =>
+              j.name === baseJobName || j.name.startsWith(`${baseJobName}-`)
+            )) {
               await q.removeRepeatableByKey(r.key);
             }
             await q.close();
