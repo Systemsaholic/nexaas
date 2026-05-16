@@ -463,10 +463,30 @@ export async function registerOneSkill(
     triggers: cronTriggers,
   });
 
-  for (const trigger of manifest.triggers) {
-    if (trigger.type !== "cron" || !trigger.schedule) continue;
+  const cronTriggerEntries = manifest.triggers.filter(
+    (t) => t.type === "cron" && t.schedule,
+  );
+  const baseJobName = `cron-${manifest.id.replace(/\//g, "-")}`;
+  const multiCron = cronTriggerEntries.length > 1;
 
-    const jobName = `cron-${manifest.id.replace(/\//g, "-")}`;
+  // Remove any legacy repeatable entries for this skill before re-upserting
+  // (#22 + #193). Single-cron manifests keep `baseJobName`; multi-cron
+  // manifests use `${baseJobName}-${idx}`. The prefix match catches both
+  // shapes so a manifest changing trigger count between calls doesn't leave
+  // orphans.
+  try {
+    const existing = await ctx.queue.getRepeatableJobs();
+    const stale = existing.filter(
+      (j) => j.name === baseJobName || j.name.startsWith(`${baseJobName}-`),
+    );
+    for (const j of stale) {
+      await ctx.queue.removeRepeatableByKey(j.key);
+    }
+    cleaned += stale.length;
+  } catch { /* non-fatal */ }
+
+  for (const [idx, trigger] of cronTriggerEntries.entries()) {
+    const jobName = multiCron ? `${baseJobName}-${idx}` : baseJobName;
     const tz =
       trigger.timezone ??
       manifest.timezone ??
@@ -474,19 +494,9 @@ export async function registerOneSkill(
       process.env.NEXAAS_TIMEZONE ??
       "UTC";
 
-    // Remove any legacy repeatable entries for this skill (#22).
-    try {
-      const existing = await ctx.queue.getRepeatableJobs();
-      const stale = existing.filter((j) => j.name === jobName);
-      for (const j of stale) {
-        await ctx.queue.removeRepeatableByKey(j.key);
-      }
-      cleaned += stale.length;
-    } catch { /* non-fatal */ }
-
     await ctx.queue.upsertJobScheduler(
       jobName,
-      { pattern: trigger.schedule, tz },
+      { pattern: trigger.schedule!, tz },
       {
         name: "skill-step",
         data: {
