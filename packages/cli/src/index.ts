@@ -22,6 +22,9 @@ switch (command) {
   case "verify-wal":
     import("./verify-wal.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "migration-state":
+    import("./migration-state.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   case "onboard":
     import("./onboard.js").then((m) => m.run(process.argv.slice(3)));
     break;
@@ -93,6 +96,7 @@ Commands:
   doctor locks [--since 24h]           Concurrency-group lock contention report
   status                                Check runtime health
   verify-wal [--full]                   Verify WAL chain integrity
+  migration-state [--json]              Print applied/pending migrations from the canonical tracker
 
 Usage:
   nexaas <command> [options]
