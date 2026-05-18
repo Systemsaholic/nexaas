@@ -397,18 +397,37 @@ export async function runAiSkill(
     // Run the agentic loop
     console.log(`[nexaas] Running AI skill '${manifest.id}' with ${allTools.length} tools, model: ${model}`);
 
-    const result = await runAgenticLoop({
-      model,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
-      tools: allTools,
-      executeTool,
-      workspace,
-      runId,
-      skillId: manifest.id,
-      limits: agenticLimits,
-      modelPricing,
-    });
+    // Heartbeat: keep last_activity fresh while a long-running stream
+    // is in flight. Without this, multi-turn skills whose individual
+    // turns legitimately take 5-15 min each (research-class with the
+    // post-#197 streaming path) accumulate idle time at the DB level
+    // because last_activity only bumps at step boundaries —
+    // the 20-min orphan-run reaper kills them mid-stream. Heartbeat
+    // every 30 s is well under the reaper threshold + cheap (one
+    // single-row UPDATE).
+    const heartbeat = setInterval(() => {
+      runTracker.heartbeat(runId).catch(() => {
+        // Best-effort — never fail the run on a heartbeat DB blip.
+      });
+    }, 30_000);
+
+    let result: Awaited<ReturnType<typeof runAgenticLoop>>;
+    try {
+      result = await runAgenticLoop({
+        model,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+        tools: allTools,
+        executeTool,
+        workspace,
+        runId,
+        skillId: manifest.id,
+        limits: agenticLimits,
+        modelPricing,
+      });
+    } finally {
+      clearInterval(heartbeat);
+    }
 
     // Record the result as a palace drawer. Shape uses the framework-wide
     // terminal_reason discriminator (#171 helper) so dashboards and

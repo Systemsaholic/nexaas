@@ -91,6 +91,23 @@ export const runTracker = {
     );
   },
 
+  /**
+   * Bump `last_activity` to NOW without changing status/step. Called
+   * from long-running streams (see ai-skill.ts heartbeat) so the
+   * orphan-run reaper doesn't kill runs that are legitimately busy
+   * but haven't crossed a step boundary in 20 minutes.
+   *
+   * Idempotent on missing/completed rows (UPDATE matches 0).
+   */
+  async heartbeat(runId: string): Promise<void> {
+    await sql(
+      `UPDATE nexaas_memory.skill_runs
+       SET last_activity = now()
+       WHERE run_id = $1 AND status = 'running'`,
+      [runId],
+    );
+  },
+
   async markStepFailed(runId: string, stepId: string, error: unknown): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     const rows = await sql<{ workspace: string; skill_id: string }>(
