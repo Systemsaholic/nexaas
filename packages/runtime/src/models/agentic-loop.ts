@@ -29,19 +29,97 @@ function getClient(): Anthropic {
     // queue-pause path (#27). Our own retryWithBackoff below handles the
     // retryable-but-not-429 cases; 429s propagate unretried so the worker
     // layer can pause the queue for the cooldown window.
-    // timeout: 60s — fail fast on network hangs; #32 showed the default
-    // 10min timeout leaves stalled requests hanging skill runs for minutes.
+    //
+    // No request-level `timeout` — we use streaming below and apply our
+    // own per-chunk idle timeout via `streamWithChunkIdleTimeout`. The
+    // SDK's timeout option would otherwise bound the ENTIRE stream
+    // (issue #197): a research-class skill whose first-turn output takes
+    // 2+ minutes to stream would always time out, even though chunks are
+    // flowing. Idle-timeout semantics catch real network hangs without
+    // killing legitimate long responses.
     _client = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
       maxRetries: 0,
-      timeout: 60_000,
     });
   }
   return _client;
 }
 
 /**
- * Retry wrapper for the single `client.messages.create` call.
+ * Default idle-timeout between streaming chunks. If no chunk arrives
+ * for this many milliseconds, the request is aborted as if the network
+ * had hung — re-raised as APIConnectionTimeoutError so
+ * `retryMessagesCreate` retries it. Override via NEXAAS_CHUNK_IDLE_MS.
+ */
+const DEFAULT_CHUNK_IDLE_MS = 60_000;
+
+function chunkIdleMs(): number {
+  const v = Number(process.env.NEXAAS_CHUNK_IDLE_MS ?? DEFAULT_CHUNK_IDLE_MS);
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_CHUNK_IDLE_MS;
+}
+
+/**
+ * Run a streaming `messages.stream` request with idle-timeout semantics.
+ *
+ * Replaces the non-streaming `messages.create` path that was causing
+ * #197 — when the model's response stream takes longer than the
+ * single-request timeout (e.g. 60s+ of complex tool_use planning), the
+ * non-streaming call times out even though chunks are flowing.
+ *
+ * Behaviour:
+ *  - Stream is consumed via `stream.finalMessage()`, returning the same
+ *    `Anthropic.Message` shape as `messages.create` (content, usage,
+ *    stop_reason).
+ *  - A timer resets on every `streamEvent`. If no event fires for
+ *    `idleMs` milliseconds, the stream's AbortController fires and the
+ *    awaiting `finalMessage()` rejects with `APIUserAbortError`. We
+ *    translate that into `APIConnectionTimeoutError` so the existing
+ *    `isRetryableAnthropicError` classifier (which already retries
+ *    timeout errors) handles it without code change.
+ *  - Legitimate `APIUserAbortError`s (caller-initiated, e.g. a future
+ *    cancellation pathway) keep propagating as user aborts.
+ */
+async function streamWithChunkIdleTimeout(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParams,
+  idleMs: number,
+): Promise<Anthropic.Message> {
+  // `messages.stream()` returns a MessageStream synchronously; the
+  // request is dispatched on construction. Setting up the idle watcher
+  // before awaiting finalMessage() guarantees we don't miss the first
+  // chunk.
+  const stream = client.messages.stream(params);
+
+  let timedOutByIdle = false;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const resetIdle = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      timedOutByIdle = true;
+      stream.controller.abort();
+    }, idleMs);
+  };
+
+  // Reset on every streamed event (headers, content_block_*, message_*).
+  stream.on("streamEvent", resetIdle);
+  resetIdle();
+
+  try {
+    return await stream.finalMessage();
+  } catch (err) {
+    if (timedOutByIdle && err instanceof Anthropic.APIUserAbortError) {
+      throw new Anthropic.APIConnectionTimeoutError({
+        message: `Stream idle timeout (${idleMs}ms) — no chunks received within window. Aborted by Nexaas streaming watchdog.`,
+      });
+    }
+    throw err;
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+  }
+}
+
+/**
+ * Retry wrapper for the streaming-message call.
  *
  * Retries on connection errors and 5xx (incl. 529 overloaded) with
  * exponential backoff + jitter. 429s are NEVER retried here — they
@@ -50,6 +128,13 @@ function getClient(): Anthropic {
  *
  * Addresses #32: transient network blips (~1-3/hr at baseline) were
  * killing runs outright because the call wasn't wrapped.
+ *
+ * Note: as of #197, the underlying call is `streamWithChunkIdleTimeout`,
+ * not `client.messages.create`. The wrapper signature is unchanged
+ * because `finalMessage()` resolves to the same `Anthropic.Message`
+ * shape, and chunk-idle timeouts are translated to
+ * `APIConnectionTimeoutError` so they slot into the retryable-error
+ * classifier without surgery.
  */
 async function retryMessagesCreate(
   fn: () => Promise<Anthropic.Message>,
@@ -266,13 +351,19 @@ export async function runAgenticLoop(params: {
   while (turns < maxTurns) {
     turns++;
 
-    const response = await retryMessagesCreate(() => client.messages.create({
-      model,
-      max_tokens: maxTokensPerTurn,
-      system: systemParam,
-      messages,
-      tools: anthropicTools,
-    }));
+    const response = await retryMessagesCreate(() =>
+      streamWithChunkIdleTimeout(
+        client,
+        {
+          model,
+          max_tokens: maxTokensPerTurn,
+          system: systemParam,
+          messages,
+          tools: anthropicTools,
+        },
+        chunkIdleMs(),
+      ),
+    );
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
