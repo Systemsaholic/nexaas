@@ -172,6 +172,103 @@ Don't loop indefinitely without a timeout — that ties up a skill_run forever.
 
 `nexaas verify-wal` will see all five in sequence for a complete approval-with-followup interaction. Useful for post-mortems when an operator says "I clicked Reject and never got asked why" — the absence of the second `output_produced` or `framework_request_match_registered` row tells you exactly which step broke.
 
+## Routing decisions to handler skills
+
+The Surface 1 pattern above runs the **same skill** before and after the operator's decision — Step 1 produces the output, Step 2 resumes after the click. This is fine for simple branching, but as the post-decision logic grows (approve = publish to Zernio + write to promotion log + emit telemetry; reject = archive + email the creator + remove from queue), the original skill becomes a multi-thousand-line conditional. It also bloats the skill_runs row's wall-clock — the run stays open while the operator deliberates for hours.
+
+The framework supports an alternative: **per-decision handler skills**. Each decision routes to a distinct skill that handles its branch, enqueued with the original run's context after the operator clicks.
+
+```yaml
+outputs:
+  - id: draft_decision
+    routing_default: approval_required
+    approval:
+      channel_role: hr_lead
+    decisions:
+      - id: approve
+        label: Approve
+      - id: reject
+        label: Reject
+    handlers:
+      approve: hr/onboarding-publish
+      reject:  hr/onboarding-archive
+```
+
+When the operator approves, [`approval-resolver.ts`](../packages/runtime/src/tasks/approval-resolver.ts) enqueues a fresh run of `hr/onboarding-publish` with:
+
+```json
+{
+  "trigger_type": "resumption",
+  "trigger_payload": {
+    "original_run_id": "<original-skill-run-id>",
+    "original_step_id": "draft_decision",
+    "decision": "approve",
+    "actor": "<operator-id>"
+  }
+}
+```
+
+The handler skill reads `trigger_payload.original_run_id` and fetches the draft via palace lookup — it does NOT receive the original payload directly in the trigger:
+
+```ts
+// Inside the handler skill (sketch):
+const originalRunId = ctx.trigger_payload.original_run_id
+
+const [draft] = await palace_search({
+  // Wherever the original skill wrote its output drawer:
+  room: "outputs.hr.onboarding",
+  filter: { run_id: originalRunId, output_id: "draft_decision" },
+  limit: 1,
+})
+
+// Continue with draft.payload — publish or archive
+```
+
+The framework keeps `trigger_payload` small (decision + actor + original-run pointers) so handler skills can be replayed deterministically by re-fetching the original output from palace at any later point.
+
+### When to use the handlers map vs. in-skill resume
+
+| Use the handlers map when… | Use in-skill resume when… |
+|---|---|
+| The branches diverge in scope (different MCPs, different rooms, different downstream effects) | Both branches share most of their logic |
+| You want each branch to be independently testable / replayable | The follow-up step is small (one DB write, one notification) |
+| Multiple skills produce outputs that route through the same handler (centralize the "publish" path) | The skill is small enough that "resume here" reads better than "call out to another skill" |
+| Auditing wants the handler as a distinct `skill_runs` row | You want the entire round-trip captured in one `skill_runs` row |
+| The operator might deliberate for hours/days (don't keep the original run open) | The decision is expected within seconds/minutes |
+
+### Handler skill manifest hygiene
+
+- **Handler skills do NOT declare an approval output themselves.** If they did, every approval would loop forever (approve → publish-skill → approve → …). Handlers terminate the decision tree.
+- **Handler skills can declare their own `triggers:`** for direct invocation (e.g., a `cron:` or `manual:` trigger so an operator can replay the publish step ad-hoc on a manually-prepared draft). They're not exclusively callable via the handlers map.
+- **Concurrency:** if multiple per-decision handlers touch the same external resource (Zernio rate limits, Stripe API, etc.), declare matching `concurrency_groups:` on them so the framework serializes the calls.
+- **Channel-agnostic:** the handler doesn't know which channel the operator used to click the button. If the handler needs to send a confirmation back, it routes via the workspace's outbound capabilities like any other skill.
+
+### WAL signature with handlers
+
+Adds one row to the sequence in [WAL signature](#wal-signature) above:
+
+| Op | When |
+|---|---|
+| `handler_skill_enqueued` | Approval-resolver enqueues the per-decision skill — payload includes `decision`, `handler_skill_id`, `original_run_id` |
+
+It lands between `approval_resolved` and the handler skill's own `skill_run_started`:
+
+```sql
+SELECT created_at, op, payload->>'handler_skill_id' AS handler, payload->>'decision' AS decision
+  FROM nexaas_memory.wal
+ WHERE op = 'handler_skill_enqueued'
+ ORDER BY created_at DESC
+ LIMIT 10;
+```
+
+Adopter dashboards can correlate the original approval with the eventual handler run via `payload->>'original_run_id'`.
+
+### Mixing handlers with `framework__request_match`
+
+The follow-up question pattern from Surface 1 is still available **inside a handler skill** — the handler is just another skill. A `reject` handler that wants the operator's reason can register a `framework__request_match` waitpoint exactly as Step 2 of the in-skill pattern does. The split is orthogonal: handlers map which skill runs; `framework__request_match` captures the free-text follow-up within that skill.
+
+If both branches need free-text follow-up and the branches diverge afterward, the handlers map is the cleaner shape — each branch's `request_match` lives in its own skill.
+
 ## Why not a single compound waitpoint primitive?
 
 Issue #67 considered a "compound" waitpoint that resolves on `button_id OR (button_id + followup)` as a single registered primitive. The framework hasn't shipped this — the 2-waitpoint stitch covers the cases seen so far, and a compound primitive would force every adopter to learn a new abstraction. If 3+ adopters file requests for the same shape, the primitive becomes worth the cost.
