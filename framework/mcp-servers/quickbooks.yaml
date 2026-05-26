@@ -1,0 +1,59 @@
+name: quickbooks
+description: QuickBooks Online accounting via Intuit API. Manage invoices, customers, vendors, bills, expenses, payments, journal entries, estimates, and employees.
+category: accounting
+requires_env:
+  - QUICKBOOKS_CLIENT_ID
+  - QUICKBOOKS_CLIENT_SECRET
+  - QUICKBOOKS_REFRESH_TOKEN
+  - QUICKBOOKS_REALM_ID
+
+# Deployment
+# 1. Create an Intuit Developer App:
+#    - Go to https://developer.intuit.com/ > Dashboard > Create an App
+#    - Select "QuickBooks Online and Payments"
+#    - Note the Client ID and Client Secret from the Keys & credentials tab
+#
+# 2. Get the Realm ID (Company ID):
+#    - Log in to QuickBooks Online
+#    - The Realm ID is in the URL: https://app.qbo.intuit.com/app/homepage?companyId=REALM_ID
+#    - Or find it in the developer sandbox under "Company Settings"
+#
+# 3. Generate a Refresh Token:
+#    - In the Intuit Developer Portal, use the OAuth Playground
+#    - Select your app and the scopes: com.intuit.quickbooks.accounting
+#    - Complete the OAuth flow to obtain a refresh token
+#    - The refresh token is long-lived (100 days) — rotate before expiry
+#
+# 4. Add to .env:
+#    QUICKBOOKS_CLIENT_ID=your-client-id
+#    QUICKBOOKS_CLIENT_SECRET=your-client-secret
+#    QUICKBOOKS_REFRESH_TOKEN=your-refresh-token
+#    QUICKBOOKS_REALM_ID=your-realm-id
+#    QUICKBOOKS_ENVIRONMENT=production
+#
+# Capabilities:
+# - Invoices: create, read, update, search
+# - Customers: create, get, update, delete, search
+# - Vendors: create, get, update, delete, search
+# - Bills: create, get, update, delete, search
+# - Bill Payments: create, get, update, delete, search
+# - Purchases/Expenses: create, get, update, delete, search
+# - Journal Entries: create, get, update, delete, search
+# - Estimates: create, get, update, delete, search
+# - Employees: create, get, update, search
+# - Items: create, read, update, search
+# - Accounts: create, update, search
+#
+# Enable in workspace .mcp.json:
+#   "enabledFrameworkServers": ["quickbooks"]
+
+config:
+  command: node
+  args:
+    - "/opt/nexaas/vendor/quickbooks-mcp/dist/index.js"
+  env:
+    QUICKBOOKS_CLIENT_ID: "${QUICKBOOKS_CLIENT_ID}"
+    QUICKBOOKS_CLIENT_SECRET: "${QUICKBOOKS_CLIENT_SECRET}"
+    QUICKBOOKS_REFRESH_TOKEN: "${QUICKBOOKS_REFRESH_TOKEN}"
+    QUICKBOOKS_REALM_ID: "${QUICKBOOKS_REALM_ID}"
+    QUICKBOOKS_ENVIRONMENT: "${QUICKBOOKS_ENVIRONMENT}"
