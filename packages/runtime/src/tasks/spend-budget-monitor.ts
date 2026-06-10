@@ -143,6 +143,42 @@ async function resumeAfterBudgetPause(workspace: string, state: BudgetState): Pr
   console.log(`[nexaas] spend-budget: workspace ${workspace} queue resumed`);
 }
 
+/**
+ * Startup reconcile for unowned persistent pauses. BullMQ pause state lives
+ * in Redis and survives both worker restarts and database restores; every
+ * in-process pause owner (the 429 backoff timers, this monitor's marker if
+ * the DB was restored to a point before the pause) does not. A queue that
+ * is paused with no budget marker after a restart is stuck forever — no
+ * subsystem will ever resume it. Found live when a DB recreate + persistent
+ * Redis left the conformance scratch queue paused with nothing owning it;
+ * the production analogue is a backup restore.
+ *
+ * Self-healing-first (#219 ops model): resume it, WAL it, log it. If the
+ * budget really is exceeded, the first monitor tick re-pauses within
+ * seconds and re-establishes ownership.
+ */
+export async function reconcileUnownedQueuePause(workspace: string): Promise<void> {
+  try {
+    const marker = await readMarker(workspace);
+    if (marker) return; // owned — the tick manages its lifecycle
+    const queue = getSkillQueue(workspace);
+    if (!(await queue.isPaused())) return;
+    await queue.resume();
+    await appendWal({
+      workspace,
+      op: "queue_resumed",
+      actor: "spend-budget-monitor",
+      payload: { reason: "startup_reconcile_unowned_pause" },
+    });
+    console.warn(
+      `[nexaas] startup: resumed unowned persistent queue pause for ${workspace} ` +
+        `(pause survived in Redis with no live owner — pre-restart or pre-restore state)`,
+    );
+  } catch (err) {
+    console.error(`[nexaas] unowned-pause reconcile failed:`, err);
+  }
+}
+
 /** One monitor tick. Exported for the worker's background-task loop. */
 export async function spendBudgetTick(workspace: string): Promise<void> {
   try {

@@ -40,7 +40,7 @@ import { randomUUID } from "crypto";
 import { bearerAuth } from "./middleware/bearer-auth.js";
 import { runCompaction } from "./tasks/closet-compaction.js";
 import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
-import { spendBudgetTick } from "./tasks/spend-budget-monitor.js";
+import { spendBudgetTick, reconcileUnownedQueuePause } from "./tasks/spend-budget-monitor.js";
 import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
 import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
@@ -75,6 +75,11 @@ const execAsync = promisify(execCallback);
 const WORKSPACE = process.env.NEXAAS_WORKSPACE;
 const CONCURRENCY = parseInt(process.env.NEXAAS_WORKER_CONCURRENCY ?? "5", 10);
 const PORT = parseInt(process.env.NEXAAS_WORKER_PORT ?? "9090", 10);
+// Bind address (#217). Default: all interfaces — required for cross-VPS
+// relay writes in operator-managed mode and unchanged from pre-#217
+// behavior. Direct adopters with no off-box callers should set
+// NEXAAS_WORKER_BIND=127.0.0.1 (see docs/security-surface.md).
+const BIND = process.env.NEXAAS_WORKER_BIND || undefined;
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 
 if (!WORKSPACE) {
@@ -604,7 +609,11 @@ async function main() {
     }
   });
 
-  app.post("/api/pa/message", async (req, res) => {
+  // bearerAuth added in the #217 surface audit: this endpoint invokes the
+  // full PA service (model spend + palace reads) and was reachable
+  // unauthenticated even with a bearer token configured. Pass-through when
+  // no token is set, as everywhere else.
+  app.post("/api/pa/message", bearerAuth(), async (req, res) => {
     try {
 
       const { message, senderName, senderId, channel, threadId, systemPrompt } = req.body;
@@ -924,7 +933,9 @@ async function main() {
   });
 
   // Document ingest — chunk + embed a palace drawer
-  app.post("/api/ingest", async (req, res) => {
+  // bearerAuth added in the #217 surface audit: ingest writes embeddings
+  // (Voyage API spend + palace writes).
+  app.post("/api/ingest", bearerAuth(), async (req, res) => {
     try {
       const { drawerId, wing, hall, room, content } = req.body;
       if (!drawerId || !content) {
@@ -947,7 +958,10 @@ async function main() {
   });
 
   // Add-on activation/deactivation
-  app.post("/api/addons/activate", async (req, res) => {
+  // bearerAuth added in the #217 surface audit: add-on activation registers
+  // skills and MCP server *commands* — the most privileged endpoint on the
+  // box. Unauthenticated remote reach here is arbitrary-command-adjacent.
+  app.post("/api/addons/activate", bearerAuth(), async (req, res) => {
     try {
       const { addonId, enable, skills, mcpServers } = req.body as {
         addonId: string;
@@ -1060,9 +1074,13 @@ async function main() {
 
   // Start the HTTP server NOW, before the heavy init. /health reports
   // state=booting / state=initializing while the rest of startup runs.
-  const server = app.listen(PORT, () => {
-    console.log(`[nexaas] HTTP listening on :${PORT} (state=${serverState})`);
-  });
+  const server = BIND
+    ? app.listen(PORT, BIND, () => {
+        console.log(`[nexaas] HTTP listening on ${BIND}:${PORT} (state=${serverState})`);
+      })
+    : app.listen(PORT, () => {
+        console.log(`[nexaas] HTTP listening on :${PORT} (state=${serverState})`);
+      });
 
   // Cap connection lifetime so slow or abandoned clients don't
   // accumulate CLOSE-WAIT sockets on port 9090 (#33).
@@ -1303,8 +1321,13 @@ async function main() {
   // Spend-budget monitor (#215) — pause on daily-budget breach, resume on
   // day rollover / override / budget change. Runs once at startup too:
   // BullMQ pause state persists in Redis across restarts, so a worker that
-  // died mid-pause must reconcile immediately, not a minute later.
-  spendBudgetTick(WORKSPACE!).catch(() => { /* logged inside */ });
+  // died mid-pause must reconcile immediately, not a minute later. The
+  // unowned-pause reconcile first: a Redis-persisted pause whose owner
+  // (budget marker, 429 timer) didn't survive restart/restore would
+  // otherwise stay paused forever.
+  reconcileUnownedQueuePause(WORKSPACE!)
+    .then(() => spendBudgetTick(WORKSPACE!))
+    .catch(() => { /* logged inside */ });
   setInterval(() => {
     spendBudgetTick(WORKSPACE!).catch(() => { /* logged inside */ });
   }, 60 * 1000);

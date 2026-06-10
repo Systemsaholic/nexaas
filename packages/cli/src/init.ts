@@ -227,6 +227,16 @@ export async function run(args: string[]) {
   // falls back to /opt/nexaas, missing operator-placed skills.
   const workspaceRoot = process.env.NEXAAS_WORKSPACE_ROOT ?? NEXAAS_ROOT;
 
+  // Per-VPS inbound bearer token (#217). Generated fresh per install —
+  // never fleet-shared — so a leaked token exposes one workspace, not the
+  // fleet. Pre-seeded env (operator provisioning) or an existing .env value
+  // wins; otherwise generate. Operators who want fully-open direct-adopter
+  // endpoints can blank the line in .env (see docs/security-surface.md).
+  const bearerToken =
+    process.env.NEXAAS_CROSS_VPS_BEARER_TOKEN
+    ?? extractEnvValue(existingEnv, "NEXAAS_CROSS_VPS_BEARER_TOKEN")
+    ?? randomBytes(32).toString("hex");
+
   const envContent = `# Nexaas Framework Configuration
 # Generated: ${new Date().toISOString()}
 # Workspace: ${workspaceId}
@@ -240,6 +250,9 @@ REDIS_URL=redis://localhost:6379
 # Model API keys
 ANTHROPIC_API_KEY=${anthropicKey}
 VOYAGE_API_KEY=${voyageKey}
+
+# Cross-VPS API auth — unique per VPS, rotate per docs/security-surface.md
+NEXAAS_CROSS_VPS_BEARER_TOKEN=${bearerToken}
 
 # Worker configuration
 NEXAAS_WORKER_CONCURRENCY=5
