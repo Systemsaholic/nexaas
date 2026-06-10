@@ -48,6 +48,14 @@ export {
   type BudgetState,
 } from "./models/spend-governor.js";
 export { spendBudgetTick } from "./tasks/spend-budget-monitor.js";
+export {
+  pushHeartbeat,
+  pushFleetEvent,
+  isFleetConfigured,
+  getFrameworkIdentity,
+  type FleetEvent,
+  type FrameworkIdentity,
+} from "./fleet/heartbeat.js";
 
 // Skill terminal-state primitives (#171–#174 silent-failure arc)
 export {

@@ -426,11 +426,28 @@ export async function run(args: string[] = []) {
   // ── Summary ─────────────────────────────────────────────────────────
 
   if (!keepArtifacts) rmSync(artifactsDir, { recursive: true, force: true });
-  await pool.end();
 
   const passed = results.filter((r) => r.status === "pass").length;
   const failed = results.filter((r) => r.status === "fail").length;
   const skipped = results.filter((r) => r.status === "skip").length;
+
+  // Persist the result for the fleet heartbeat (#216) — best-effort; a
+  // pre-014 schema without workspace_kv must not fail the suite.
+  try {
+    await pool.query(
+      `INSERT INTO nexaas_memory.workspace_kv (workspace, key, value) VALUES ($1, 'last_conformance', $2)
+       ON CONFLICT (workspace, key) DO UPDATE SET value = EXCLUDED.value`,
+      [workspace, JSON.stringify({
+        at: new Date().toISOString(),
+        passed,
+        failed,
+        skipped,
+        failed_checks: results.filter((r) => r.status === "fail").map((r) => r.id),
+      })],
+    );
+  } catch { /* workspace_kv absent — heartbeat reports conformance: null */ }
+
+  await pool.end();
 
   if (json) {
     console.log(JSON.stringify({ workspace, results, summary: { passed, failed, skipped } }, null, 2));

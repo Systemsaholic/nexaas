@@ -12,6 +12,16 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
+### Added
+- Fleet heartbeat payload v3 (#216): release `describe` + channel, 24h run
+  error rates, daily spend/budget state, pending migrations, last
+  conformance result, queue depths — all best-effort collectors
+- `POST {fleet}/events` escalation path + `pushFleetEvent()`: silent-failure
+  watchdog escalates upstream even with no local channel role; spend-budget
+  breach pages the fleet (one event per workspace-day)
+- `nexaas conformance` persists its result to `workspace_kv.last_conformance`
+  for the heartbeat to carry
+
 ### Fixed
 - `VERSION` stamped to 0.3.0 — v0.3.0 shipped self-reporting `0.2.0` in the
   fleet heartbeat because the stamp wasn't part of the release procedure;

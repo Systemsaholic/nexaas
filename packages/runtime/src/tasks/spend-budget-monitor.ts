@@ -23,6 +23,7 @@ import { appendWal, sql, sqlOne } from "@nexaas/palace";
 import { getSkillQueue } from "../bullmq/queues.js";
 import { getBudgetState, type BudgetState } from "../models/spend-governor.js";
 import { notify } from "../notifications.js";
+import { pushFleetEvent } from "../fleet/heartbeat.js";
 
 const MARKER_KEY = "spend_pause_active_day";
 
@@ -100,6 +101,25 @@ export async function pauseForBudgetBreach(
   } catch (err) {
     console.error(`[nexaas] spend-budget: alert dispatch failed:`, err);
   }
+
+  // Fleet escalation (#216): a budget breach burns the operator's margin —
+  // page severity. Silent no-op without a fleet endpoint. The dedupe key
+  // matches the local alert's (one event per workspace-day).
+  await pushFleetEvent(workspace, {
+    type: "spend_budget_exceeded",
+    severity: "page",
+    title: `Daily AI budget exceeded — queue paused`,
+    body:
+      `$${state.spentUsd.toFixed(2)} spent of $${state.budgetUsd?.toFixed(2)} daily budget ` +
+      `(${state.modelCalls} model calls). Queue paused until local midnight or operator override.`,
+    dedupe_key: `spend-budget-${workspace}-${state.day}`,
+    data: {
+      day: state.day,
+      spent_usd: state.spentUsd,
+      budget_usd: state.budgetUsd,
+      model_calls: state.modelCalls,
+    },
+  });
 }
 
 async function resumeAfterBudgetPause(workspace: string, state: BudgetState): Promise<void> {
