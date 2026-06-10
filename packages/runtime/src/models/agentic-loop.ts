@@ -20,6 +20,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { appendWal } from "@nexaas/palace";
 import type { ModelAction } from "./gateway.js";
 import { isRetryable as isRetryableAnthropicError } from "./providers/anthropic.js";
+import { recordSpend } from "./spend-governor.js";
 
 let _client: Anthropic | null = null;
 
@@ -537,6 +538,16 @@ export async function runAgenticLoop(params: {
     });
   }
 
+  const totalCostUsd = costOf(
+    modelPricing, totalInputTokens, totalOutputTokens,
+    totalCacheCreationTokens, totalCacheReadTokens,
+  );
+
+  // Daily spend accounting (#215). This is the single chokepoint covering
+  // every agentic caller (ai-skill, PA service, future surfaces). Never
+  // throws — see spend-governor.ts.
+  await recordSpend(workspace, totalCostUsd, turns);
+
   return {
     content: finalContent,
     toolCalls: allToolCalls,
@@ -545,10 +556,7 @@ export async function runAgenticLoop(params: {
     outputTokens: totalOutputTokens,
     cacheCreationTokens: totalCacheCreationTokens,
     cacheReadTokens: totalCacheReadTokens,
-    costUsd: costOf(
-      modelPricing, totalInputTokens, totalOutputTokens,
-      totalCacheCreationTokens, totalCacheReadTokens,
-    ),
+    costUsd: totalCostUsd,
     turns,
     stopReason,
     aborted,

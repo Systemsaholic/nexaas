@@ -40,6 +40,14 @@ export {
 } from "./bullmq/index.js";
 export { runCompaction } from "./tasks/closet-compaction.js";
 export { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
+export {
+  recordSpend,
+  getBudgetState,
+  assertWithinBudget,
+  SpendBudgetExceededError,
+  type BudgetState,
+} from "./models/spend-governor.js";
+export { spendBudgetTick } from "./tasks/spend-budget-monitor.js";
 
 // Skill terminal-state primitives (#171–#174 silent-failure arc)
 export {

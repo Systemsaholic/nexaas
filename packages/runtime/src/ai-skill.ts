@@ -20,6 +20,8 @@ import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
 import { acquireMcpClient, releaseMcpClient } from "./mcp/pool.js";
 import { runAgenticLoop, type McpTool, type AgenticLimits } from "./models/agentic-loop.js";
+import { getBudgetState } from "./models/spend-governor.js";
+import { pauseForBudgetBreach } from "./tasks/spend-budget-monitor.js";
 import { resolveTier, estimateCost, type ModelEntry } from "./models/registry.js";
 import { verifyOutputs, summarizeFailures, type OutputVerification } from "./ai-skill-verify.js";
 import type { OutputKind, ManifestApproval, RoutingDecision } from "./tag/route.js";
@@ -234,6 +236,41 @@ export async function runAiSkill(
       console.error(`[nexaas] AI skill '${manifest.id}' preflight failed (exit ${exitCode}): ${errSummary}`);
       return { success: false, turns: 0, toolCalls: 0, content: errSummary };
     }
+  }
+
+  // Daily spend budget gate (#215) — checked after preflight, before any
+  // MCP spawn or model cost. A breached budget skips the run (not fails:
+  // failure would pollute silent-failure counters for what is a policy
+  // stop) and pauses the workspace queue immediately rather than waiting
+  // for the next monitor tick. In-flight runs are unaffected per spec.
+  try {
+    const budget = await getBudgetState(workspace);
+    if (budget.exceeded) {
+      const reason =
+        `daily spend budget exceeded: $${budget.spentUsd.toFixed(4)} of $${budget.budgetUsd?.toFixed(2)} (resumes at local midnight)`;
+      const room = manifest.rooms?.primary ?? { wing: "operations", hall: "ai", room: manifest.id };
+      await session.writeDrawer(room, JSON.stringify({
+        skill: manifest.id,
+        success: true,
+        skipped: true,
+        reason,
+      }));
+      await appendWal({
+        workspace,
+        op: "ai_skill_skipped",
+        actor: `skill:${manifest.id}`,
+        payload: { run_id: runId, reason, spend_budget: true },
+      });
+      await runTracker.markStepCompleted(runId, stepId);
+      await runTracker.markSkipped(runId, reason);
+      await pauseForBudgetBreach(workspace, budget);
+      console.warn(`[nexaas] AI skill '${manifest.id}' skipped: ${reason}`);
+      return { success: true, turns: 0, toolCalls: 0, content: `skipped: ${reason}` };
+    }
+  } catch (err) {
+    // Budget evaluation must never block execution — fail open and let the
+    // monitor task be the enforcement backstop.
+    console.error(`[nexaas] spend-budget pre-run check failed (continuing):`, err);
   }
 
   // Load the prompt

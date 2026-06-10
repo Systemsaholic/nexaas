@@ -40,6 +40,7 @@ import { randomUUID } from "crypto";
 import { bearerAuth } from "./middleware/bearer-auth.js";
 import { runCompaction } from "./tasks/closet-compaction.js";
 import { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
+import { spendBudgetTick } from "./tasks/spend-budget-monitor.js";
 import { runAndRecord, sendAlerts } from "./tasks/health-monitor.js";
 import { handlePaMessage } from "./pa/service.js";
 import { loadMcpConfigs } from "./mcp/client.js";
@@ -1299,6 +1300,15 @@ async function main() {
     }
   }, 5 * 60 * 1000);
 
+  // Spend-budget monitor (#215) — pause on daily-budget breach, resume on
+  // day rollover / override / budget change. Runs once at startup too:
+  // BullMQ pause state persists in Redis across restarts, so a worker that
+  // died mid-pause must reconcile immediately, not a minute later.
+  spendBudgetTick(WORKSPACE!).catch(() => { /* logged inside */ });
+  setInterval(() => {
+    spendBudgetTick(WORKSPACE!).catch(() => { /* logged inside */ });
+  }, 60 * 1000);
+
   // Delay initial health check
   setTimeout(async () => {
     try {
@@ -1309,7 +1319,7 @@ async function main() {
     }
   }, 15000);
 
-  console.log("[nexaas] Background tasks started (compaction + waitpoint reaper + health monitor)");
+  console.log("[nexaas] Background tasks started (compaction + waitpoint reaper + health monitor + spend-budget monitor)");
   console.log("[nexaas] Worker ready. Waiting for jobs...");
 }
 
