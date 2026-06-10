@@ -14,6 +14,16 @@
  */
 
 export { runSkillStep } from "./pipeline.js";
+export {
+  runAiSkill,
+  type AiSkillManifest,
+  type AiSkillExecutionContext,
+} from "./ai-skill.js";
+export {
+  runShellSkill,
+  type ShellSkillManifest,
+  type SkillExecutionContext,
+} from "./shell-skill.js";
 export { ModelGateway } from "./models/gateway.js";
 export { route as tagRoute } from "./tag/route.js";
 export { assemble as cagAssemble } from "./cag/assemble.js";

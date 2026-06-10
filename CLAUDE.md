@@ -55,12 +55,13 @@ no client names, no specific data, no workspace-specific context]
 
 ## CLI Reference
 
-The `nexaas` CLI provides 15 commands for workspace management:
+The `nexaas` CLI provides these commands for workspace management:
 
 ```
 nexaas init --workspace <id>           Set up Nexaas on a VPS
 nexaas status                          Runtime health check
 nexaas health                          Detailed 10-point health report
+nexaas conformance [--json]            Prove the install works end-to-end ($0 AI spend)
 nexaas register-skill <skill.yaml>     Register skill with BullMQ scheduler
 nexaas trigger-skill <skill.yaml>      Fire a skill manually
 nexaas dry-run <skill.yaml> [--live]   Validate a skill manifest
