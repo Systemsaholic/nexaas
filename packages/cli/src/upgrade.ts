@@ -46,6 +46,7 @@ import { chmodSync, existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import pg from "pg";
 import { appendWal, getPool } from "@nexaas/palace";
+import { applyPendingMigrations, getPendingMigrations } from "./migrations.js";
 
 const CHANNELS = ["stable", "canary"] as const;
 const CONFORMANCE_TIMEOUT_MS = 600_000;
@@ -297,41 +298,16 @@ export async function run(args: string[]) {
   // Step 5: Apply pending migrations.
   //
   // Each migration runs inside its own transaction with the schema_migrations
-  // marker INSERT — atomic apply + record. If the SQL fails partway, the
-  // marker rolls back too. This prevents the failure mode in #72 where the
-  // marker outlasted a failed apply and the dispatcher silently broke for
-  // days waiting on a table that was recorded as created but didn't exist.
-  const pending = await getPendingMigrations(pool, nexaasRoot);
-  if (pending.length > 0) {
-    console.log(`\n  Applying ${pending.length} migration(s)...`);
-    for (const migration of pending) {
-      const sqlPath = join(nexaasRoot, "database/migrations", migration);
-      const sqlContent = readFileSync(sqlPath, "utf-8");
-      const client = await pool.connect();
-      let migrationFailed = false;
-      try {
-        await client.query("BEGIN");
-        await client.query(sqlContent);
-        await client.query(
-          `INSERT INTO nexaas_memory.schema_migrations (filename, applied_at) VALUES ($1, now()) ON CONFLICT DO NOTHING`,
-          [migration],
-        );
-        await client.query("COMMIT");
-        console.log(`    ✓ ${migration}`);
-      } catch (e) {
-        await client.query("ROLLBACK").catch(() => { /* best effort */ });
-        console.error(`    ✗ ${migration}: ${(e as Error).message}`);
-        console.error("  Migration failed — stopping. Fix the issue and run 'nexaas upgrade --migrate'");
-        migrationFailed = true;
-      } finally {
-        client.release();
-      }
-      // Exit AFTER release so the connection always returns to the pool —
-      // process.exit doesn't run finally on the *outer* scope, but we already
-      // released in the inner finally. Belt and suspenders: see PR #77 review.
-      if (migrationFailed) process.exit(1);
-    }
-  } else {
+  // marker INSERT — atomic apply + record (shared runner, #218). If the SQL
+  // fails partway, the marker rolls back too — the #72 failure mode where a
+  // marker outlasted a failed apply and the dispatcher silently broke.
+  const migrationResult = await applyPendingMigrations(pool, nexaasRoot);
+  if (migrationResult.failed) {
+    console.error(`    ✗ ${migrationResult.failed.filename}: ${migrationResult.failed.error}`);
+    console.error("  Migration failed — stopping. Fix the issue and run 'nexaas upgrade --migrate'");
+    process.exit(1);
+  }
+  if (migrationResult.applied.length === 0 && migrationResult.legacyResolved.length === 0) {
     console.log("  Migrations: up to date");
   }
 
@@ -741,38 +717,5 @@ function maybeMigrateSystemdUnit(nexaasRoot: string): void {
   }
 }
 
-async function getPendingMigrations(pool: pg.Pool, nexaasRoot: string): Promise<string[]> {
-  const migrationsDir = join(nexaasRoot, "database/migrations");
-  if (!existsSync(migrationsDir)) return [];
-
-  const allFiles = readdirSync(migrationsDir)
-    .filter(f => f.endsWith(".sql"))
-    .sort();
-
-  let applied: Set<string>;
-  try {
-    // Ensure tracking table exists.
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS nexaas_memory.schema_migrations (
-        filename TEXT PRIMARY KEY,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
-
-    // No seed-all heuristic. The previous "if schema_migrations is empty and
-    // nexaas_memory has >5 tables, mark every migration as applied" path was
-    // the root cause of #72 — it stamped migrations that init.ts never ran
-    // (e.g. 016/017 added after the workspace was set up) as applied without
-    // executing their SQL. All migrations use CREATE TABLE/INDEX IF NOT
-    // EXISTS, so re-running them on a workspace whose tables were created by
-    // init.ts is safe (idempotent) and self-heals the schema_migrations row
-    // set on the first post-fix upgrade.
-
-    const result = await pool.query(`SELECT filename FROM nexaas_memory.schema_migrations`);
-    applied = new Set(result.rows.map(r => r.filename));
-  } catch {
-    applied = new Set();
-  }
-
-  return allFiles.filter(f => !applied.has(f));
-}
+// Tracked migration runner moved to ./migrations.ts (#218) — shared with
+// `nexaas init` so fresh installs record into the canonical tracker too.

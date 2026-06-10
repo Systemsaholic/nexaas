@@ -79,6 +79,9 @@ switch (command) {
   case "conformance":
     import("./conformance.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "validate-manifest":
+    import("./validate-manifest.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -99,6 +102,7 @@ Commands:
   doctor locks [--since 24h]           Concurrency-group lock contention report
   status                                Check runtime health
   conformance [--json|--skip-execution] Prove the install works end-to-end ($0 AI spend)
+  validate-manifest [<workspace-id>]    Fail-closed workspace-manifest check for provisioners
   verify-wal [--full]                   Verify WAL chain integrity
   migration-state [--json]              Print applied/pending migrations from the canonical tracker
 
