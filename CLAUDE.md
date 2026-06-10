@@ -69,7 +69,7 @@ nexaas library list|contribute|install|diff|promote|feedback
 nexaas propagate check|push|accept|reject
 nexaas alerts [list|test|config]       Notification management
 nexaas backup [run|list|test|schedule] Database backup/restore
-nexaas upgrade [--check|--migrate]     Framework updates
+nexaas upgrade [--check|--migrate|--channel <c>|--to <tag>|--rollback]  Framework updates
 nexaas create-mcp <name>              Scaffold MCP server
 nexaas gdpr export|delete|redact|subjects|audit
 nexaas verify-wal [--full]            WAL chain integrity
@@ -111,6 +111,10 @@ The `nexaas-worker.service` runs the BullMQ worker, outbox relay, and Bull Board
 - BullMQ scheduler-spawned jobs may arrive with empty `data` — worker must fall back to `process.env.NEXAAS_WORKSPACE`
 - Shell/AI skill executors create their own `skill_runs` records — the worker must NOT duplicate them
 - On startup: reconcile orphaned `skill_runs` (status='running' with stale last_activity) and deduplicate stale BullMQ repeatables
+
+## Release Policy
+
+Clients consume **tagged semver releases (`vX.Y.Z`) via channels** — git branches `channel/stable` and `channel/canary` fast-forwarded by ops to release tags. **`main` is never deployed to clients.** Workspaces opt in with `nexaas upgrade --channel stable|canary`; deployments with no channel configured keep legacy tracking-branch behavior. `nexaas upgrade --to vX.Y.Z` pins a hotfix tag; `nexaas upgrade --rollback` returns to the previous ref (code only — migrations are never reverted, so **every migration must be backward-compatible one release**: additive columns nullable/defaulted, no renames/drops of anything the prior release reads, removals two-phase across releases). Every release section in `CHANGELOG.md` lists its migrations. Full procedure: `docs/releases.md`.
 
 ## Deploying to a New Workspace
 

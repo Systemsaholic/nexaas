@@ -93,7 +93,7 @@ Commands:
   alerts [test|config]                 View and manage notifications
   dry-run <path> [--live]              Validate and test a skill locally
   backup [list|test|schedule]          Database backup and restore
-  upgrade                              Pull latest framework + apply migrations
+  upgrade [--channel stable|canary|--to <tag>|--rollback]  Upgrade framework (channels/pin/rollback) + apply migrations
   create-mcp <name>                    Scaffold a new MCP server
   gdpr export|delete|redact|subjects   PII management (GDPR compliance)
   doctor locks [--since 24h]           Concurrency-group lock contention report
