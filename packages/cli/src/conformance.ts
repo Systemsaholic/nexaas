@@ -21,7 +21,7 @@
  *             2 = cannot run (missing env / DB unreachable).
  */
 
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -172,6 +172,60 @@ export async function run(args: string[] = []) {
       return { status: "fail", detail: `WAL chain broken at id ${r.brokenAt}: ${r.error}` };
     }
     return { status: "pass", detail: "hash chain valid" };
+  });
+
+  await check("secrets-hygiene", async () => {
+    const problems: string[] = [];
+
+    // .env at rest: 0600 — readable by the worker user only (#217).
+    const envPath = join(process.env.NEXAAS_ROOT ?? "/opt/nexaas", ".env");
+    try {
+      const mode = statSync(envPath).mode & 0o777;
+      if ((mode & 0o077) !== 0) {
+        problems.push(`.env mode ${mode.toString(8).padStart(3, "0")} — group/world readable (want 600)`);
+      }
+    } catch { /* no .env at NEXAAS_ROOT — env supplied another way */ }
+
+    // Secret values leaking into audited storage: every configured secret
+    // long enough to be real is grepped against 24h of WAL payloads and
+    // ops_alerts. position() not LIKE — secrets may contain %/_.
+    const SECRET_KEYS = [
+      "ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "RESEND_API_KEY",
+      "TELEGRAM_BOT_TOKEN", "NEXAAS_FLEET_TOKEN",
+      "NEXAAS_CROSS_VPS_BEARER_TOKEN", "NEXAAS_CROSS_VPS_BEARER_TOKEN_PREVIOUS",
+    ];
+    let checked = 0;
+    for (const key of SECRET_KEYS) {
+      const value = process.env[key];
+      if (!value || value.length < 16) continue;
+      checked++;
+      const wal = await pool.query(
+        `SELECT count(*)::int AS n FROM nexaas_memory.wal
+          WHERE created_at > now() - interval '24 hours'
+            AND position($1 in payload::text) > 0`,
+        [value],
+      );
+      if ((wal.rows[0]?.n ?? 0) > 0) {
+        problems.push(`${key} value found in ${wal.rows[0].n} WAL payload(s) from the last 24h`);
+      }
+      const alerts = await pool.query(
+        `SELECT count(*)::int AS n FROM nexaas_memory.ops_alerts
+          WHERE fired_at > now() - interval '24 hours'
+            AND position($1 in payload::text) > 0`,
+        [value],
+      );
+      if ((alerts.rows[0]?.n ?? 0) > 0) {
+        problems.push(`${key} value found in ${alerts.rows[0].n} ops_alert payload(s) from the last 24h`);
+      }
+    }
+
+    if (problems.length > 0) {
+      return { status: "fail", detail: problems.join("; ") };
+    }
+    return {
+      status: "pass",
+      detail: `.env perms ok; ${checked} configured secret(s) absent from 24h of WAL + ops_alerts`,
+    };
   });
 
   // ── Execution proofs ────────────────────────────────────────────────

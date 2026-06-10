@@ -42,7 +42,7 @@
  */
 
 import { execSync, spawnSync } from "child_process";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { chmodSync, existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import pg from "pg";
 import { appendWal, getPool } from "@nexaas/palace";
@@ -101,6 +101,10 @@ export async function run(args: string[]) {
     console.error(`--channel must be one of: ${CHANNELS.join(", ")}`);
     process.exit(1);
   }
+
+  // Secrets hygiene (#217): re-assert .env permissions on every upgrade —
+  // init sets 0600 but manual edits/copies drift. Best-effort.
+  try { chmodSync(join(nexaasRoot, ".env"), 0o600); } catch { /* no .env or not ours */ }
 
   const pool = new pg.Pool({ connectionString: dbUrl, max: 2 });
 

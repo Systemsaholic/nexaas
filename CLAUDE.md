@@ -170,7 +170,9 @@ Set in `.env` (never committed):
 - `NEXAAS_SILENT_FAILURE_THRESHOLD` — consecutive-failure count that triggers a silent-failure alert (default: 5; minimum: 2). See #69.
 - `NEXAAS_SILENT_FAILURE_CHANNEL_ROLE` — channel_role to emit silent-failure alerts to (unset = feature disabled). Bind this role to an operator-facing channel in the workspace manifest. See #69.
 - `NEXAAS_MCP_POOL_ENABLED` — reuse MCP subprocesses across ai-skill runs instead of spawning fresh per run (default: unset = spawn-per-run). Saves 3–5s per run on skills declaring many MCPs. Applies to `ai-skill.ts` only for now; other call sites (subagent, notification-dispatcher, pa/service) stay on spawn-per-run. See #63.
-- `NEXAAS_CROSS_VPS_BEARER_TOKEN` — bearer token for cross-VPS framework HTTP endpoints (`/api/waitpoints/inbound-match`, `/api/drawers/inbound`). Set in operator-managed mode where an ops-VPS relay writes into client VPSes. Leave unset in direct-adopter mode — endpoints remain open. See `docs/adoption-patterns/multi-vps-channel-relay.md`.
+- `NEXAAS_CROSS_VPS_BEARER_TOKEN` — bearer token for ALL mutating `/api/*` worker endpoints (#217). Generated per-VPS by `nexaas init`; unset = endpoints open (legacy direct-adopter posture). See `docs/security-surface.md`.
+- `NEXAAS_CROSS_VPS_BEARER_TOKEN_PREVIOUS` — secondary accepted token during rotation (dual-accept window). Remove + restart to complete a rotation. See `docs/security-surface.md`.
+- `NEXAAS_WORKER_BIND` — worker HTTP bind address (default: all interfaces). Set `127.0.0.1` on direct-adopter VPSes with no off-box callers. See `docs/security-surface.md`.
 
 ## Separation of Concerns — Nexaas vs Nexmatic
 

@@ -13,6 +13,7 @@ Canonical documentation for the Nexaas framework — context-aware AI execution 
 | [`fleet-protocol.md`](./fleet-protocol.md) | Wire contract between a client VPS worker and an operator-managed fleet dashboard (registration + heartbeat v3 + escalated events). | When wiring operator-managed deployments. |
 | [`releases.md`](./releases.md) | Cutting releases, channel promotion (canary→stable), hotfix push, rollback + migration back-compat rules. | When cutting or promoting a release. |
 | [`spend-governance.md`](./spend-governance.md) | Per-workspace daily AI budget — config, enforcement surfaces, pause/resume semantics, observation. | When setting client budgets or debugging a paused queue. |
+| [`security-surface.md`](./security-surface.md) | The :9090 surface audit, bearer-token + key rotation procedures, bind/firewall posture, signing-key backup, secrets hygiene. | When provisioning, rotating credentials, or exposing anything. |
 | [`migration-guide.md`](./migration-guide.md) | Moving from Trigger.dev, n8n, or any automation system to Nexaas — parallel operation, per-flow revert, risk tiers | When migrating existing systems. |
 | [`adoption-patterns/`](./adoption-patterns/README.md) | Framework-agnostic patterns distilled from canary adoption — telegram channel, 2FA intercept, approval-gated outputs, etc. | When implementing a specific flow for the first time. |
 | [`glossary.md`](./glossary.md) | Terminology cheat sheet — every named concept in the system | As needed. |
