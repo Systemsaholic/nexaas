@@ -12,6 +12,13 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.3.2 — 2026-06-10
+
+Hotfix: the v0.3.1 Phoenix canary caught a production-scale OOM in WAL
+chain verification. No new migrations; rollback to v0.3.1 unconstrained.
+
 ### Fixed
 - `verifyWalChain` streams the chain in 5000-row keyset batches — the
   previous single unbounded SELECT materialized every row and exhausted the
