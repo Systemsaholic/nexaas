@@ -54,7 +54,7 @@ function findMigrationsDir(): string | null {
   return null;
 }
 
-async function gatherState(): Promise<State> {
+export async function gatherState(): Promise<State> {
   const migrationsDir = findMigrationsDir();
   if (!migrationsDir) {
     throw new Error(

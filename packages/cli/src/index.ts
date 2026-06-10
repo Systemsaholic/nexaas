@@ -76,6 +76,9 @@ switch (command) {
   case "doctor":
     import("./doctor.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "conformance":
+    import("./conformance.js").then((m) => m.run(process.argv.slice(3)));
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -95,6 +98,7 @@ Commands:
   gdpr export|delete|redact|subjects   PII management (GDPR compliance)
   doctor locks [--since 24h]           Concurrency-group lock contention report
   status                                Check runtime health
+  conformance [--json|--skip-execution] Prove the install works end-to-end ($0 AI spend)
   verify-wal [--full]                   Verify WAL chain integrity
   migration-state [--json]              Print applied/pending migrations from the canonical tracker
 
