@@ -51,6 +51,15 @@ export async function run() {
 
   console.log(`\n  Nexaas Status — ${workspace}\n`);
 
+  // Running framework version + release channel (#214). `git describe` shows
+  // the tag for tagged releases, tag-N-gSHA between tags, bare SHA on
+  // pre-release installs. No channel configured = legacy tracking-branch mode.
+  const nexaasRoot = process.env.NEXAAS_ROOT ?? "/opt/nexaas";
+  const version = exec(`git -C ${nexaasRoot} describe --tags --always 2>/dev/null`);
+  console.log(`  Version:    ${version || "unknown"}`);
+  const channel = exec(`psql "${dbUrl}" -c "SELECT value FROM nexaas_memory.workspace_kv WHERE workspace = '${workspace}' AND key = 'framework_channel'" -t -A 2>/dev/null`);
+  console.log(`  Channel:    ${channel || "(none — tracking branch)"}\n`);
+
   // Worker service
   const workerActive = exec("systemctl is-active nexaas-worker 2>/dev/null");
   const workerIcon = workerActive === "active" ? "✓" : "✗";
