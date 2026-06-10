@@ -1,7 +1,11 @@
 # Fleet Protocol
 
-How each Nexaas client VPS reports its framework version and worker
-health to the central Nexmatic ops dashboard.
+How each Nexaas client VPS reports its framework version, workspace health,
+and escalated events to the central Nexmatic ops dashboard.
+
+*Heartbeat payload v3 + the `/events` endpoint shipped for #216 (production
+hardening T4). Consumed by the Nexmatic fleet receiver
+(Systemsaholic/nexmatic#10).*
 
 This document defines the wire contract. The VPS side is implemented in
 `packages/runtime/src/fleet/heartbeat.ts` and `packages/cli/src/init.ts`.
@@ -23,6 +27,10 @@ the endpoints described here.
 │ fleet heartbeat ────┼─── POST /heartbeat ────▶│  upsert fleet row    │
 │                     │    Bearer <token>       │  update dashboard    │
 │                     │◀── 200 {ok:true} ───────│                      │
+│                     │                         │                      │
+│ watchdogs/monitors  │    3. as they happen    │                      │
+│ fleet events ───────┼─── POST /events ───────▶│  page or digest      │
+│                     │    Bearer <token>       │  per severity        │
 └─────────────────────┘                         └──────────────────────┘
 ```
 
@@ -104,27 +112,64 @@ startup and after `nexaas upgrade`.
 
 - **Auth:** `Authorization: Bearer <NEXAAS_FLEET_TOKEN>`
 - **Content-Type:** `application/json`
-- **Body:**
+- **Body (payload v3, #216):**
 
-```json
+```jsonc
 {
+  "payload_version": 3,
   "workspace": "phoenix-voyages",
-  "version": "0.2.0",
-  "commit_sha": "44bf213",
-  "branch": "main",
+  "version": "0.3.0",                  // VERSION file (release stamp)
+  "commit_sha": "151c629",
+  "branch": "main",                    // "HEAD" when detached on a tag/channel ref
+  "describe": "v0.3.0",                // git describe --tags --always — the human version
+  "channel": "canary",                 // workspace_kv framework_channel; null = legacy tracking-branch
   "hostname": "phoenix.vps.ovh.net",
-  "started_at": "2026-04-19T10:15:22.431Z",
-  "now": "2026-04-19T10:20:22.431Z",
-  "worker_status": "running"
+  "started_at": "2026-06-10T10:15:22.431Z",
+  "now": "2026-06-10T10:20:22.431Z",
+  "worker_status": "running",
+  "uptime_s": 300,
+  "runs_24h": {                        // nullable
+    "completed": 412, "failed": 3, "skipped": 9,
+    "success_rate_pct": 99             // null when no terminal runs in 24h
+  },
+  "spend": {                           // nullable (#215)
+    "day": "2026-06-10",               // workspace-local day
+    "spent_usd": 4.91,
+    "budget_usd": 25.0,                // null = unlimited
+    "paused": false                    // true = queue paused on budget breach
+  },
+  "migrations": {                      // nullable
+    "applied": 24,
+    "pending": 0                       // >0 = upgrade incomplete — surface it
+  },
+  "conformance": {                     // nullable — last `nexaas conformance` run, any age (#213)
+    "at": "2026-06-10T11:58:00Z",
+    "passed": 8, "failed": 0, "skipped": 1,
+    "failed_checks": []
+  },
+  "queue": {                           // nullable
+    "waiting": 0, "active": 1, "delayed": 2, "failed": 0,
+    "paused": false
+  }
 }
 ```
 
 Field notes:
 - `started_at` — when the worker process booted. Useful for uptime calc.
+  A `started_at` newer than the previous beat's means the worker restarted
+  in between; a restart loop (several per hour) is page-worthy.
 - `now` — client clock at send time. Compare to server-side `received_at`
   to detect clock skew.
 - `worker_status` — always `"running"` in v1. Future: `"draining"`,
   `"degraded"`, with subfields for reason.
+- **Every v3 collector is best-effort on the sender**: a field documented
+  as nullable arrives `null` when its collector failed, which is itself
+  signal (e.g. `queue: null` usually means Redis is down). A degraded
+  collector never blocks the beat.
+- Receivers MUST tolerate unknown additional fields — the payload grows
+  additively; `payload_version` bumps only on breaking shape changes.
+- The payload contains operational metadata only — no drawer contents, no
+  message bodies, no client business data. Keep it that way.
 
 ### Response (200)
 
@@ -148,12 +193,84 @@ entry, but **never crashes the worker**.
 
 1. Extract bearer token; look up `fleet_tokens` by SHA-256 hash
 2. Verify `tokens.workspace === body.workspace`
-3. Upsert into `fleet_heartbeats (workspace, version, commit_sha, branch, hostname, started_at, received_at, worker_status)`
+3. Upsert into `fleet_heartbeats` (store the full v3 payload as jsonb
+   alongside the indexed columns)
 4. Return `200 {ok:true}`
 
-For the dashboard `/fleet` page, query the latest heartbeat per
-workspace. Anything with `now() - received_at > 15 min` is "stale"
-(yellow badge); `> 1 hr` is "dead" (red).
+### Missed-beat semantics (the receiver's half of the contract)
+
+A dead worker cannot self-report — **absence of beats is the signal** and
+detecting it is entirely receiver-side. Expect a beat every 5 minutes per
+workspace; the sender never queues or replays missed beats (the next beat
+implicitly carries current state).
+
+For the dashboard `/fleet` page, query the latest heartbeat per workspace:
+- `now() - received_at > 15 min` (3 missed beats) → "stale" (yellow) and
+  **page** — a silent VPS is indistinguishable from a down one
+- `> 1 hr` → "dead" (red)
+
+Version/channel rollups from the v3 payload feed the canary-promotion
+decision (`docs/releases.md`): promote `channel/stable` only when every
+canary-channel workspace reports the new `describe` with green
+`conformance` and sane error rates.
+
+## Endpoint: `POST {endpoint}/events`
+
+Escalated events (#216), pushed as they happen — not batched with beats.
+This path exists for exactly the case where a workspace's own channel
+bindings are broken: it must not share fate with workspace-level alerting.
+
+### Request
+
+- **Auth:** `Authorization: Bearer <NEXAAS_FLEET_TOKEN>`
+- **Content-Type:** `application/json`
+- **Body:**
+
+```jsonc
+{
+  "payload_version": 3,
+  "workspace": "phoenix-voyages",
+  "hostname": "phoenix.vps.ovh.net",
+  "at": "2026-06-10T12:03:11Z",
+  "type": "silent_failure",            // stable machine type
+  "severity": "page",                  // "page" | "digest"
+  "title": "Silent failure: ops/lead-sync failed 5 runs in a row",
+  "body": "First failure in streak: ...\nLast error: ...",
+  "dedupe_key": "silent-failure:ops/lead-sync:2026-06-10T11:40:00Z",
+  "data": { "skill_id": "ops/lead-sync", "streak": 5 }
+}
+```
+
+**Severity discipline** (solo-operator rule, #219): `page` = wake a human
+now; `digest` = batch into the daily rollup. The sender assigns severity;
+the receiver applies the delivery policy. Receivers MUST de-dupe on
+`(workspace, dedupe_key)` — senders may re-emit on restart.
+
+Event types currently emitted:
+
+| `type` | severity | source |
+|---|---|---|
+| `silent_failure` | page | silent-failure watchdog (#69) — fires upstream even when no local channel role is configured |
+| `spend_budget_exceeded` | page | spend-budget monitor (#215) — one per workspace-day |
+
+New types will be added without a `payload_version` bump; receivers SHOULD
+render unknown types generically (title/body/severity) rather than drop
+them.
+
+### Response
+
+Any 2xx acknowledges; the body is ignored. Delivery is
+at-least-once-attempted: a failed POST is WAL-logged (`fleet_event_failed`)
+but not retried — the heartbeat's state fields (e.g. `spend.paused`) act
+as the eventual-consistency backstop for anything an event missed.
+
+### Sender-side observability
+
+| Where | What |
+|---|---|
+| `nexaas_memory.framework_heartbeat` | single row: identity + last push status/HTTP code |
+| WAL `framework_heartbeat_sent/skipped/failed` | every beat attempt |
+| WAL `fleet_event_sent/failed` | every event attempt |
 
 ## Suggested Nexmatic schema
 

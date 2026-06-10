@@ -10,7 +10,9 @@ Canonical documentation for the Nexaas framework — context-aware AI execution 
 | [`deployment-patterns.md`](./deployment-patterns.md) | The two valid deployment modes — direct adopter (Phoenix-style) vs operator-managed (Nexmatic-style). Framework is tenant-agnostic by contract. | Early — decide which mode before deploying. |
 | [`skill-authoring.md`](./skill-authoring.md) | Building skills — shell vs AI, nexaasification, model tiers, MCP integration, agentic loop, palace vs Claude Code memory | When you're ready to build. |
 | [`deployment-ops.md`](./deployment-ops.md) | Deploying & operating — systemd config, legacy cleanup, worker startup, monitoring, backups, upgrading. Lessons from Phoenix production. | When deploying or troubleshooting. |
-| [`fleet-protocol.md`](./fleet-protocol.md) | Wire contract between a client VPS worker and an operator-managed fleet dashboard (heartbeat + bootstrap registration). | When wiring operator-managed deployments. |
+| [`fleet-protocol.md`](./fleet-protocol.md) | Wire contract between a client VPS worker and an operator-managed fleet dashboard (registration + heartbeat v3 + escalated events). | When wiring operator-managed deployments. |
+| [`releases.md`](./releases.md) | Cutting releases, channel promotion (canary→stable), hotfix push, rollback + migration back-compat rules. | When cutting or promoting a release. |
+| [`spend-governance.md`](./spend-governance.md) | Per-workspace daily AI budget — config, enforcement surfaces, pause/resume semantics, observation. | When setting client budgets or debugging a paused queue. |
 | [`migration-guide.md`](./migration-guide.md) | Moving from Trigger.dev, n8n, or any automation system to Nexaas — parallel operation, per-flow revert, risk tiers | When migrating existing systems. |
 | [`adoption-patterns/`](./adoption-patterns/README.md) | Framework-agnostic patterns distilled from canary adoption — telegram channel, 2FA intercept, approval-gated outputs, etc. | When implementing a specific flow for the first time. |
 | [`glossary.md`](./glossary.md) | Terminology cheat sheet — every named concept in the system | As needed. |

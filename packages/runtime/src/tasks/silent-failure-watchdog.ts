@@ -16,13 +16,18 @@
  *
  * Configuration (all env-var, no manifest dependency):
  *   NEXAAS_SILENT_FAILURE_THRESHOLD        default 5; minimum 2
- *   NEXAAS_SILENT_FAILURE_CHANNEL_ROLE     no default — unset = disabled
+ *   NEXAAS_SILENT_FAILURE_CHANNEL_ROLE     no default — unset = no local drawer
  *
- * The watchdog is a no-op when the channel role isn't set, so existing
- * adopters see no behavior change until they opt in.
+ * Fleet escalation (#216): when NEXAAS_FLEET_ENDPOINT is configured, every
+ * threshold crossing ALSO pushes a page-severity fleet event — even with no
+ * channel role set. A workspace whose channel bindings are broken is exactly
+ * the case silent-failure exists for; the upstream path must not depend on
+ * the local one. With neither a channel role nor a fleet endpoint, the
+ * watchdog stays a complete no-op (existing adopters unchanged).
  */
 
 import { sql, palace, appendWal } from "@nexaas/palace";
+import { isFleetConfigured, pushFleetEvent } from "../fleet/heartbeat.js";
 
 const THRESHOLD = (() => {
   const raw = process.env.NEXAAS_SILENT_FAILURE_THRESHOLD;
@@ -44,7 +49,7 @@ export async function checkFailureStreak(
   workspace: string,
   skillId: string,
 ): Promise<void> {
-  if (!CHANNEL_ROLE) return;
+  if (!CHANNEL_ROLE && !isFleetConfigured()) return;
 
   // Pull THRESHOLD+1 most recent terminal runs. We need one extra row to
   // tell a *fresh* threshold crossing (streak exactly == THRESHOLD) from an
@@ -69,18 +74,33 @@ export async function checkFailureStreak(
   const firstFailedAt = recent[THRESHOLD - 1].started_at;
   const lastError = recent[0].error_summary ?? "(no error summary)";
 
-  const session = palace.enter({ workspace });
-  await session.writeDrawer(
-    { wing: "notifications", hall: "pending", room: "ops-alerts.silent-failure" },
-    JSON.stringify({
-      idempotency_key: `silent-failure:${skillId}:${firstFailedAt}`,
-      channel_role: CHANNEL_ROLE,
-      content:
-        `⚠️ Silent failure: skill ${skillId} has failed ${THRESHOLD} runs in a row.\n` +
-        `First failure in streak: ${firstFailedAt}\n` +
-        `Last error: ${lastError.slice(0, 400)}`,
-    }),
-  );
+  if (CHANNEL_ROLE) {
+    const session = palace.enter({ workspace });
+    await session.writeDrawer(
+      { wing: "notifications", hall: "pending", room: "ops-alerts.silent-failure" },
+      JSON.stringify({
+        idempotency_key: `silent-failure:${skillId}:${firstFailedAt}`,
+        channel_role: CHANNEL_ROLE,
+        content:
+          `⚠️ Silent failure: skill ${skillId} has failed ${THRESHOLD} runs in a row.\n` +
+          `First failure in streak: ${firstFailedAt}\n` +
+          `Last error: ${lastError.slice(0, 400)}`,
+      }),
+    );
+  }
+
+  // Upstream escalation (#216) — fires regardless of the local channel
+  // role; silent no-op when the fleet endpoint isn't configured.
+  await pushFleetEvent(workspace, {
+    type: "silent_failure",
+    severity: "page",
+    title: `Silent failure: ${skillId} failed ${THRESHOLD} runs in a row`,
+    body:
+      `First failure in streak: ${firstFailedAt}\n` +
+      `Last error: ${lastError.slice(0, 400)}`,
+    dedupe_key: `silent-failure:${skillId}:${firstFailedAt}`,
+    data: { skill_id: skillId, streak: THRESHOLD, first_failed_at: firstFailedAt },
+  });
 
   await appendWal({
     workspace,
@@ -90,7 +110,8 @@ export async function checkFailureStreak(
       skill_id: skillId,
       streak: THRESHOLD,
       first_failed_at: firstFailedAt,
-      channel_role: CHANNEL_ROLE,
+      channel_role: CHANNEL_ROLE ?? null,
+      fleet_escalated: isFleetConfigured(),
       last_error: lastError.slice(0, 500),
     },
   });
