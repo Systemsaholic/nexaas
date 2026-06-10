@@ -86,6 +86,37 @@ export async function run() {
   const cost = parseFloat(costRes.rows[0]?.cost ?? "0");
   if (cost > 20) alerts.push({ sev: "warning", comp: "cost", msg: `$${cost.toFixed(2)} today` });
 
+  // Daily spend budget (#215). Tolerates a not-yet-migrated DB (the
+  // spend_daily table arrives with migration 026) — health must not break
+  // during the upgrade window.
+  let budgetLine = "(unlimited)";
+  try {
+    const budgetRes = await pool.query(
+      `SELECT c.spend_daily_budget_usd::text AS budget,
+              COALESCE(s.usd, 0)::text AS spent,
+              (SELECT value FROM nexaas_memory.workspace_kv kv
+                WHERE kv.workspace = c.workspace AND kv.key = 'spend_pause_active_day') AS paused_day
+         FROM nexaas_memory.workspace_config c
+         LEFT JOIN nexaas_memory.spend_daily s
+           ON s.workspace = c.workspace
+          AND s.day = (now() AT TIME ZONE c.timezone)::date
+        WHERE c.workspace = $1`,
+      [workspace],
+    );
+    const b = budgetRes.rows[0];
+    if (b?.budget) {
+      const budgetUsd = parseFloat(b.budget);
+      const spentUsd = parseFloat(b.spent ?? "0");
+      const pct = budgetUsd > 0 ? Math.round((100 * spentUsd) / budgetUsd) : 0;
+      budgetLine = `$${spentUsd.toFixed(2)} of $${budgetUsd.toFixed(2)} (${pct}%)${b.paused_day ? " — QUEUE PAUSED" : ""}`;
+      if (b.paused_day) {
+        alerts.push({ sev: "critical", comp: "spend-budget", msg: `daily budget exceeded — queue paused (resumes at local midnight or via spend-override)` });
+      } else if (pct >= 80) {
+        alerts.push({ sev: "warning", comp: "spend-budget", msg: `${pct}% of daily budget spent ($${spentUsd.toFixed(2)} of $${budgetUsd.toFixed(2)})` });
+      }
+    }
+  } catch { /* pre-026 schema — no budget machinery yet */ }
+
   // Counts
   const walRes = await pool.query(`SELECT count(*) FROM nexaas_memory.wal WHERE workspace = $1`, [workspace]);
   const palaceRes = await pool.query(`SELECT count(*) FROM nexaas_memory.events WHERE workspace = $1 AND wing IS NOT NULL`, [workspace]);
@@ -108,6 +139,7 @@ export async function run() {
   console.log(`    Worker uptime:      ${Math.round(uptime)}s`);
   console.log(`    Last hour:          ${ok} ok, ${fail} fail (${rate}%)`);
   console.log(`    API cost today:     $${cost.toFixed(2)}`);
+  console.log(`    Spend budget:       ${budgetLine}`);
   console.log(`    WAL entries:        ${walRes.rows[0]?.count}`);
   console.log(`    Palace drawers:     ${palaceRes.rows[0]?.count}`);
   console.log(`    Memory:             ${memUsed}GB used, ${memAvail}GB available`);

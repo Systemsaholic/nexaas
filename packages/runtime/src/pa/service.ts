@@ -15,6 +15,8 @@
 import { randomUUID } from "crypto";
 import { palace, appendWal, sql } from "@nexaas/palace";
 import { runAgenticLoop, type McpTool } from "../models/agentic-loop.js";
+import { getBudgetState } from "../models/spend-governor.js";
+import { resolveTier } from "../models/registry.js";
 import { McpClient, loadMcpConfigs } from "../mcp/client.js";
 import { runTracker } from "../run-tracker.js";
 
@@ -57,6 +59,27 @@ export async function handlePaMessage(
 ): Promise<{ response: string; turns: number; toolCalls: number }> {
   const runId = randomUUID();
   const model = TIER_MAP[persona.modelTier] ?? "claude-sonnet-4-6";
+
+  // Daily spend budget gate (#215) — checked before run tracking, MCP
+  // spawn, or any model cost. PA requests arrive over HTTP, so the queue
+  // pause that stops skills doesn't stop them; without this check a chatty
+  // operator could keep burning the key all day. A clear refusal beats a
+  // cryptic error; the conversation resumes at local midnight.
+  try {
+    const budget = await getBudgetState(workspace);
+    if (budget.exceeded) {
+      return {
+        response:
+          `I've hit this workspace's daily AI budget ` +
+          `($${budget.spentUsd.toFixed(2)} of $${budget.budgetUsd?.toFixed(2)}), so I have to pause until midnight. ` +
+          `An operator can override for today with: nexaas config set spend-override today`,
+        turns: 0,
+        toolCalls: 0,
+      };
+    }
+  } catch (err) {
+    console.error(`[nexaas] pa: spend-budget check failed (continuing):`, err);
+  }
 
   await runTracker.createRun({
     runId,
@@ -286,6 +309,21 @@ Be helpful, context-aware, and follow the brand voice.`;
     // Anthropic response from holding the HTTP handler indefinitely.
     // Default 2 min; override via NEXAAS_PA_TIMEOUT_MS.
     const paTimeoutMs = parseInt(process.env.NEXAAS_PA_TIMEOUT_MS ?? "120000", 10);
+
+    // Resolve pricing so PA conversations land in daily spend accounting
+    // (#215) — without it the agentic loop computes costUsd=0 and PA usage
+    // is invisible to the budget. Mirrors ai-skill.ts.
+    let modelPricing: { inputCostPerM: number; outputCostPerM: number } | undefined;
+    try {
+      const resolved = resolveTier(persona.modelTier);
+      if (resolved.primary.input_cost_per_m != null && resolved.primary.output_cost_per_m != null) {
+        modelPricing = {
+          inputCostPerM: resolved.primary.input_cost_per_m,
+          outputCostPerM: resolved.primary.output_cost_per_m,
+        };
+      }
+    } catch { /* registry not available — spend goes unrecorded, as before */ }
+
     const result = await Promise.race([
       runAgenticLoop({
         model,
@@ -294,6 +332,7 @@ Be helpful, context-aware, and follow the brand voice.`;
         tools: allTools,
         executeTool,
         limits: { maxTurns: persona.maxTurns ?? 15 },
+        modelPricing,
         workspace,
         runId,
         skillId: `pa/${persona.id}`,

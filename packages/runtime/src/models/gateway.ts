@@ -16,6 +16,7 @@ import {
 import * as anthropicProvider from "./providers/anthropic.js";
 import * as openaiProvider from "./providers/openai.js";
 import { appendWal } from "@nexaas/palace";
+import { assertWithinBudget, recordSpend } from "./spend-governor.js";
 
 export type ModelTier = "cheap" | "good" | "better" | "best";
 
@@ -157,6 +158,14 @@ async function tryWithRetries(
 export const ModelGateway = {
   async execute(params: ExecuteParams): Promise<ExecuteResult> {
     const { tier, messages, system, tools, workspaceId, runId, stepId } = params;
+
+    // Daily budget gate (#215) — evaluated BEFORE resolving providers so a
+    // breach can never enter tryWithRetries or the fallback chain below.
+    // SpendBudgetExceededError propagates to the caller as-is; it is a
+    // policy stop, not a provider failure, and must never be "recovered"
+    // by falling back to another (still billable) provider.
+    await assertWithinBudget(workspaceId);
+
     const { primary, fallbacks } = resolveTier(tier);
 
     // Build the full message list including retrieval context
@@ -202,6 +211,8 @@ export const ModelGateway = {
           step_id: stepId,
         },
       });
+
+      await recordSpend(workspaceId, cost);
 
       return {
         content: primaryResult.content,
@@ -251,6 +262,8 @@ export const ModelGateway = {
             step_id: stepId,
           },
         });
+
+        await recordSpend(workspaceId, cost);
 
         return {
           content: fallbackResult.content,
