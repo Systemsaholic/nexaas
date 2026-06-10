@@ -53,7 +53,7 @@ capabilities:
     stage: experimental
     interface_version: "0.1"
     description: Read/write accounting entries, find matches, attach documents
-    implementations: []
+    implementations: [quickbooks]
     tools:
       - name: find_matching_entry
         input: { amount: number, date: string, counterparty_hint: string? }
@@ -69,7 +69,7 @@ capabilities:
     stage: experimental
     interface_version: "0.1"
     description: Upload, retrieve, and search documents by metadata
-    implementations: []
+    implementations: [m365]
     tools:
       - name: upload
         input: { content_base64: string, filename: string, metadata: object? }
@@ -88,7 +88,7 @@ capabilities:
     stage: experimental
     interface_version: "0.1"
     description: Poll an inbox, read threads, send replies, mark read
-    implementations: []
+    implementations: [m365]
     tools:
       - name: list_unread
         input: { folder: string?, limit: number? }
@@ -107,7 +107,7 @@ capabilities:
     stage: experimental
     interface_version: "0.2"
     description: Send transactional or marketing email
-    implementations: [resend]
+    implementations: [resend, m365]
     # Bumped v0.1 → v0.2 for #78 (Email Autopilot). v0.1 had a single-recipient
     # `to: string` and a flat `from: string`; v0.2 supports multi-recipient,
     # structured sender (display-name), reply_to, custom headers, provider-side
@@ -218,7 +218,7 @@ capabilities:
       Send messages to users on the same channel they came from. Channel-agnostic
       by contract — framework primitives only; channel adapters translate to
       channel-native API calls.
-    implementations: []
+    implementations: [m365]
     # Canonical vocabulary used across tools:
     #   parse_mode ∈ "markdown" | "html" | "plain"
     #     # framework-canonical formats; adapters map to channel-native dialects
