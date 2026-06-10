@@ -167,11 +167,25 @@ export async function run(args: string[] = []) {
   });
 
   await check("wal-chain", async () => {
-    const r = await verifyWalChain(workspace);
+    // Recent-window verification (last 5000 entries). Genesis-to-tip on a
+    // production WAL is minutes of hashing — wrong for a routine gate that
+    // runs on every upgrade; `nexaas verify-wal --full` exists for audits.
+    // (The v0.3.1 canary on Phoenix also exposed an unbounded-memory full
+    // scan here — fixed in palace, but the scope change stands on its own.)
+    const anchor = await pool.query(
+      `SELECT id FROM nexaas_memory.wal WHERE workspace = $1
+        ORDER BY id DESC LIMIT 1 OFFSET 4999`,
+      [workspace],
+    );
+    const fromId = anchor.rows[0]?.id as number | undefined;
+    const r = await verifyWalChain(workspace, fromId);
     if (!r.valid) {
       return { status: "fail", detail: `WAL chain broken at id ${r.brokenAt}: ${r.error}` };
     }
-    return { status: "pass", detail: "hash chain valid" };
+    return {
+      status: "pass",
+      detail: fromId ? `hash chain valid (last 5000 entries, from id ${fromId})` : "hash chain valid (full)",
+    };
   });
 
   await check("secrets-hygiene", async () => {

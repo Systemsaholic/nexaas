@@ -85,38 +85,69 @@ export async function appendWal(entry: WalEntry): Promise<void> {
   }
 }
 
+/**
+ * Rows verified per round-trip. Verification streams the chain in keyset-
+ * paginated batches instead of materializing every row: a production WAL
+ * (Phoenix: 1.34M+ rows with jsonb payloads) loaded as one array exhausts
+ * the V8 heap — found live when the v0.3.1 canary's conformance wal-chain
+ * check OOM-crashed node on Phoenix. Memory is now bounded by one batch.
+ */
+const VERIFY_BATCH_SIZE = 5000;
+
+type WalVerifyRow = {
+  id: number;
+  op: string;
+  actor: string;
+  payload: Record<string, unknown>;
+  prev_hash: string;
+  hash: string;
+  created_at: string;
+};
+
 export async function verifyWalChain(
   workspace: string,
   fromId?: number,
 ): Promise<{ valid: boolean; brokenAt?: number; error?: string }> {
-  const condition = fromId ? `AND id >= $2` : "";
-  const params: unknown[] = [workspace];
-  if (fromId) params.push(fromId);
-
-  const rows = await sql<{
-    id: number;
-    op: string;
-    actor: string;
-    payload: Record<string, unknown>;
-    prev_hash: string;
-    hash: string;
-    created_at: string;
-  }>(
-    // to_char the timestamp into the exact shape `new Date().toISOString()`
-    // produced at write time. Postgres' default `::text` cast uses
-    // "2026-04-22 11:15:00.094+00" which differs byte-for-byte from
-    // "2026-04-22T11:15:00.094Z" — the hash input the row was built with —
-    // so the default formatting always fails recomputation. See #70.
-    `SELECT id, op, actor, payload, prev_hash, hash,
-            to_char(created_at AT TIME ZONE 'UTC',
-                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at
-     FROM nexaas_memory.wal
-     WHERE workspace = $1 ${condition}
-     ORDER BY id ASC`,
-    params,
-  );
-
+  // Keyset cursor: `id > lastId` reproduces the original `id >= fromId`
+  // window when seeded with fromId - 1, and genesis-to-tip when seeded 0.
+  let lastId = fromId ? fromId - 1 : 0;
   let expectedPrevHash = fromId ? undefined : GENESIS_HASH;
+
+  for (;;) {
+    const rows = await sql<WalVerifyRow>(
+      // to_char the timestamp into the exact shape `new Date().toISOString()`
+      // produced at write time. Postgres' default `::text` cast uses
+      // "2026-04-22 11:15:00.094+00" which differs byte-for-byte from
+      // "2026-04-22T11:15:00.094Z" — the hash input the row was built with —
+      // so the default formatting always fails recomputation. See #70.
+      `SELECT id, op, actor, payload, prev_hash, hash,
+              to_char(created_at AT TIME ZONE 'UTC',
+                      'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at
+       FROM nexaas_memory.wal
+       WHERE workspace = $1 AND id > $2
+       ORDER BY id ASC
+       LIMIT ${VERIFY_BATCH_SIZE}`,
+      [workspace, lastId],
+    );
+    if (rows.length === 0) break;
+
+    const verdict = verifyBatch(workspace, rows, expectedPrevHash);
+    if (verdict) return verdict;
+
+    expectedPrevHash = rows[rows.length - 1]!.hash;
+    lastId = rows[rows.length - 1]!.id;
+    if (rows.length < VERIFY_BATCH_SIZE) break;
+  }
+
+  return { valid: true };
+}
+
+function verifyBatch(
+  workspace: string,
+  rows: WalVerifyRow[],
+  startPrevHash: string | undefined,
+): { valid: false; brokenAt: number; error: string } | null {
+  let expectedPrevHash = startPrevHash;
 
   for (const row of rows) {
     if (expectedPrevHash !== undefined && row.prev_hash !== expectedPrevHash) {
@@ -153,5 +184,5 @@ export async function verifyWalChain(
     expectedPrevHash = row.hash;
   }
 
-  return { valid: true };
+  return null;
 }

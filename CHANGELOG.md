@@ -12,7 +12,17 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
-_Nothing yet._
+### Fixed
+- `verifyWalChain` streams the chain in 5000-row keyset batches — the
+  previous single unbounded SELECT materialized every row and exhausted the
+  V8 heap on production-sized WALs (node OOM-crash, found by the v0.3.1
+  Phoenix canary's conformance run against 1.34M rows). Tamper detection
+  semantics unchanged across batch boundaries.
+- Conformance `wal-chain` check verifies a recent window (last 5000
+  entries) instead of genesis-to-tip — right-sized for a routine gate;
+  `nexaas verify-wal --full` remains the audit mode (now memory-safe).
+- `nexaas verify-wal` default was labeled "incremental" but scanned the
+  full chain; it is now a true recent window (last 10,000 entries).
 
 ## v0.3.1 — 2026-06-10
 
