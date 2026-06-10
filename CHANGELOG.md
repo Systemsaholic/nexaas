@@ -12,6 +12,15 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.3.1 — 2026-06-10
+
+Production-hardening tracks 4–6 (#219): fleet observability, security
+surface, zero-touch onboarding. Numbered as a patch at the operator's call;
+content is additive (the releases.md semver guidance would say minor) — no
+breaking changes either way.
+
 ### Added
 - Fleet heartbeat payload v3 (#216): release `describe` + channel, 24h run
   error rates, daily spend/budget state, pending migrations, last
@@ -51,6 +60,14 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 - `VERSION` stamped to 0.3.0 — v0.3.0 shipped self-reporting `0.2.0` in the
   fleet heartbeat because the stamp wasn't part of the release procedure;
   `docs/releases.md` now lists it as step 1
+
+### Migrations
+- None new. `012_palace_substrate.sql` was patched **in place** (its legacy
+  self-record INSERT removed — it rolled back the whole substrate on bare
+  databases under the tracked runner). Filename-keyed tracking makes the
+  patch invisible to every deploy that already ran 012; fresh installs get
+  the working version. Rollback to v0.3.0 is unconstrained (code-only, no
+  schema delta).
 
 ## v0.3.0 — 2026-06-10
 
