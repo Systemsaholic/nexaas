@@ -448,9 +448,12 @@ FROM nexaas_memory.skill_runs
 WHERE status IN ('running', 'waiting', 'escalated');
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- 21. Record this migration
+-- 21. Recording
 -- ═══════════════════════════════════════════════════════════════════════════
-
-INSERT INTO schema_migrations (version, name, applied_at)
-VALUES ('012', 'palace_substrate', now())
-ON CONFLICT DO NOTHING;
+-- This migration previously self-recorded into the legacy public
+-- schema_migrations (version/name columns). That INSERT fails on a bare
+-- database — and under the tracked transactional runner (#218) the failure
+-- rolled back the entire palace substrate. Removed in place per the 024
+-- precedent: every deploy that ran the original already has this file
+-- recorded in the canonical tracker (filename-keyed), so the patch is
+-- invisible to them; fresh installs are recorded by the runner itself.

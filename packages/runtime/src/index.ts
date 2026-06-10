@@ -56,6 +56,11 @@ export {
   type FleetEvent,
   type FrameworkIdentity,
 } from "./fleet/heartbeat.js";
+export {
+  loadWorkspaceManifest,
+  getManifestDir,
+  type LoadResult,
+} from "./schemas/load-manifest.js";
 
 // Skill terminal-state primitives (#171–#174 silent-failure arc)
 export {

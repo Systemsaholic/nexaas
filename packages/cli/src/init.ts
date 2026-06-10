@@ -16,8 +16,16 @@ import { join } from "path";
 import { randomBytes, generateKeyPairSync } from "crypto";
 import { createInterface } from "readline";
 import { hostname as osHostname } from "os";
+import pg from "pg";
+import { applyPendingMigrations } from "./migrations.js";
 
 const NEXAAS_ROOT = process.env.NEXAAS_ROOT ?? process.cwd();
+
+/** Read a KEY=value line out of an existing .env (used to preserve values across re-runs). */
+function extractEnvValue(content: string, key: string): string {
+  const match = content.match(new RegExp(`^${key}=(.+)$`, "m"));
+  return match?.[1]?.trim() ?? "";
+}
 
 function log(msg: string) { console.log(`  ✓ ${msg}`); }
 function warn(msg: string) { console.log(`  ⚠ ${msg}`); }
@@ -62,6 +70,8 @@ export async function run(args: string[]) {
   let workspaceId = "";
   let fleetEndpoint = "";
   let bootstrapSecret = "";
+  let channel = process.env.NEXAAS_CHANNEL ?? "";
+  let skipVerify = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--workspace" && args[i + 1]) {
@@ -73,7 +83,16 @@ export async function run(args: string[]) {
     } else if (args[i] === "--bootstrap-secret" && args[i + 1]) {
       bootstrapSecret = args[i + 1]!;
       i++;
+    } else if (args[i] === "--channel" && args[i + 1]) {
+      channel = args[i + 1]!;
+      i++;
+    } else if (args[i] === "--skip-verify") {
+      skipVerify = true;
     }
+  }
+
+  if (channel && channel !== "stable" && channel !== "canary") {
+    fail(`--channel must be 'stable' or 'canary' (got '${channel}')`);
   }
 
   if (!workspaceId) {
@@ -87,7 +106,7 @@ export async function run(args: string[]) {
   console.log(`\n  Workspace: ${workspaceId}`);
   console.log(`  Root:      ${NEXAAS_ROOT}`);
 
-  const TOTAL_STEPS = 6;
+  const TOTAL_STEPS = 7;
 
   // ── Step 1: Prerequisites ──────────────────────────────────────────
 
@@ -154,15 +173,25 @@ export async function run(args: string[]) {
   step(2, TOTAL_STEPS, "Setting up database...");
 
   const dbUser = exec("whoami", { silent: true });
-  const dbName = "nexaas";
-  const dbPass = exec(`openssl rand -hex 12`, { silent: true });
 
-  // Create DB and user if they don't exist
-  exec(`sudo -u postgres createdb ${dbName} 2>/dev/null || true`);
-  exec(`sudo -u postgres createuser -s ${dbUser} 2>/dev/null || true`);
-  exec(`sudo -u postgres psql -c "ALTER USER ${dbUser} PASSWORD '${dbPass}'" 2>/dev/null || true`);
-
-  const databaseUrl = `postgresql://${dbUser}:${dbPass}@localhost/${dbName}`;
+  // Provisioner-supplied DATABASE_URL (env), then a previous install's
+  // value (.env), then construct fresh. Re-running init must NOT rotate
+  // the DB password out from under an existing deployment (#218
+  // idempotency), and zero-touch provisioning must be able to point init
+  // at a pre-created database.
+  const envPathEarly = join(NEXAAS_ROOT, ".env");
+  const existingEnvEarly = existsSync(envPathEarly) ? readFileSync(envPathEarly, "utf-8") : "";
+  let databaseUrl = process.env.DATABASE_URL || extractEnvValue(existingEnvEarly, "DATABASE_URL");
+  if (databaseUrl) {
+    log(`Using ${process.env.DATABASE_URL ? "provisioner-supplied" : "existing"} DATABASE_URL`);
+  } else {
+    const dbName = "nexaas";
+    const dbPass = exec(`openssl rand -hex 12`, { silent: true });
+    exec(`sudo -u postgres createdb ${dbName} 2>/dev/null || true`);
+    exec(`sudo -u postgres createuser -s ${dbUser} 2>/dev/null || true`);
+    exec(`sudo -u postgres psql -c "ALTER USER ${dbUser} PASSWORD '${dbPass}'" 2>/dev/null || true`);
+    databaseUrl = `postgresql://${dbUser}:${dbPass}@localhost/${dbName}`;
+  }
 
   // Apply base schema if not exists
   const schemaFile = join(NEXAAS_ROOT, "database", "schema.sql");
@@ -171,12 +200,22 @@ export async function run(args: string[]) {
     log("Base schema applied");
   }
 
-  // Apply all migrations in order
-  const migrationsDir = join(NEXAAS_ROOT, "database", "migrations");
-  if (existsSync(migrationsDir)) {
-    const migrations = readFileSync("/dev/stdin", "utf-8").split("\n").filter(Boolean);
-    exec(`for f in ${migrationsDir}/*.sql; do psql "${databaseUrl}" < "$f" 2>/dev/null; done`);
-    log("Migrations applied (including palace substrate)");
+  // Apply migrations through the tracked runner (#218) — same code path as
+  // `nexaas upgrade`, so a fresh install records into the canonical tracker
+  // (nexaas_memory.schema_migrations) and `nexaas migration-state` /
+  // conformance are green from minute one. Previously a raw psql loop that
+  // recorded nothing.
+  {
+    const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
+    try {
+      const result = await applyPendingMigrations(pool, NEXAAS_ROOT, (l) => console.log(l));
+      if (result.failed) {
+        fail(`Migration ${result.failed.filename} failed: ${result.failed.error}`);
+      }
+      log(`Migrations applied and recorded (${result.applied.length} applied, ${result.legacyResolved.length} legacy-resolved)`);
+    } finally {
+      await pool.end();
+    }
   }
 
   // Verify palace schema exists
@@ -190,6 +229,24 @@ export async function run(args: string[]) {
   }
   log(`Palace schema verified: ${tableCount} tables`);
 
+  // Workspace config row + release channel (#218). The config row makes the
+  // workspace visible to `nexaas config`, spend governance, and timezone-
+  // aware day windows without a separate manual step; the channel persists
+  // so the first `nexaas upgrade` already follows it (#214).
+  const timezone = process.env.NEXAAS_TIMEZONE ?? "UTC";
+  exec(
+    `psql "${databaseUrl}" -c "INSERT INTO nexaas_memory.workspace_config (workspace, timezone) VALUES ('${workspaceId}', '${timezone}') ON CONFLICT (workspace) DO NOTHING"`,
+    { silent: true },
+  );
+  log(`Workspace config row ensured (timezone ${timezone})`);
+  if (channel) {
+    exec(
+      `psql "${databaseUrl}" -c "INSERT INTO nexaas_memory.workspace_kv (workspace, key, value) VALUES ('${workspaceId}', 'framework_channel', '${channel}') ON CONFLICT (workspace, key) DO UPDATE SET value = EXCLUDED.value"`,
+      { silent: true },
+    );
+    log(`Release channel: ${channel}`);
+  }
+
   // ── Step 3: Configuration ──────────────────────────────────────────
 
   step(3, TOTAL_STEPS, "Generating configuration...");
@@ -197,12 +254,8 @@ export async function run(args: string[]) {
   const envPath = join(NEXAAS_ROOT, ".env");
   const existingEnv = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
 
-  // Preserve existing API keys from previous .env
-  function extractEnvValue(content: string, key: string): string {
-    const match = content.match(new RegExp(`^${key}=(.+)$`, "m"));
-    return match?.[1]?.trim() ?? "";
-  }
-
+  // Preserve existing API keys from previous .env (extractEnvValue is the
+  // module-level helper).
   let anthropicKey = process.env.ANTHROPIC_API_KEY ?? extractEnvValue(existingEnv, "ANTHROPIC_API_KEY") ?? "";
   let voyageKey = process.env.VOYAGE_API_KEY ?? extractEnvValue(existingEnv, "VOYAGE_API_KEY") ?? "";
 
@@ -234,8 +287,21 @@ export async function run(args: string[]) {
   // endpoints can blank the line in .env (see docs/security-surface.md).
   const bearerToken =
     process.env.NEXAAS_CROSS_VPS_BEARER_TOKEN
-    ?? extractEnvValue(existingEnv, "NEXAAS_CROSS_VPS_BEARER_TOKEN")
-    ?? randomBytes(32).toString("hex");
+    || extractEnvValue(existingEnv, "NEXAAS_CROSS_VPS_BEARER_TOKEN")
+    || randomBytes(32).toString("hex");
+
+  // Fleet env pass-through (#218). A zero-touch provisioner that already
+  // holds a fleet token (issued out-of-band) exports NEXAAS_FLEET_ENDPOINT
+  // + NEXAAS_FLEET_TOKEN before invoking init; the bootstrap-secret flow in
+  // step 3b below remains the interactive path and appends (overriding)
+  // when used. Existing .env values survive re-runs.
+  const fleetEndpointEnv =
+    process.env.NEXAAS_FLEET_ENDPOINT || extractEnvValue(existingEnv, "NEXAAS_FLEET_ENDPOINT");
+  const fleetTokenEnv =
+    process.env.NEXAAS_FLEET_TOKEN || extractEnvValue(existingEnv, "NEXAAS_FLEET_TOKEN");
+  const fleetBlock = fleetEndpointEnv && fleetTokenEnv
+    ? `\n# Fleet dashboard\nNEXAAS_FLEET_ENDPOINT=${fleetEndpointEnv}\nNEXAAS_FLEET_TOKEN=${fleetTokenEnv}\n`
+    : "";
 
   const envContent = `# Nexaas Framework Configuration
 # Generated: ${new Date().toISOString()}
@@ -257,7 +323,7 @@ NEXAAS_CROSS_VPS_BEARER_TOKEN=${bearerToken}
 # Worker configuration
 NEXAAS_WORKER_CONCURRENCY=5
 NEXAAS_WORKER_PORT=9090
-`;
+${fleetBlock}`;
 
   writeFileSync(envPath, envContent);
   chmodSync(envPath, 0o600);
@@ -321,7 +387,7 @@ NEXAAS_WORKER_PORT=9090
   step(4, TOTAL_STEPS, "Creating operator identity...");
 
   const operatorName = await prompt("Your name", process.env.OPERATOR_NAME ?? "Al");
-  const operatorEmail = await prompt("Your email", "al@systemsaholic.com");
+  const operatorEmail = await prompt("Your email", process.env.OPERATOR_EMAIL ?? "al@systemsaholic.com");
 
   // Generate ed25519 signing key
   const keyDir = join(process.env.HOME ?? "/home/ubuntu", ".nexaas");
@@ -489,6 +555,52 @@ WantedBy=multi-user.target
     warn("Worker health endpoint not responding yet (may still be starting)");
   }
 
+  // ── Step 7: Conformance gate (#218) ───────────────────────────────
+  // A zero-touch provisioner needs a machine-readable verdict: exit 0 means
+  // "validated working install", exit 1 means "halt and alert" — not "ran
+  // to the end and hoped". --skip-verify opts out (debugging half-built
+  // environments).
+
+  step(7, TOTAL_STEPS, "Running conformance gate...");
+
+  let conformanceSummary = "skipped (--skip-verify)";
+  if (skipVerify) {
+    warn("Conformance gate skipped (--skip-verify)");
+  } else {
+    const gate = spawnSync(
+      process.execPath,
+      [...process.execArgv, process.argv[1]!, "conformance", "--json"],
+      {
+        encoding: "utf-8",
+        timeout: 600_000,
+        env: {
+          ...process.env,
+          NEXAAS_WORKSPACE: workspaceId,
+          NEXAAS_ROOT,
+          DATABASE_URL: databaseUrl,
+          NEXAAS_CROSS_VPS_BEARER_TOKEN: bearerToken,
+          ...(anthropicKey ? { ANTHROPIC_API_KEY: anthropicKey } : {}),
+        },
+      },
+    );
+    let summary: { passed?: number; failed?: number; skipped?: number } = {};
+    try {
+      summary = (JSON.parse(gate.stdout ?? "null") as { summary?: typeof summary })?.summary ?? {};
+    } catch { /* non-JSON output */ }
+    conformanceSummary = `${summary.passed ?? "?"} passed, ${summary.failed ?? "?"} failed, ${summary.skipped ?? "?"} skipped`;
+
+    if (gate.status === 0) {
+      log(`Conformance gate passed (${conformanceSummary})`);
+    } else if (gate.status === 1) {
+      console.error(`  ✗ Conformance gate FAILED (${conformanceSummary})`);
+      console.error(`    Diagnose: nexaas conformance   (worker logs: journalctl -u nexaas-worker -f)`);
+      console.error(`    The install is present but NOT validated — provisioners must treat this as a failed install.`);
+      process.exit(1);
+    } else {
+      warn(`Conformance gate could not run (exit ${gate.status ?? "timeout"}) — verify manually: nexaas conformance`);
+    }
+  }
+
   // ── Done ──────────────────────────────────────────────────────────
 
   console.log(`
@@ -506,6 +618,7 @@ WantedBy=multi-user.target
 
   Operator:     ${operatorName} (${operatorEmail})
   Signing key:  ${keyPath}
+  Conformance:  ${conformanceSummary}
 
   Next steps:
     1. Verify:    nexaas status
