@@ -29,23 +29,27 @@ until the stable pointer advances.
 
 ## Cutting a release
 
-1. **Changelog**: move the `## Unreleased` content in `CHANGELOG.md` into a
+1. **Version stamp**: set the root `VERSION` file to `X.Y.Z` (no `v` prefix).
+   The fleet heartbeat and `skill_runs.framework_version` stamping read this
+   file — tagging without bumping it ships a release that self-reports the
+   previous version (v0.3.0 shipped reporting `0.2.0`; learned the hard way).
+2. **Changelog**: move the `## Unreleased` content in `CHANGELOG.md` into a
    new `## vX.Y.Z — YYYY-MM-DD` section. Semver intent: patch = fixes only,
    minor = additive features/migrations, major = breaking (avoid; requires a
    coordinated fleet plan).
-2. **Migration notes**: the release section MUST list every
+3. **Migration notes**: the release section MUST list every
    `database/migrations/` file the release introduces, with a one-line note
    per migration confirming it is one-release backward compatible (see
    [Rollback](#rollback) for what that means). A migration that cannot meet
    the rule does not ship — split it into a two-phase removal instead.
-3. **Tag** (annotated, on the release commit):
+4. **Tag** (annotated, on the release commit):
 
    ```bash
    git tag -a vX.Y.Z -m "Nexaas vX.Y.Z"
    git push origin vX.Y.Z
    ```
 
-4. **Point canary at it**:
+5. **Point canary at it**:
 
    ```bash
    git push origin vX.Y.Z^{commit}:refs/heads/channel/canary

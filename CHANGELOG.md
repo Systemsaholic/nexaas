@@ -12,7 +12,10 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
-_Nothing yet._
+### Fixed
+- `VERSION` stamped to 0.3.0 — v0.3.0 shipped self-reporting `0.2.0` in the
+  fleet heartbeat because the stamp wasn't part of the release procedure;
+  `docs/releases.md` now lists it as step 1
 
 ## v0.3.0 — 2026-06-10
 
