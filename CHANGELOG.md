@@ -12,6 +12,13 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.3.3 — 2026-06-19
+
+Fixes the waitpoint-reaper re-alert storm found in the v0.3.2 stable soak
+(#231). One additive migration; rollback to v0.3.2 unconstrained.
+
 ### Fixed
 - Waitpoint timeout reaper re-alerted on the same expired waitpoint every
   60s tick forever — the `escalate` policy (default) wrote an ops_alert but
