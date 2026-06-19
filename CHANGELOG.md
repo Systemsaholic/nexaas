@@ -12,7 +12,22 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
-_Nothing yet._
+### Fixed
+- WAL integrity remediation (#234): migration 028 adds `wal.integrity_exempt`
+  and flags the pre-fix `palace_mcp_write` backlog (whose hashes were
+  `sha256('palace-write-'||ts)`, never canonical). `verifyWalChain` skips
+  hash *recomputation* for flagged rows — like the `workspace_genesis`
+  anchor — while still verifying their `prev_hash` linkage, and reports the
+  skipped count. Restores `verify-wal --full` / the conformance gate on
+  affected workspaces without rewriting the append-only chain. Post-#234
+  `palace_mcp_write` rows (written via `appendWal`, PR #235) are not flagged
+  and are fully verified; genuine tampering of any non-exempt row is still
+  caught. Pairs with the forward fix in #235.
+
+### Migrations
+- `028_wal_integrity_exempt.sql` — adds `wal.integrity_exempt boolean`
+  (metadata-only default on PG 11+) and flags existing `palace_mcp_write`
+  rows. Additive; rollback to v0.3.3 safe (older code ignores the column).
 
 ## v0.3.3 — 2026-06-19
 

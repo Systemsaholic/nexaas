@@ -61,6 +61,9 @@ export async function run(args: string[]) {
 
   if (result.valid) {
     console.log(`  ✓ WAL chain verified (${elapsed}ms)`);
+    if (result.exemptSkipped && result.exemptSkipped > 0) {
+      console.log(`  Linkage verified; hash recompute skipped for ${result.exemptSkipped} integrity-exempt row(s) (pre-#234 palace_mcp_write — migration 028).`);
+    }
     console.log(`  No integrity issues found.\n`);
   } else {
     console.error(`  ✗ WAL chain BROKEN at row ${result.brokenAt}`);
