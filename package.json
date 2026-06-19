@@ -8,7 +8,8 @@
     "packages/*",
     "integrations/*",
     "mcp/servers/email-outbound",
-    "mcp/servers/webstudio"
+    "mcp/servers/webstudio",
+    "mcp/servers/palace"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

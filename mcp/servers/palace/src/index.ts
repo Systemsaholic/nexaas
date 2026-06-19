@@ -23,6 +23,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import pg from "pg";
+import { appendWal } from "@nexaas/palace";
 
 // ── Database ────────────────────────────────────────────────────────────
 
@@ -169,20 +170,19 @@ server.tool(
       [WORKSPACE, wing, hall, room, content, hash, skill_id ?? "interactive"],
     );
 
-    // WAL entry for audit
-    await sql(
-      `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-       SELECT $1, 'palace_mcp_write', 'palace-mcp',
-         $2::jsonb,
-         COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-         encode(digest($4, 'sha256'), 'hex')`,
-      [
-        WORKSPACE,
-        JSON.stringify({ wing, hall, room, drawer_id: result[0]?.id, content_length: content.length }),
-        "0".repeat(64),
-        `palace-write-${Date.now()}`,
-      ],
-    );
+    // WAL entry for audit — through the canonical appendWal so the row is
+    // hash-chained correctly under the per-workspace advisory lock. The
+    // previous hand-rolled INSERT computed hash = sha256("palace-write-<ts>")
+    // — a bogus value never derived from the canonical
+    // prev_hash|op|actor|payload|created_at, and took no lock — so every
+    // palace_mcp_write row was unverifiable and broke `verify-wal` at the
+    // first such row (#234; surfaced on Phoenix during the #231 rollout).
+    await appendWal({
+      workspace: WORKSPACE,
+      op: "palace_mcp_write",
+      actor: "palace-mcp",
+      payload: { wing, hall, room, drawer_id: result[0]?.id, content_length: content.length },
+    });
 
     return jsonResult({
       written: true,
