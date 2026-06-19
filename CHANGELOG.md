@@ -14,6 +14,19 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.3.5 — 2026-06-19
+
+Deploy-tooling fix found by the v0.3.4 testlab upgrade. No migrations;
+rollback to v0.3.4 unconstrained.
+
+### Fixed
+- `nexaas upgrade` reinstalled dependencies with `npm install --production`
+  when package.json/lock changed, pruning `typescript` (a devDependency) —
+  so the very next `npm run build` (`tsc`) failed with the build aborting
+  the upgrade. Now uses `--include=dev`, matching `nexaas init`. Surfaced
+  when v0.3.4 became the first release since channels to change root
+  `package.json` (adding the palace MCP server to `workspaces`).
+
 ## v0.3.4 — 2026-06-19
 
 WAL-integrity fix (#234) — forward fix (#235, palace MCP now writes via
