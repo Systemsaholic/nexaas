@@ -12,7 +12,18 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
+_Nothing yet._
+
+## v0.3.4 — 2026-06-19
+
+WAL-integrity fix (#234) — forward fix (#235, palace MCP now writes via
+`appendWal`) plus the `integrity_exempt` backlog repair. Migration 028;
+rollback to v0.3.3 safe. Unblocks Phoenix, which takes #231 + #234 together.
+
 ### Fixed
+- Palace MCP `palace_write` now writes its WAL row via the canonical
+  `appendWal` instead of a hand-rolled INSERT with a bogus
+  `sha256('palace-write-'||ts)` hash and no advisory lock (#234, #235).
 - WAL integrity remediation (#234): migration 028 adds `wal.integrity_exempt`
   and flags the pre-fix `palace_mcp_write` backlog (whose hashes were
   `sha256('palace-write-'||ts)`, never canonical). `verifyWalChain` skips
