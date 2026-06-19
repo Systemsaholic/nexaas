@@ -242,6 +242,64 @@ export async function run(args: string[] = []) {
     };
   });
 
+  await check("waitpoint-expiry", async () => {
+    // Regression guard for #231: an expired waitpoint under the default
+    // (escalate) policy must alert EXACTLY once, not re-alert every reaper
+    // tick. Uses the real createWaitpoint insert path, then backdates the
+    // deadline; runs the reaper twice and asserts a single escalation.
+    const { palace, createPool: _cp } = await import("@nexaas/palace");
+    _cp(); // ensure the palace pool targets this DATABASE_URL
+    const { reapExpiredWaitpoints } = await import("@nexaas/runtime");
+
+    const signal = `wp_conformance_${randomUUID()}`;
+    const room = { wing: "ops", hall: "conformance", room: "waitpoint-expiry" };
+    const session = palace.enter({
+      workspace,
+      runId: randomUUID(),
+      skillId: "conformance/waitpoint-expiry",
+      stepId: "expiry",
+    });
+    await session.createWaitpoint({ signal, room, state: { conformance: true } });
+    // Backdate so it's already expired for the reaper.
+    await pool.query(
+      `UPDATE nexaas_memory.events SET dormant_until = now() - interval '1 hour' WHERE dormant_signal = $1`,
+      [signal],
+    );
+
+    try {
+      await reapExpiredWaitpoints();
+      await reapExpiredWaitpoints(); // second tick must produce no new alert
+      const alerts = await pool.query(
+        `SELECT count(*)::int AS n FROM nexaas_memory.ops_alerts
+          WHERE workspace = $1 AND event_type = 'waitpoint_timeout' AND payload->>'signal' = $2`,
+        [workspace, signal],
+      );
+      const handled = await pool.query(
+        `SELECT timeout_handled_at IS NOT NULL AS done, dormant_signal IS NOT NULL AS resolvable
+           FROM nexaas_memory.events WHERE dormant_signal = $1`,
+        [signal],
+      );
+      const n = alerts.rows[0]?.n ?? 0;
+      if (n !== 1) {
+        return { status: "fail", detail: `expired waitpoint alerted ${n}× across 2 reaper ticks (expected exactly 1) — #231 regression` };
+      }
+      if (!handled.rows[0]?.done) {
+        return { status: "fail", detail: "timeout_handled_at not set after reaping" };
+      }
+      if (!handled.rows[0]?.resolvable) {
+        return { status: "fail", detail: "escalate cleared dormant_signal — waitpoint no longer resolvable by a human" };
+      }
+      return { status: "pass", detail: "expired waitpoint escalated once across 2 ticks; stays resolvable" };
+    } finally {
+      // Residue cleanup: the synthetic waitpoint + the alert it produced.
+      await pool.query(
+        `DELETE FROM nexaas_memory.ops_alerts WHERE workspace = $1 AND payload->>'signal' = $2`,
+        [workspace, signal],
+      );
+      await pool.query(`DELETE FROM nexaas_memory.events WHERE dormant_signal = $1`, [signal]);
+    }
+  });
+
   // ── Execution proofs ────────────────────────────────────────────────
 
   const artifactsDir = mkdtempSync(join(tmpdir(), "nexaas-conformance-"));

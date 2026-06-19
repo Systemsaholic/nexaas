@@ -6,7 +6,15 @@
  * - auto_approve: resolve as approved
  * - auto_reject: resolve as rejected
  * - auto_cancel: cancel the run
- * - remind_and_extend: send reminder, extend timeout
+ *
+ * Expiry is a TERMINAL, single-fire transition (#231). Every waitpoint the
+ * reaper processes is stamped `timeout_handled_at` and excluded from
+ * subsequent ticks. Before the fix, the `escalate` policy (the default)
+ * left dormant_signal/dormant_until intact, so an expired waitpoint nothing
+ * consumed re-escalated every tick forever — Phoenix logged ~35k severity-
+ * high ops_alerts per 12h off ~295 abandoned approvals. `escalate`
+ * deliberately keeps dormant_signal set (so resolveWaitpoint can still
+ * approve it later); `timeout_handled_at` is what stops the re-alert.
  */
 
 import { sql, appendWal, resolveWaitpoint } from "@nexaas/palace";
@@ -26,7 +34,9 @@ interface ExpiredWaitpoint {
 }
 
 export async function reapExpiredWaitpoints(): Promise<number> {
-  // Find waitpoints that have passed their timeout
+  // Find waitpoints that have passed their timeout and not yet been handled
+  // (#231). `timeout_handled_at IS NULL` is the single-fire guard — without
+  // it the escalate policy re-alerted every tick.
   const expired = await sql<ExpiredWaitpoint>(`
     SELECT id, workspace, skill_id, run_id, step_id, dormant_signal,
            dormant_until, metadata, reminder_at, reminder_sent
@@ -34,6 +44,7 @@ export async function reapExpiredWaitpoints(): Promise<number> {
     WHERE dormant_signal IS NOT NULL
       AND dormant_until IS NOT NULL
       AND dormant_until < now()
+      AND timeout_handled_at IS NULL
     LIMIT 50
   `);
 
@@ -100,6 +111,17 @@ export async function reapExpiredWaitpoints(): Promise<number> {
           });
           break;
       }
+
+      // Terminal, single-fire (#231): mark handled so this waitpoint is
+      // never re-processed, regardless of policy. auto_* already cleared
+      // dormant_signal; escalate keeps it resolvable and relies on this
+      // stamp. Set last, so a throw before this point leaves it for retry
+      // on the next tick rather than silently swallowing an unhandled
+      // expiry.
+      await sql(
+        `UPDATE nexaas_memory.events SET timeout_handled_at = now() WHERE id = $1`,
+        [wp.id],
+      );
 
       reaped++;
     } catch (err) {

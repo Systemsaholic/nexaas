@@ -12,7 +12,20 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 ## Unreleased
 
-_Nothing yet._
+### Fixed
+- Waitpoint timeout reaper re-alerted on the same expired waitpoint every
+  60s tick forever — the `escalate` policy (default) wrote an ops_alert but
+  never marked the waitpoint terminal (#231). Phoenix logged ~35k
+  severity-high `waitpoint_timeout` alerts per 12h off ~295 abandoned
+  approvals. Expiry is now single-fire via `events.timeout_handled_at`;
+  `escalate` keeps `dormant_signal` set so the waitpoint stays resolvable
+  by a human. Conformance gains a `waitpoint-expiry` regression check.
+
+### Migrations
+- `027_waitpoint_timeout_handled.sql` — adds nullable
+  `events.timeout_handled_at` + partial index; backfills currently-expired
+  active waitpoints as handled (silences the existing backlog with zero
+  further alerts). Additive/nullable — rollback to v0.3.2 unconstrained.
 
 ## v0.3.2 — 2026-06-10
 
