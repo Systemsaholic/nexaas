@@ -102,16 +102,18 @@ type WalVerifyRow = {
   prev_hash: string;
   hash: string;
   created_at: string;
+  integrity_exempt: boolean;
 };
 
 export async function verifyWalChain(
   workspace: string,
   fromId?: number,
-): Promise<{ valid: boolean; brokenAt?: number; error?: string }> {
+): Promise<{ valid: boolean; brokenAt?: number; error?: string; exemptSkipped?: number }> {
   // Keyset cursor: `id > lastId` reproduces the original `id >= fromId`
   // window when seeded with fromId - 1, and genesis-to-tip when seeded 0.
   let lastId = fromId ? fromId - 1 : 0;
   let expectedPrevHash = fromId ? undefined : GENESIS_HASH;
+  let exemptSkipped = 0;
 
   for (;;) {
     const rows = await sql<WalVerifyRow>(
@@ -122,7 +124,8 @@ export async function verifyWalChain(
       // so the default formatting always fails recomputation. See #70.
       `SELECT id, op, actor, payload, prev_hash, hash,
               to_char(created_at AT TIME ZONE 'UTC',
-                      'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at
+                      'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
+              integrity_exempt
        FROM nexaas_memory.wal
        WHERE workspace = $1 AND id > $2
        ORDER BY id ASC
@@ -132,39 +135,51 @@ export async function verifyWalChain(
     if (rows.length === 0) break;
 
     const verdict = verifyBatch(workspace, rows, expectedPrevHash);
-    if (verdict) return verdict;
+    if (verdict.broken) return verdict.broken;
+    exemptSkipped += verdict.exemptSkipped;
 
     expectedPrevHash = rows[rows.length - 1]!.hash;
     lastId = rows[rows.length - 1]!.id;
     if (rows.length < VERIFY_BATCH_SIZE) break;
   }
 
-  return { valid: true };
+  return { valid: true, exemptSkipped };
 }
 
 function verifyBatch(
   workspace: string,
   rows: WalVerifyRow[],
   startPrevHash: string | undefined,
-): { valid: false; brokenAt: number; error: string } | null {
+): { broken: { valid: false; brokenAt: number; error: string } | null; exemptSkipped: number } {
   let expectedPrevHash = startPrevHash;
+  let exemptSkipped = 0;
 
   for (const row of rows) {
     if (expectedPrevHash !== undefined && row.prev_hash !== expectedPrevHash) {
       return {
-        valid: false,
-        brokenAt: row.id,
-        error: `prev_hash mismatch at id ${row.id}: expected ${expectedPrevHash}, got ${row.prev_hash}`,
+        broken: {
+          valid: false,
+          brokenAt: row.id,
+          error: `prev_hash mismatch at id ${row.id}: expected ${expectedPrevHash}, got ${row.prev_hash}`,
+        },
+        exemptSkipped,
       };
     }
 
-    // The `workspace_genesis` row is written by `nexaas init` via raw SQL
-    // (not through appendWal), so its hash was not produced by canonicalize().
-    // It serves as the chain's trust anchor — integrity for subsequent rows
-    // comes from prev_hash linkage, not from re-deriving the anchor. Verify
-    // the anchor exists and links correctly, but skip hash recomputation.
-    // See #70 for the longer explanation.
-    if (row.op !== "workspace_genesis") {
+    // Hash recomputation is skipped for two kinds of trust-anchor rows whose
+    // stored hash was provably not produced by canonicalize():
+    //   - `workspace_genesis`: written by `nexaas init` via raw SQL as the
+    //     chain's root anchor (see #70).
+    //   - `integrity_exempt` rows: pre-#234 palace_mcp_write rows whose hash
+    //     was sha256('palace-write-'||ts), never canonical. Flagged by
+    //     migration 028. We never claimed integrity for them and won't
+    //     rewrite the append-only chain to fake it.
+    // Both still have their prev_hash *linkage* verified above; we only skip
+    // re-deriving their hash. Post-#234 palace_mcp_write rows are NOT exempt
+    // and are fully recomputed.
+    if (row.integrity_exempt) {
+      exemptSkipped++;
+    } else if (row.op !== "workspace_genesis") {
       const canonical = canonicalize(
         { workspace, op: row.op, actor: row.actor, payload: row.payload },
         row.created_at,
@@ -174,9 +189,12 @@ function verifyBatch(
 
       if (recomputed !== row.hash) {
         return {
-          valid: false,
-          brokenAt: row.id,
-          error: `hash mismatch at id ${row.id}: expected ${recomputed}, got ${row.hash}`,
+          broken: {
+            valid: false,
+            brokenAt: row.id,
+            error: `hash mismatch at id ${row.id}: expected ${recomputed}, got ${row.hash}`,
+          },
+          exemptSkipped,
         };
       }
     }
@@ -184,5 +202,5 @@ function verifyBatch(
     expectedPrevHash = row.hash;
   }
 
-  return null;
+  return { broken: null, exemptSkipped };
 }
