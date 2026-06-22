@@ -70,7 +70,17 @@ export interface AiSkillManifest {
      */
     primary_output?: string;
   };
-  mcp_servers?: string[];
+  /**
+   * MCP servers this skill loads tools from (#196). Each entry is either:
+   *   - a plain string `"firecrawl"` → load ALL tools from that MCP (legacy,
+   *     back-compatible), or
+   *   - `{ id: "firecrawl", tools: ["firecrawl_search"] }` → load ONLY the
+   *     named tools. Omitting `tools` = load all.
+   * Per-skill allowlist avoids pushing every tool of a 50-tool MCP into the
+   * system prompt — tool defs are ~250-400 tokens each, and the bloat caused
+   * silent first-call timeouts (#196 / #197 RCA).
+   */
+  mcp_servers?: Array<string | { id: string; tools?: string[] }>;
   rooms?: {
     primary?: { wing: string; hall: string; room: string };
     retrieval_rooms?: Array<{ wing: string; hall: string; room: string }>;
@@ -311,7 +321,12 @@ export async function runAiSkill(
   const allTools: McpTool[] = [];
 
   if (manifest.mcp_servers) {
-    for (const serverName of manifest.mcp_servers) {
+    for (const entry of manifest.mcp_servers) {
+      // Normalize the two manifest shapes (#196): plain string = load all;
+      // { id, tools } = load only the named tools.
+      const serverName = typeof entry === "string" ? entry : entry.id;
+      const allowlist = typeof entry === "string" ? undefined : entry.tools;
+
       const config = mcpConfigs[serverName];
       if (!config) {
         console.warn(`[nexaas] MCP server '${serverName}' not found in .mcp.json — skipping`);
@@ -325,15 +340,33 @@ export async function runAiSkill(
         const client = await acquireMcpClient(serverName, config);
         mcpClients.push(client);
         const tools = client.getTools();
+
+        // Per-skill allowlist filter (#196). Absent → load all (back-compat).
+        // Warn on names that don't exist on the connected MCP — catches typos
+        // at first run instead of silently loading nothing for that name.
+        let selected = tools;
+        if (allowlist) {
+          const available = new Set(tools.map((t) => t.name));
+          const unknown = allowlist.filter((n) => !available.has(n));
+          if (unknown.length > 0) {
+            console.warn(`[nexaas] MCP '${serverName}': allowlisted tool(s) not exported by the server: ${unknown.join(", ")}`);
+          }
+          const allow = new Set(allowlist);
+          selected = tools.filter((t) => allow.has(t.name));
+        }
+
         // Prefix tool names with server name to avoid collisions
-        for (const tool of tools) {
+        for (const tool of selected) {
           allTools.push({
             name: `${serverName}__${tool.name}`,
             description: `[${serverName}] ${tool.description}`,
             input_schema: tool.input_schema,
           });
         }
-        console.log(`[nexaas] Connected to MCP '${serverName}' (${tools.length} tools)`);
+        console.log(
+          `[nexaas] Connected to MCP '${serverName}' (${selected.length}` +
+            (allowlist ? ` of ${tools.length} tools, allowlisted)` : ` tools)`),
+        );
       } catch (err) {
         console.error(`[nexaas] Failed to connect to MCP '${serverName}':`, err);
       }
@@ -433,6 +466,12 @@ export async function runAiSkill(
 
     // Run the agentic loop
     console.log(`[nexaas] Running AI skill '${manifest.id}' with ${allTools.length} tools, model: ${model}`);
+    // Tool-bloat early warning (#196). >75 tool defs ≈ 20-30K prompt tokens
+    // before CAG context — the silent first-call-timeout zone (#197 RCA).
+    // Use per-MCP `tools:` allowlists to trim. Warn, don't block.
+    if (allTools.length > 75) {
+      console.warn(`[nexaas] ⚠ skill '${manifest.id}' loaded ${allTools.length} tools — high system-prompt cost; consider per-MCP tools: allowlists (#196)`);
+    }
 
     // Heartbeat: keep last_activity fresh while a long-running stream
     // is in flight. Without this, multi-turn skills whose individual
@@ -755,7 +794,7 @@ export async function runAiSkill(
     const promptOverflowExtras = promptOverflow
       ? {
           tool_count: allTools.length,
-          mcp_servers: manifest.mcp_servers ?? [],
+          mcp_servers: (manifest.mcp_servers ?? []).map((e) => (typeof e === "string" ? e : e.id)),
           ...(extractPromptOverflowTokens(message) ?? {}),
         }
       : {};

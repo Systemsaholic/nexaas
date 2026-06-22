@@ -22,7 +22,7 @@ interface SkillManifest {
   timezone?: string;
   triggers?: Array<{ type: string; schedule?: string; timezone?: string }>;
   execution?: { type: string; command?: string; timeout?: number; model_tier?: string; working_directory?: string };
-  mcp_servers?: string[];
+  mcp_servers?: Array<string | { id: string; tools?: string[] }>;
   rooms?: {
     primary?: { wing: string; hall: string; room: string };
     retrieval_rooms?: Array<{ wing: string; hall: string; room: string }>;
@@ -100,7 +100,12 @@ export async function run(args: string[]) {
     }
 
     if (manifest.mcp_servers && manifest.mcp_servers.length > 0) {
-      console.log(`  MCP servers: ${manifest.mcp_servers.join(", ")}`);
+      // Normalize the two manifest shapes (#196): string = all tools;
+      // { id, tools } = allowlist.
+      const declared = manifest.mcp_servers.map((e) =>
+        typeof e === "string" ? { id: e, tools: undefined as string[] | undefined } : { id: e.id, tools: e.tools },
+      );
+      console.log(`  MCP servers: ${declared.map((d) => d.tools ? `${d.id} (${d.tools.length} tools)` : d.id).join(", ")}`);
 
       const wsRoot = process.env.NEXAAS_WORKSPACE_ROOT;
       if (wsRoot) {
@@ -109,9 +114,9 @@ export async function run(args: string[]) {
           try {
             const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, "utf-8"));
             const mcpServers = mcpConfig.mcpServers ?? mcpConfig;
-            for (const server of manifest.mcp_servers) {
-              if (!mcpServers[server]) {
-                issues.push(`MCP server '${server}' not found in ${mcpConfigPath}`);
+            for (const server of declared) {
+              if (!mcpServers[server.id]) {
+                issues.push(`MCP server '${server.id}' not found in ${mcpConfigPath}`);
               }
             }
           } catch {
