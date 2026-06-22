@@ -53,7 +53,7 @@ import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
 import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
-import { startApprovalResolver } from "./tasks/approval-resolver.js";
+import { startApprovalResolver, resolveApprovalBySignal } from "./tasks/approval-resolver.js";
 import { startOutputStalenessWatchdog } from "./tasks/output-staleness-watchdog.js";
 import { startSchedulerWatchdog } from "./tasks/scheduler-watchdog.js";
 import { startBatchDispatcher } from "./tasks/batch-dispatcher.js";
@@ -550,6 +550,40 @@ async function main() {
         return;
       }
       res.status(outcome.status).json(outcome.body);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // Direct approval resolution (#205) — synchronous alternative to the
+  // drawer-then-poll path for ops dashboards / HTTP callers. Same outcome
+  // (resolveWaitpoint + handler enqueue + WAL) as a channel button click,
+  // minus the ~3s resolver poll latency. The poll path stays for channel
+  // adapters that can't HTTP back.
+  app.post("/api/approvals/:signal/resolve", bearerAuth(), async (req, res) => {
+    try {
+      const body = req.body ?? {};
+      const signal = req.params.signal as string;
+      const workspace = typeof body.workspace === "string" ? body.workspace : WORKSPACE;
+      const decision = body.decision;
+      const actorId = typeof body.actor === "string" ? body.actor : null;
+      if (!workspace) { res.status(400).json({ error: "workspace is required" }); return; }
+      if (typeof decision !== "string" || !decision) { res.status(400).json({ error: "decision is required" }); return; }
+      if (!actorId) { res.status(400).json({ error: "actor is required" }); return; }
+      const actor = body.actor_display ? `api:${actorId} (${body.actor_display})` : `api:${actorId}`;
+
+      const outcome = await resolveApprovalBySignal(workspace, signal, decision, actor);
+      if (outcome.ok) {
+        res.status(200).json({
+          ok: true,
+          resolved: true,
+          run_id: outcome.runId,
+          resumption: outcome.strategy,
+          ...(outcome.handlerSkill ? { handler_enqueued: outcome.handlerSkill } : {}),
+        });
+      } else {
+        res.status(outcome.status).json({ ok: false, error: outcome.error });
+      }
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }

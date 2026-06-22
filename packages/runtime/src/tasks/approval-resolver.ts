@@ -368,6 +368,96 @@ export async function resolvePendingApprovals(workspace: string): Promise<{
   return { resolved, ignored, errors };
 }
 
+/**
+ * Resolve an approval directly by its waitpoint signal (#205) — the
+ * synchronous alternative to the drawer-then-poll path. Backs the worker's
+ * POST /api/approvals/:signal/resolve so ops dashboards skip the ~3s
+ * resolver poll latency. Produces the IDENTICAL outcome to a button click:
+ * same `resolveWaitpoint` + `enqueueResumption` + WAL ops. The poll path
+ * (channel adapters that can't HTTP back) is unchanged.
+ */
+export async function resolveApprovalBySignal(
+  workspace: string,
+  signal: string,
+  decision: string,
+  actor: string,
+): Promise<
+  | { ok: true; runId: string | null; strategy: string; handlerSkill?: string }
+  | { ok: false; status: number; error: string }
+> {
+  // Locate the approval_request drawer carrying this signal. `content` is a
+  // JSON string — filter with a cheap LIKE, then JSON.parse in JS to avoid
+  // ::jsonb casts blowing up on non-JSON drawers.
+  const candidates = await sql<{ content: string }>(
+    `SELECT content FROM nexaas_memory.events
+      WHERE workspace = $1 AND content LIKE '%' || $2 || '%'
+      ORDER BY id DESC LIMIT 20`,
+    [workspace, signal],
+  );
+  let approval: ApprovalRequestContent | null = null;
+  for (const c of candidates) {
+    try {
+      const parsed = JSON.parse(c.content) as ApprovalRequestContent;
+      if (parsed.kind === "approval_request" && parsed.waitpoint_signal === signal) {
+        approval = parsed;
+        break;
+      }
+    } catch { /* non-JSON drawer — skip */ }
+  }
+  if (!approval) {
+    return { ok: false, status: 404, error: `no approval_request found for signal '${signal}'` };
+  }
+
+  // Same guard as the poll path: don't resolve with a decision the skill
+  // never declared.
+  const decisionIds = (approval.decisions ?? []).map((d) => d.id);
+  if (decisionIds.length > 0 && !decisionIds.includes(decision)) {
+    return { ok: false, status: 400, error: `decision '${decision}' not in allowed set: ${decisionIds.join(", ")}` };
+  }
+
+  try {
+    const result = await resolveWaitpoint(
+      signal,
+      { decision, output_id: approval.output_id, resolved_via: "api-direct" },
+      actor,
+    );
+    const resumption = await enqueueResumption(workspace, approval, decision, actor);
+
+    await appendWal({
+      workspace,
+      op: decision === "approve" ? "approval_granted"
+        : decision === "reject" ? "approval_denied"
+        : "approval_resolved",
+      actor,
+      payload: {
+        run_id: result.runId,
+        skill_id: result.skillId,
+        step_id: result.stepId,
+        signal,
+        decision,
+        channel_role: approval.channel_role,
+        resolved_via: "api-direct",
+        resumption_strategy: resumption.strategy,
+        handler_skill: resumption.handler_skill,
+        resumption_error: resumption.error,
+      },
+    });
+    if (resumption.error) {
+      await appendWal({
+        workspace, op: "approval_handler_missing", actor,
+        payload: { signal, decision, handler_skill: resumption.handler_skill, error: resumption.error },
+      });
+    }
+    return { ok: true, runId: result.runId ?? null, strategy: resumption.strategy, handlerSkill: resumption.handler_skill };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Waitpoint not found")) {
+      return { ok: false, status: 409, error: "waitpoint not found or already resolved" };
+    }
+    return { ok: false, status: 500, error: msg.slice(0, 300) };
+  }
+}
+
 export function startApprovalResolver(
   workspace: string,
   opts: { intervalMs?: number } = {},
