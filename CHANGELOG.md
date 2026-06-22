@@ -14,6 +14,27 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.3.6 — 2026-06-22
+
+Backlog batch + a correction. No migrations; rollback to v0.3.5 unconstrained.
+
+### Added
+- Per-MCP tool allowlist for ai-skill manifests (#196): `mcp_servers` entries
+  may be `{ id, tools: [...] }` to load only named tools (plain string = load
+  all, back-compat). Filters at tool-load time; warns on unknown allowlisted
+  names and on >75-tool bloat. Avoids the 145-tool / ~45K-token first-call
+  timeout (#197 RCA). `dry-run` shows per-MCP tool counts.
+- `POST /api/approvals/:signal/resolve` (#205): direct approval resolution for
+  ops dashboards — synchronous alternative to the drawer-then-poll path,
+  removing the ~3s resolver latency. Same `resolveWaitpoint` + handler-enqueue
+  + WAL outcome as a channel button click; bearer-authed; 200/400/404/409.
+
+### Fixed
+- `nexaas upgrade` now actually uses `npm install --include=dev` (#241). v0.3.5
+  claimed this fix but only VERSION + CHANGELOG were committed — the code edit
+  was never shipped, so v0.3.5/stable still pruned typescript and broke the
+  build when a release changed root package.json. The real fix lands here.
+
 ## v0.3.5 — 2026-06-19
 
 Deploy-tooling fix found by the v0.3.4 testlab upgrade. No migrations;
