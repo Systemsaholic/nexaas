@@ -117,25 +117,48 @@ export async function runHealthCheck(workspace: string): Promise<HealthReport> {
     });
   }
 
-  // 4. Stale skills (should have run but didn't)
-  const staleSkills = await sql<{ skill_id: string; minutes_since: string }>(`
+  // 4. Stale skills — cadence-aware. The old flat ">120 min" threshold flagged
+  // EVERY skill that ran >2h ago regardless of its schedule, so daily/weekly
+  // skills (billing-health, billing-weekly, supplier-attribution-*, …) and
+  // bursty event-driven skills (docuseal-webhook) were perpetually "stale" just
+  // for being between runs — keeping the monitor stuck in `degraded`. Now we
+  // only time-check skills with a genuine recurring cadence (≥3 runs in 14d,
+  // typical gap ≥20 min) and flag one only when its silence exceeds 3× its OWN
+  // median run-gap (floor 180 min ≈ a few missed runs). Self-calibrating: a
+  // */30 skill alerts at ~3h silent; a daily skill not until ~3 days; a weekly
+  // skill not until ~3 weeks. Event-driven/rare skills are exempt.
+  const staleSkills = await sql<{ skill_id: string; minutes_since: string; median_gap: string }>(`
+    WITH gaps AS (
+      SELECT skill_id, started_at,
+             started_at - lag(started_at) OVER (PARTITION BY skill_id ORDER BY started_at) AS gap
+      FROM nexaas_memory.skill_runs
+      WHERE started_at > now() - interval '14 days'
+    ),
+    agg AS (
+      SELECT skill_id,
+             max(started_at) AS last_run,
+             percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM gap) / 60) AS median_gap,
+             count(gap) AS gap_count
+      FROM gaps
+      GROUP BY skill_id
+    )
     SELECT skill_id,
-      EXTRACT(EPOCH FROM now() - max(started_at)) / 60 as minutes_since
-    FROM nexaas_memory.skill_runs
-    WHERE started_at > now() - interval '24 hours'
-    GROUP BY skill_id
-    HAVING EXTRACT(EPOCH FROM now() - max(started_at)) / 60 > 60
+           EXTRACT(EPOCH FROM now() - last_run) / 60 AS minutes_since,
+           median_gap
+    FROM agg
+    WHERE gap_count >= 3
+      AND median_gap >= 20
+      AND EXTRACT(EPOCH FROM now() - last_run) / 60 > GREATEST(180, median_gap * 3)
   `);
 
   for (const row of staleSkills) {
     const mins = Math.round(parseFloat(row.minutes_since));
-    if (mins > 120) {
-      alerts.push({
-        severity: "warning",
-        component: `skill:${row.skill_id}`,
-        message: `Hasn't run in ${mins} minutes`,
-      });
-    }
+    const cadence = Math.round(parseFloat(row.median_gap));
+    alerts.push({
+      severity: "warning",
+      component: `skill:${row.skill_id}`,
+      message: `Hasn't run in ${mins} minutes (typical cadence ~${cadence} min)`,
+    });
   }
 
   // 5. API credit check
