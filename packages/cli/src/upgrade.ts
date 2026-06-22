@@ -474,7 +474,13 @@ function postCheckoutSteps(nexaasRoot: string, fromCommit: string): void {
   );
   if (changedFiles.includes("package.json") || changedFiles.includes("package-lock.json")) {
     console.log("  Running npm install...");
-    exec(`cd ${nexaasRoot} && npm install --production 2>/dev/null`, { timeout: 300_000 });
+    // --include=dev, NOT --production: the build step below runs `tsc`
+    // (each workspace's build script), and typescript is a devDependency.
+    // A --production install prunes it, so the very next `npm run build`
+    // fails with "tsc: not found" — exactly what broke the v0.3.4 testlab
+    // upgrade (the first release since channels to change root package.json,
+    // which is what triggers this reinstall). Matches init.ts.
+    exec(`cd ${nexaasRoot} && npm install --include=dev 2>/dev/null`, { timeout: 300_000 });
     console.log("  Dependencies updated");
   }
 
