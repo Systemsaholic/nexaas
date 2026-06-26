@@ -14,6 +14,23 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.3.7 — 2026-06-26
+
+Two field-surfaced fixes. No migrations; rollback to v0.3.6 unconstrained.
+
+### Fixed
+- Health-monitor staleness is now cadence-aware (#245): the flat ">120 min"
+  threshold flagged every daily/weekly/bursty skill as "stale", burying real
+  alerts. Now derives each skill's own median run-gap (≥3 runs/14d, gap ≥20m)
+  and only alerts at 3× that (floor 180m). Validated on live Phoenix data:
+  15 false positives → 0.
+- `loadSkillManifest` accepts contract.yaml shape (#246): registered
+  contract-style skills (`skill:`/`category:`, no `id:`) 404'd on
+  `POST /api/skills/trigger` despite register-skill accepting them (PR #170
+  made them resolvable but left trigger validation native-only). Now derives
+  the id the same way register-skill's normalizeManifest does. Native
+  manifests unchanged.
+
 ## v0.3.6 — 2026-06-22
 
 Backlog batch + a correction. No migrations; rollback to v0.3.5 unconstrained.
