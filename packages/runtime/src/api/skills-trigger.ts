@@ -101,9 +101,35 @@ export function resolveSkillManifestPath(
 export function loadSkillManifest(path: string): ManifestSlim | null {
   if (!existsSync(path)) return null;
   try {
-    const m = yamlLoad(readFileSync(path, "utf-8")) as ManifestSlim;
-    if (!m?.id || !m?.version) return null;
-    return m;
+    const raw = yamlLoad(readFileSync(path, "utf-8")) as Record<string, unknown>;
+    if (!raw || typeof raw !== "object") return null;
+
+    // contract.yaml shape (#246): declares `skill:` instead of `id:`. Derive
+    // the id the same way register-skill.ts:normalizeManifest does — `skill`,
+    // with a `category/` prefix when `skill` has no slash — so the trigger
+    // path accepts exactly the manifests register-skill already accepts. PR
+    // #170 made contract.yaml *resolvable* but left this validation
+    // native-only, so registered contract skills 404'd on trigger. The slim
+    // trigger path only needs id/version/execution.type; register-skill's
+    // normalizeManifest stays the canonical full translation.
+    let id = typeof raw.id === "string" ? raw.id : undefined;
+    if (!id && typeof raw.skill === "string") {
+      const skill = raw.skill;
+      const category = typeof raw.category === "string" ? raw.category : "";
+      id = skill.includes("/") || !category ? skill : `${category}/${skill}`;
+    }
+
+    const version = typeof raw.version === "string"
+      ? raw.version
+      : raw.version != null ? String(raw.version) : undefined;
+    if (!id || !version) return null;
+
+    const execIn = raw.execution as Record<string, unknown> | undefined;
+    const execution = execIn && typeof execIn === "object"
+      ? { type: typeof execIn.type === "string" ? execIn.type : undefined }
+      : undefined;
+
+    return { id, version, execution };
   } catch {
     return null;
   }
