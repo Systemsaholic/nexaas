@@ -14,6 +14,24 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.3.8 — 2026-06-29
+
+Two observability guards for silent fresh-client-instance failures, raised by
+Nexmatic (nexmatic#12/#13). No migrations; rollback to v0.3.7 unconstrained.
+
+### Fixed
+- Unrecognized `execution.type` no longer silently no-ops (#249): the worker
+  routes by `execution.type` (`shell`/`ai-skill`); any other value (e.g. a
+  catalog manifest's `type: simple`) fell through to the pillar pipeline and
+  completed in ~3s with `returnvalue: null`, no logs, no drawer. Now it's a
+  loud failed run + terminal drawer (`unrecognized_execution_type`) + WAL +
+  actionable error. Not broadening `simple` → ai (that's the documented
+  opt-in) — just making the misconfiguration visible.
+- Worker warns at startup on missing/placeholder `ANTHROPIC_API_KEY` (#250):
+  previously every AI skill failed with `model_all_providers_failed` and no
+  upfront signal. Warns (doesn't exit — shell-only workspaces are valid),
+  alongside the existing snap-node/tsx startup guards.
+
 ## v0.3.7 — 2026-06-26
 
 Two field-surfaced fixes. No migrations; rollback to v0.3.6 unconstrained.
