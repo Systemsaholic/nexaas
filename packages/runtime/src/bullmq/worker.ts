@@ -144,6 +144,15 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
           }
           return;
         }
+
+        // Unrecognized execution.type (#249) — manifestPath is present but
+        // the type is neither 'shell' nor 'ai-skill' (e.g. a catalog
+        // manifest using `type: simple` that meant ai-skill). Before this
+        // guard it fell through to the pillar-pipeline path below and
+        // produced a silent ~3s no-op (returnvalue:null, no logs, no
+        // drawer). Make it loud + terminal; do NOT fall through.
+        await handleUnrecognizedExecType(data, jobData.manifestPath, execType);
+        return;
       }
 
       // Pillar pipeline path — create run record here (shell/AI executors create their own)
@@ -371,6 +380,83 @@ async function handleManifestMissing(
   console.error(
     `[nexaas] PHANTOM SKILL: '${skillId}' fired but manifest is gone at ${manifestPath}` +
       (ephemeral ? " (ephemeral path — register without --allow-ephemeral)" : ""),
+  );
+}
+
+/**
+ * Unrecognized execution.type (#249). The manifest loaded fine but declares
+ * an execution.type that's neither 'shell' nor 'ai-skill' — almost always a
+ * catalog manifest using `type: simple` that meant ai-skill. Without a guard
+ * such a job fell through to the pillar pipeline and completed in ~3s with
+ * returnvalue:null, no logs, and no drawer — the "ran but did nothing"
+ * mystery that cost a customer-instance smoke 30+ min. Synthesize a failed
+ * run + terminal drawer + WAL so dashboards and the silent-failure watchdog
+ * (#69) surface it, and log actionable guidance. Best-effort throughout.
+ */
+async function handleUnrecognizedExecType(
+  data: SkillJobData,
+  manifestPath: string,
+  execType: unknown,
+): Promise<void> {
+  const workspace = data.workspace;
+  const runId = data.runId ?? randomUUID();
+  const skillId = data.skillId ?? "unknown";
+  const stepId = data.stepId ?? "fire";
+  const typeStr = execType == null ? "(none)" : String(execType);
+  const reason = `unrecognized_execution_type: '${typeStr}'`;
+
+  try {
+    await runTracker.createRun({
+      runId,
+      workspace,
+      skillId,
+      skillVersion: data.skillVersion,
+      triggerType: data.triggerType ?? "cron",
+      triggerPayload: data.triggerPayload as Record<string, unknown> | undefined,
+    });
+  } catch (err) {
+    const pgErr = err as { code?: string };
+    if (pgErr.code !== "23505") {
+      console.warn(`[nexaas] ${reason}: createRun failed for ${skillId}: ${(err as Error).message}`);
+    }
+  }
+  try {
+    await runTracker.markStepFailed(runId, stepId, reason);
+  } catch (err) {
+    console.warn(`[nexaas] ${reason}: markStepFailed failed for ${skillId}: ${(err as Error).message}`);
+  }
+
+  try {
+    const session = palace.enter({ workspace, runId, skillId, stepId });
+    await session.writeDrawer(
+      { wing: "ops", hall: "scheduler", room: skillId.replace(/\//g, "-") },
+      JSON.stringify(buildTerminalDrawerPayload(
+        { skill: skillId, terminal_reason: "unrecognized_execution_type" },
+        {
+          manifest_path: manifestPath,
+          execution_type: typeStr,
+          hint: "set execution.type: ai-skill (or shell with a command:)",
+        },
+      )),
+    );
+  } catch (err) {
+    console.error(`[nexaas] ${reason}: drawer write failed for ${skillId}: ${(err as Error).message}`);
+  }
+
+  try {
+    await appendWal({
+      workspace,
+      op: "skill_unrecognized_execution_type",
+      actor: "bullmq-worker",
+      payload: { run_id: runId, skill_id: skillId, execution_type: typeStr, manifest_path: manifestPath },
+    });
+  } catch (err) {
+    console.warn(`[nexaas] ${reason}: WAL append failed for ${skillId}: ${(err as Error).message}`);
+  }
+
+  console.error(
+    `[nexaas] skill '${skillId}': execution.type '${typeStr}' is not 'ai-skill' or 'shell' — not dispatched. ` +
+      `Set execution.type: ai-skill (or shell with a command:). See #249.`,
   );
 }
 

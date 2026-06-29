@@ -36,6 +36,7 @@ export type TerminalReason =
   | "prompt_overflow"  // model rejected request as too long (#173)
   | "rate_limited"     // 429 from model provider
   | "manifest_missing" // scheduler fired but manifest file is gone (#172)
+  | "unrecognized_execution_type" // execution.type was neither ai-skill nor shell (#249)
   | "verification_failed" // ai-skill output verification failed required checks
   | "required_output_missing"; // ai-skill ended without producing a required output (#180)
 
