@@ -122,6 +122,23 @@ if (launchedViaTsx && process.env.NEXAAS_ALLOW_DEV_LAUNCH !== "1") {
   process.exit(1);
 }
 
+// Provisioning guard (#250): a missing/placeholder ANTHROPIC_API_KEY makes
+// every AI-skill run fail with model_all_providers_failed (Anthropic +
+// OpenAI fallback both unauthenticated) — a silent degradation that cost a
+// fresh client-instance smoke real time. Warn loudly at boot. Do NOT exit:
+// shell-only workspaces are valid, and a worker that can still run non-AI
+// skills shouldn't be blocked. `nexaas health` does the live key probe;
+// this is the boot-time visibility that was missing.
+{
+  const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
+  if (!anthropicKey || anthropicKey.includes("placeholder")) {
+    console.warn(
+      `[nexaas] ⚠ ANTHROPIC_API_KEY is ${anthropicKey ? "a placeholder" : "not set"} — AI skills will fail ` +
+        `(model_all_providers_failed). Set it in ${process.env.NEXAAS_ROOT ?? "/opt/nexaas"}/.env and restart. See #250.`,
+    );
+  }
+}
+
 // Process-level safety net. pg-pool's 'error' event is already handled
 // (see #34), but there are many other ways an async error can escape
 // the enclosing try/catch — library bugs, ill-formed tool responses,
