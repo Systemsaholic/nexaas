@@ -125,7 +125,18 @@ function renderApprovalRequest(envelope: DispatchEnvelope): {
     typeof payloadFull.subject === "string" &&
     typeof payloadFull.body === "string";
 
-  const lead = summary ? `${htmlEscape(summary)}\n\n` : "";
+  // A human-authored `payload.summary` is the skill telling us exactly what
+  // the approver needs to read. Prefer it over dumping the raw JSON preview —
+  // machine fields (ids, blobs) still reach handler skills via payload_full
+  // untouched; they just stay out of the human's chat. (Raised by the
+  // systemsaholic workspace: batched invoice reminders rendered as a base64
+  // wall instead of the one-line decision.)
+  const payloadSummary =
+    payloadFull != null && typeof payloadFull.summary === "string" && payloadFull.summary.trim() !== ""
+      ? payloadFull.summary
+      : null;
+
+  const lead = summary ? `<b>${htmlEscape(summary)}</b>\n\n` : "";
   let content: string;
   if (isEmailPayload && payloadFull != null) {
     const to = htmlEscape(payloadFull.to as string);
@@ -136,6 +147,8 @@ function renderApprovalRequest(envelope: DispatchEnvelope): {
       `<b>To:</b> ${to}\n` +
       `<b>Subject:</b> ${subject}\n\n` +
       `<blockquote>${body}</blockquote>`;
+  } else if (payloadSummary != null) {
+    content = `${lead}${htmlEscape(payloadSummary)}`;
   } else {
     content = `${lead}<pre>${htmlEscape(payloadPreview)}</pre>`;
   }
