@@ -11,6 +11,7 @@
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import pg from "pg";
+import { appendWal, getPool } from "@nexaas/palace";
 
 interface ProposalRow {
   id: number;
@@ -131,19 +132,12 @@ export async function run(args: string[]) {
         console.log(`\n  ✓ Created ${proposed} proposal(s)\n`);
       }
 
-      await pool.query(
-        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-         SELECT $1, 'library_propagate', 'nexaas-cli',
-           $2::jsonb,
-           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-           encode(digest($4, 'sha256'), 'hex')`,
-        [
-          workspace,
-          JSON.stringify({ skill_id: skillId, version: libData.version, proposals_created: proposed }),
-          "0".repeat(64),
-          `propagate-${skillId}-${Date.now()}`,
-        ],
-      );
+      await appendWal({
+        workspace,
+        op: "library_propagate",
+        actor: "nexaas-cli",
+        payload: { skill_id: skillId, version: libData.version, proposals_created: proposed },
+      });
       break;
     }
 
@@ -184,19 +178,12 @@ export async function run(args: string[]) {
         [proposalId],
       );
 
-      await pool.query(
-        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-         SELECT $1, 'proposal_accepted', 'nexaas-cli',
-           $2::jsonb,
-           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-           encode(digest($4, 'sha256'), 'hex')`,
-        [
-          p.workspace,
-          JSON.stringify({ proposal_id: proposalId, skill_id: p.skill_id, version: libData.version }),
-          "0".repeat(64),
-          `accept-${proposalId}-${Date.now()}`,
-        ],
-      );
+      await appendWal({
+        workspace: p.workspace,
+        op: "proposal_accepted",
+        actor: "nexaas-cli",
+        payload: { proposal_id: proposalId, skill_id: p.skill_id, version: libData.version },
+      });
 
       console.log(`\n  ✓ Accepted proposal #${proposalId}`);
       console.log(`    Skill: ${p.skill_id} updated to v${libData.version}`);
@@ -236,6 +223,8 @@ export async function run(args: string[]) {
   }
 
   await pool.end();
+
+  await getPool().end().catch(() => {});
 }
 
 async function ensureProposalTable(pool: pg.Pool) {

@@ -11,6 +11,7 @@
 
 import { createHash, randomBytes, createCipheriv, createDecipheriv } from "crypto";
 import pg from "pg";
+import { appendWal, getPool } from "@nexaas/palace";
 
 export async function run(args: string[]) {
   const subcommand = args[0];
@@ -92,20 +93,13 @@ export async function run(args: string[]) {
         console.log(`  Operator record: yes (role: ${operator.rows[0].role})`);
       }
 
-      // Log the export
-      await pool.query(
-        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-         SELECT $1, 'gdpr_export', 'nexaas-cli',
-           $2::jsonb,
-           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-           encode(digest($4, 'sha256'), 'hex')`,
-        [
-          workspace,
-          JSON.stringify({ subject_email: email, drawers_found: drawers.rows.length, wal_entries: walEntries.rows.length }),
-          "0".repeat(64),
-          `gdpr-export-${email}-${Date.now()}`,
-        ],
-      );
+      // Log the export — canonical, advisory-locked writer (#254).
+      await appendWal({
+        workspace,
+        op: "gdpr_export",
+        actor: "nexaas-cli",
+        payload: { subject_email: email, drawers_found: drawers.rows.length, wal_entries: walEntries.rows.length },
+      });
 
       console.log(`\n  Export logged to WAL.\n`);
       break;
@@ -169,25 +163,18 @@ export async function run(args: string[]) {
         [workspace, JSON.stringify({ email, deleted_at: new Date().toISOString() })],
       );
 
-      // WAL audit
-      await pool.query(
-        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-         SELECT $1, 'gdpr_delete', 'nexaas-cli',
-           $2::jsonb,
-           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-           encode(digest($4, 'sha256'), 'hex')`,
-        [
-          workspace,
-          JSON.stringify({
-            subject_email: email,
-            keys_revoked: revoked.rows.length,
-            drawers_tombstoned: tombstoned.rows.length,
-            operator_disabled: disabled.rows.length > 0,
-          }),
-          "0".repeat(64),
-          `gdpr-delete-${email}-${Date.now()}`,
-        ],
-      );
+      // WAL audit — canonical, advisory-locked writer (#254).
+      await appendWal({
+        workspace,
+        op: "gdpr_delete",
+        actor: "nexaas-cli",
+        payload: {
+          subject_email: email,
+          keys_revoked: revoked.rows.length,
+          drawers_tombstoned: tombstoned.rows.length,
+          operator_disabled: disabled.rows.length > 0,
+        },
+      });
 
       console.log(`\n  ✓ Erasure complete. Logged to WAL.\n`);
       break;
@@ -303,4 +290,6 @@ export async function run(args: string[]) {
   }
 
   await pool.end();
+
+  await getPool().end().catch(() => {});
 }

@@ -14,6 +14,7 @@ import { createHash } from "crypto";
 import { execSync } from "child_process";
 import { load as yamlLoad } from "js-yaml";
 import pg from "pg";
+import { appendWal, getPool } from "@nexaas/palace";
 
 function exec(cmd: string): string {
   try { return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim(); } catch { return ""; }
@@ -149,20 +150,13 @@ export async function run(args: string[]) {
         ],
       );
 
-      // WAL entry
-      await pool.query(
-        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-         SELECT $1, 'library_contribute', 'nexaas-cli',
-           $2::jsonb,
-           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-           encode(digest($4, 'sha256'), 'hex')`,
-        [
-          workspace,
-          JSON.stringify({ skill_id: manifest.id, version: manifest.version }),
-          "0".repeat(64),
-          `contribute-${manifest.id}-${Date.now()}`,
-        ],
-      );
+      // WAL entry — canonical, advisory-locked writer (#254).
+      await appendWal({
+        workspace,
+        op: "library_contribute",
+        actor: "nexaas-cli",
+        payload: { skill_id: manifest.id, version: manifest.version },
+      });
 
       console.log(`\n  ✓ Contributed: ${manifest.id} v${manifest.version} to the library`);
       console.log(`    Files: ${Object.keys(files).join(", ")}`);
@@ -309,20 +303,13 @@ export async function run(args: string[]) {
         ],
       );
 
-      // WAL entry
-      await pool.query(
-        `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-         SELECT $1, 'library_promote', 'nexaas-cli',
-           $2::jsonb,
-           COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-           encode(digest($4, 'sha256'), 'hex')`,
-        [
-          workspace,
-          JSON.stringify({ skill_id: skillId, version: data.version }),
-          "0".repeat(64),
-          `promote-${skillId}-${Date.now()}`,
-        ],
-      );
+      // WAL entry — canonical, advisory-locked writer (#254).
+      await appendWal({
+        workspace,
+        op: "library_promote",
+        actor: "nexaas-cli",
+        payload: { skill_id: skillId, version: data.version },
+      });
 
       console.log(`\n  ✓ Promoted: ${skillId} v${data.version} → canonical`);
       console.log(`    This version is now the recommended baseline for all workspaces.\n`);
@@ -390,6 +377,8 @@ export async function run(args: string[]) {
   }
 
   await pool.end();
+
+  await getPool().end().catch(() => {});
 }
 
 function findSkillManifests(dir: string): Array<SkillManifest & { path: string }> {
