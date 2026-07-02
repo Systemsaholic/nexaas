@@ -15,7 +15,7 @@ import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { randomUUID } from "crypto";
 import { spawnSync } from "child_process";
-import { palace, appendWal } from "@nexaas/palace";
+import { palace, appendWal, sqlOne } from "@nexaas/palace";
 import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
 import { acquireMcpClient, releaseMcpClient } from "./mcp/pool.js";
@@ -417,9 +417,40 @@ export async function runAiSkill(
       }
     }
 
-    // Build the initial message
-    const userMessage = contextParts.length > 0
-      ? `${contextParts.join("\n\n")}\n\nNow proceed with the task.`
+    // Inbound-triggered runs MUST see the triggering message verbatim. Without
+    // this, the model either stalls ("I don't see a new message") or — far
+    // worse — reconstructs the "current request" from thread-memory drawers
+    // and acts on words the sender never said (2026-07-02: a PA run fabricated
+    // an implied instruction and executed a Wave mutation the user had
+    // explicitly declined). The dispatcher passes drawer coordinates only, so
+    // fetch the drawer content here and pin it as the task.
+    let inboundBlock = "";
+    if (triggerType === "inbound-message" && typeof triggerPayload?.drawer_id === "string") {
+      try {
+        const row = await sqlOne<{ content: string }>(
+          `SELECT content FROM nexaas_memory.events WHERE id = $1 AND workspace = $2`,
+          [triggerPayload.drawer_id, workspace],
+        );
+        if (row?.content) {
+          let text = row.content;
+          let from = "";
+          try {
+            const msg = JSON.parse(row.content);
+            if (typeof msg.content === "string") text = msg.content;
+            if (msg.from?.name) from = ` from ${msg.from.name}`;
+          } catch { /* plain-text drawer */ }
+          inboundBlock = `[CURRENT INBOUND MESSAGE${from} — this is the request to act on]:\n${text}`;
+        }
+      } catch (err) {
+        console.warn(`[nexaas] inbound drawer fetch failed for run ${runId}: ${(err as Error).message}`);
+      }
+    }
+
+    // Build the initial message — current inbound message LAST so it reads as
+    // the live request, with room context above it.
+    const parts = [...contextParts, inboundBlock].filter(Boolean);
+    const userMessage = parts.length > 0
+      ? `${parts.join("\n\n")}\n\n${inboundBlock ? "Respond to the current inbound message above." : "Now proceed with the task."}`
       : "Proceed with the task.";
 
     // Resolve pricing from the model registry for real spend-cap enforcement.
