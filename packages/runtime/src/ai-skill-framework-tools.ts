@@ -219,12 +219,21 @@ async function produceOutput(
 
   const routing = (output.routing_default as RoutingDecision) ?? "auto_execute";
 
+  // #61 parity with the primary-output auto-map path: a manifest-declared
+  // parse_mode is the default for this output's notifications; an explicit
+  // parse_mode in the AI's payload still wins.
+  const declaredParseMode = (output as { parse_mode?: string }).parse_mode;
+  const mergedPayload = {
+    ...(declaredParseMode ? { parse_mode: declaredParseMode } : {}),
+    ...(payload as Record<string, unknown>),
+  };
+
   try {
     await applyRoutedAction(
       {
         action: {
           kind: output.id,
-          payload: payload as Record<string, unknown>,
+          payload: mergedPayload,
         },
         routing,
         source: `framework__produce_output:${output.id}`,
