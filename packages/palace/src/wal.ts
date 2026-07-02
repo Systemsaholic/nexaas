@@ -10,7 +10,16 @@ export interface WalEntry {
   signature?: Buffer;
 }
 
-function canonicalize(entry: WalEntry, createdAt: string, prevHash: string): string {
+/**
+ * v1 canonicalizer — RETAINED ONLY to verify pre-#254 rows (`canon_version`
+ * defaults to 1). It is buggy by design-fact: the `JSON.stringify(payload,
+ * sortedTopKeys)` replacer-array filters keys at every depth, so nested
+ * payload objects serialize as `{}` (nested tamper is invisible). We do NOT
+ * fix this — v1 rows were hashed with exactly this, and must be recomputed
+ * with exactly this to verify. New rows are written v2 (wal_hash_v2 in the
+ * DB, hashing over jsonb `payload::text`). See #254 / migration 029.
+ */
+function canonicalizeV1(entry: WalEntry, createdAt: string, prevHash: string): string {
   const parts = [prevHash, entry.op, entry.actor, JSON.stringify(entry.payload, Object.keys(entry.payload).sort()), createdAt];
   return parts.join("|");
 }
@@ -20,6 +29,9 @@ function computeHash(canonical: string): string {
 }
 
 const GENESIS_HASH = "0".repeat(64);
+
+/** Current canonicalization epoch new rows are written with. */
+const CANON_VERSION = 2;
 
 export async function appendWal(entry: WalEntry): Promise<void> {
   const maxRetries = 3;
@@ -50,26 +62,32 @@ export async function appendWal(entry: WalEntry): Promise<void> {
 
         const prevHash = prevResult.rows[0]?.hash ?? GENESIS_HASH;
         const createdAt = new Date().toISOString();
-        const canonical = canonicalize(entry, createdAt, prevHash);
-        const hash = computeHash(canonical);
 
-        const signedContentHash = entry.signature
-          ? computeHash(canonical)
-          : null;
-
+        // v2 hash (#254): computed in SQL by wal_hash_v2 over `payload::text`
+        // (jsonb's deterministic, fully-nested serialization) so the write-
+        // time and verify-time hash inputs are byte-identical by construction.
+        // The payload param ($4) is cast to jsonb and passed to the function;
+        // signed_content_hash mirrors the hash only when a signature is
+        // supplied (signing is scaffolding today — see verifyWalChain notes).
         await client.query(
           `INSERT INTO nexaas_memory.wal
-            (workspace, op, actor, payload, prev_hash, hash,
+            (workspace, op, actor, payload, prev_hash, hash, canon_version,
              signed_by_key_id, signature, signed_content_hash, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+           VALUES (
+             $1, $2, $3, $4::jsonb, $5,
+             nexaas_memory.wal_hash_v2($5, $2, $3, $4::jsonb, $6),
+             $7::smallint, $8, $9,
+             CASE WHEN $9::bytea IS NOT NULL
+                  THEN nexaas_memory.wal_hash_v2($5, $2, $3, $4::jsonb, $6)
+                  ELSE NULL END,
+             $6::timestamptz
+           )`,
           [
             entry.workspace, entry.op, entry.actor,
             JSON.stringify(entry.payload),
-            prevHash, hash,
+            prevHash, createdAt, CANON_VERSION,
             entry.signedByKeyId ?? null,
             entry.signature ?? null,
-            signedContentHash,
-            createdAt,
           ],
         );
       });
@@ -103,6 +121,12 @@ type WalVerifyRow = {
   hash: string;
   created_at: string;
   integrity_exempt: boolean;
+  canon_version: number;
+  // For canon_version >= 2, the DB recomputes the hash inline via
+  // wal_hash_v2 (over jsonb payload::text) so verification never has to
+  // reproduce jsonb's serialization in JS. NULL for v1 rows (recomputed in
+  // JS via canonicalizeV1 instead). See #254.
+  recomputed_v2: string | null;
 };
 
 export async function verifyWalChain(
@@ -125,7 +149,13 @@ export async function verifyWalChain(
       `SELECT id, op, actor, payload, prev_hash, hash,
               to_char(created_at AT TIME ZONE 'UTC',
                       'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS created_at,
-              integrity_exempt
+              integrity_exempt, canon_version,
+              CASE WHEN canon_version >= 2
+                   THEN nexaas_memory.wal_hash_v2(
+                          prev_hash, op, actor, payload,
+                          to_char(created_at AT TIME ZONE 'UTC',
+                                  'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+                   ELSE NULL END AS recomputed_v2
        FROM nexaas_memory.wal
        WHERE workspace = $1 AND id > $2
        ORDER BY id ASC
@@ -167,32 +197,35 @@ function verifyBatch(
     }
 
     // Hash recomputation is skipped for two kinds of trust-anchor rows whose
-    // stored hash was provably not produced by canonicalize():
+    // stored hash was provably not produced by the canonicalizer:
     //   - `workspace_genesis`: written by `nexaas init` via raw SQL as the
     //     chain's root anchor (see #70).
-    //   - `integrity_exempt` rows: pre-#234 palace_mcp_write rows whose hash
-    //     was sha256('palace-write-'||ts), never canonical. Flagged by
-    //     migration 028. We never claimed integrity for them and won't
-    //     rewrite the append-only chain to fake it.
-    // Both still have their prev_hash *linkage* verified above; we only skip
-    // re-deriving their hash. Post-#234 palace_mcp_write rows are NOT exempt
-    // and are fully recomputed.
+    //   - `integrity_exempt` rows: pre-#234 palace_mcp_write (migration 028)
+    //     and pre-#254 raw-CLI writers (migration 029), whose stored hash was
+    //     never canonical under any version. We never claimed integrity for
+    //     them and won't rewrite the append-only chain to fake it.
+    // Everything else recomputes under the algorithm its `canon_version`
+    // declares: v2 rows (#254) are recomputed by the DB via wal_hash_v2
+    // (over jsonb payload::text — nested tamper is detected); v1 rows use the
+    // historical JS canonicalizeV1. Both still have prev_hash linkage checked
+    // above regardless.
     if (row.integrity_exempt) {
       exemptSkipped++;
     } else if (row.op !== "workspace_genesis") {
-      const canonical = canonicalize(
-        { workspace, op: row.op, actor: row.actor, payload: row.payload },
-        row.created_at,
-        row.prev_hash,
-      );
-      const recomputed = computeHash(canonical);
+      const recomputed = row.canon_version >= 2
+        ? row.recomputed_v2 ?? ""
+        : computeHash(canonicalizeV1(
+            { workspace, op: row.op, actor: row.actor, payload: row.payload },
+            row.created_at,
+            row.prev_hash,
+          ));
 
       if (recomputed !== row.hash) {
         return {
           broken: {
             valid: false,
             brokenAt: row.id,
-            error: `hash mismatch at id ${row.id}: expected ${recomputed}, got ${row.hash}`,
+            error: `hash mismatch at id ${row.id} (canon v${row.canon_version}): expected ${recomputed}, got ${row.hash}`,
           },
           exemptSkipped,
         };

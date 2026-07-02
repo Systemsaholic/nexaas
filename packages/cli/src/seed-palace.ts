@@ -14,6 +14,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join, basename, relative } from "path";
 import { createHash } from "crypto";
 import pg from "pg";
+import { appendWal, getPool } from "@nexaas/palace";
 
 interface SeedEntry {
   filePath: string;
@@ -255,22 +256,19 @@ export async function run(args: string[]) {
   console.log(`\n  Results: ${seeded} seeded, ${skipped} skipped (already in palace), ${errors} errors`);
 
   if (!dryRun && seeded > 0) {
-    await pool.query(
-      `INSERT INTO nexaas_memory.wal (workspace, op, actor, payload, prev_hash, hash)
-       SELECT $1, 'palace_seeded', 'nexaas-cli', $2::jsonb,
-         COALESCE((SELECT hash FROM nexaas_memory.wal WHERE workspace = $1 ORDER BY id DESC LIMIT 1), $3),
-         encode(digest($4, 'sha256'), 'hex')`,
-      [
-        workspace,
-        JSON.stringify({ files_seeded: seeded, files_skipped: skipped, errors }),
-        "0".repeat(64),
-        `seed-${Date.now()}`,
-      ],
-    );
+    // Canonical, advisory-locked writer (#254).
+    await appendWal({
+      workspace,
+      op: "palace_seeded",
+      actor: "nexaas-cli",
+      payload: { files_seeded: seeded, files_skipped: skipped, errors },
+    });
     console.log(`  WAL entry recorded\n`);
   } else {
     console.log("");
   }
 
   await pool.end();
+
+  await getPool().end().catch(() => {});
 }
