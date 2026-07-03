@@ -27,3 +27,6 @@ Thumbs.db
 platform/postgres-data/
 platform/redis-data/
 platform/minio-data/
+
+.mcp.json
+client-reports/
