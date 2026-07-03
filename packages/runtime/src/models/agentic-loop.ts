@@ -52,7 +52,10 @@ function getClient(): Anthropic {
  * had hung — re-raised as APIConnectionTimeoutError so
  * `retryMessagesCreate` retries it. Override via NEXAAS_CHUNK_IDLE_MS.
  */
-const DEFAULT_CHUNK_IDLE_MS = 60_000;
+// 60s proved too aggressive: large tool-result contexts (SEO SERP payloads,
+// fleet JSON) legitimately take >60s of server-side prompt processing before
+// the first chunk (2026-07-03: killed a report run mid-flight). Env-tunable.
+const DEFAULT_CHUNK_IDLE_MS = Number(process.env.NEXAAS_STREAM_IDLE_MS ?? 180_000);
 
 function chunkIdleMs(): number {
   const v = Number(process.env.NEXAAS_CHUNK_IDLE_MS ?? DEFAULT_CHUNK_IDLE_MS);
