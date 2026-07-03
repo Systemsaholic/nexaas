@@ -342,10 +342,16 @@ export class McpClient {
         params,
       };
 
+      // tools/call gets a long leash — real tools legitimately run for minutes
+      // (M365 tenant audits, wp-toolkit backups). Handshake/list calls keep the
+      // short timeout so a wedged server still fails fast.
+      const timeoutMs = method === "tools/call"
+        ? Number(process.env.NEXAAS_MCP_TOOL_TIMEOUT_MS ?? 600_000)
+        : 30_000;
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`MCP request timed out: ${method}`));
-      }, 30000);
+      }, timeoutMs);
 
       this.pendingRequests.set(id, {
         resolve: (value) => { clearTimeout(timeout); resolve(value); },
