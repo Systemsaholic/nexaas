@@ -446,11 +446,36 @@ export async function runAiSkill(
       }
     }
 
-    // Build the initial message — current inbound message LAST so it reads as
-    // the live request, with room context above it.
-    const parts = [...contextParts, inboundBlock].filter(Boolean);
+    // Resumption-triggered runs (approval handlers, #53) MUST see the resolved
+    // waitpoint verbatim — decision, actor, and the original output payload the
+    // human approved. The resolver puts all of it in trigger_payload, but
+    // nothing else surfaces it: without this block the handler model wakes up
+    // with only room history, can't find "what was approved", and stalls with
+    // a clarifying question that gets dispatched to the human as if it were a
+    // result (2026-07-06: ops/ticket-send asked Al for the conversation ID and
+    // approved text his dashboard tap had already carried; reply never sent).
+    let resumptionBlock = "";
+    if (triggerType === "resumption" && triggerPayload && typeof triggerPayload === "object") {
+      try {
+        resumptionBlock =
+          `[APPROVAL RESOLUTION — this is the task to act on. The human already ` +
+          `decided; execute the approved payload exactly, do not re-ask or rewrite]:\n` +
+          JSON.stringify(triggerPayload, null, 2);
+      } catch { /* unserializable payload — leave block empty */ }
+    }
+
+    // Build the initial message — the live request (inbound message or
+    // approval resolution) LAST so it reads as the current task, with room
+    // context above it.
+    const liveBlock = inboundBlock || resumptionBlock;
+    const parts = [...contextParts, liveBlock].filter(Boolean);
+    const taskLine = inboundBlock
+      ? "Respond to the current inbound message above."
+      : resumptionBlock
+        ? "Execute the approval resolution above."
+        : "Now proceed with the task.";
     const userMessage = parts.length > 0
-      ? `${parts.join("\n\n")}\n\n${inboundBlock ? "Respond to the current inbound message above." : "Now proceed with the task."}`
+      ? `${parts.join("\n\n")}\n\n${taskLine}`
       : "Proceed with the task.";
 
     // Resolve pricing from the model registry for real spend-cap enforcement.
