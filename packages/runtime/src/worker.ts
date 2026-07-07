@@ -53,7 +53,7 @@ import { ingestDocument } from "./ingest/index.js";
 import { loadWorkspaceManifest } from "./schemas/load-manifest.js";
 import { startNotificationDispatcher } from "./tasks/notification-dispatcher.js";
 import { startInboundDispatcher } from "./tasks/inbound-dispatcher.js";
-import { startApprovalResolver, resolveApprovalBySignal } from "./tasks/approval-resolver.js";
+import { startApprovalResolver, resolveApprovalBySignal, lookupApprovalContext } from "./tasks/approval-resolver.js";
 import { startOutputStalenessWatchdog } from "./tasks/output-staleness-watchdog.js";
 import { startSchedulerWatchdog } from "./tasks/scheduler-watchdog.js";
 import { startBatchDispatcher } from "./tasks/batch-dispatcher.js";
@@ -577,6 +577,32 @@ async function main() {
   // (resolveWaitpoint + handler enqueue + WAL) as a channel button click,
   // minus the ~3s resolver poll latency. The poll path stays for channel
   // adapters that can't HTTP back.
+  // Approval lookup by channel message id — lets channel adapters (e.g. the
+  // Telegram gateway's edit reply-capture flow) fetch the waitpoint signal and
+  // current payload for the approval a button-bearing message represents,
+  // without duplicating the dispatch-correlation logic.
+  app.get("/api/approvals/by-message/:messageId", bearerAuth(), async (req, res) => {
+    try {
+      const workspace = typeof req.query.workspace === "string" ? req.query.workspace : WORKSPACE;
+      if (!workspace) { res.status(400).json({ error: "workspace is required" }); return; }
+      const ctx = await lookupApprovalContext(workspace, req.params.messageId as string);
+      if (!ctx) { res.status(404).json({ error: "no approval_request for that message id" }); return; }
+      const a = ctx.approval;
+      res.status(200).json({
+        ok: true,
+        signal: a.waitpoint_signal,
+        skill_id: a.skill_id,
+        output_id: a.output_id,
+        summary: a.summary ?? null,
+        decisions: (a.decisions ?? []).map((d) => d.id),
+        handlers: a.handlers ?? {},
+        payload_full: a.payload_full ?? null,
+      });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   app.post("/api/approvals/:signal/resolve", bearerAuth(), async (req, res) => {
     try {
       const body = req.body ?? {};

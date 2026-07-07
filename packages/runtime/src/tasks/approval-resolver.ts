@@ -119,12 +119,13 @@ interface ApprovalRequestContent {
   skill_id?: string;                                 // original skill id (#53)
   output_id?: string;
   channel_role?: string;
+  summary?: string;
   decisions?: Array<{ id: string; label?: string }>;
   handlers?: Record<string, string>;                 // decision → handler skill_id (#53)
   payload_full?: Record<string, unknown>;            // original output payload
 }
 
-async function lookupApprovalContext(
+export async function lookupApprovalContext(
   workspace: string,
   channelMessageId: string,
 ): Promise<{
