@@ -165,6 +165,7 @@ async function enqueueResumption(
   approval: ApprovalRequestContent,
   decision: string,
   actor: string,
+  payloadOverride?: Record<string, unknown>,
 ): Promise<{ strategy: "handler" | "resume_original" | "none"; handler_skill?: string; error?: string }> {
   // #53 — if the approval block declared a handler skill for this decision,
   // enqueue a fresh run of that skill with the original-run context as
@@ -199,7 +200,13 @@ async function enqueueResumption(
             original_run_id: approval.run_id,
             original_skill_id: approval.skill_id,
             original_output_id: approval.output_id,
-            original_payload: approval.payload_full,
+            // "edit" decisions may carry edited fields from the resolving
+            // surface (dashboard/API); merge over the approved payload so the
+            // handler executes the edited version. Unedited copy kept for audit.
+            original_payload: payloadOverride && typeof approval.payload_full === "object" && approval.payload_full !== null
+              ? { ...(approval.payload_full as Record<string, unknown>), ...payloadOverride }
+              : payloadOverride ?? approval.payload_full,
+            ...(payloadOverride ? { payload_override_applied: true, unedited_payload: approval.payload_full } : {}),
             channel_role: approval.channel_role,
           },
         }),
@@ -381,6 +388,7 @@ export async function resolveApprovalBySignal(
   signal: string,
   decision: string,
   actor: string,
+  payloadOverride?: Record<string, unknown>,
 ): Promise<
   | { ok: true; runId: string | null; strategy: string; handlerSkill?: string }
   | { ok: false; status: number; error: string }
@@ -421,7 +429,7 @@ export async function resolveApprovalBySignal(
       { decision, output_id: approval.output_id, resolved_via: "api-direct" },
       actor,
     );
-    const resumption = await enqueueResumption(workspace, approval, decision, actor);
+    const resumption = await enqueueResumption(workspace, approval, decision, actor, payloadOverride);
 
     await appendWal({
       workspace,
@@ -437,6 +445,7 @@ export async function resolveApprovalBySignal(
         decision,
         channel_role: approval.channel_role,
         resolved_via: "api-direct",
+        payload_override_applied: !!payloadOverride,
         resumption_strategy: resumption.strategy,
         handler_skill: resumption.handler_skill,
         resumption_error: resumption.error,

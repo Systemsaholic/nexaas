@@ -588,8 +588,15 @@ async function main() {
       if (typeof decision !== "string" || !decision) { res.status(400).json({ error: "decision is required" }); return; }
       if (!actorId) { res.status(400).json({ error: "actor is required" }); return; }
       const actor = body.actor_display ? `api:${actorId} (${body.actor_display})` : `api:${actorId}`;
+      // Optional edited payload (for decision "edit" from surfaces that
+      // collect edits, e.g. the ops dashboard). Merged over payload_full
+      // before the handler is enqueued.
+      const payloadOverride =
+        body.payload_override && typeof body.payload_override === "object" && !Array.isArray(body.payload_override)
+          ? (body.payload_override as Record<string, unknown>)
+          : undefined;
 
-      const outcome = await resolveApprovalBySignal(workspace, signal, decision, actor);
+      const outcome = await resolveApprovalBySignal(workspace, signal, decision, actor, payloadOverride);
       if (outcome.ok) {
         res.status(200).json({
           ok: true,
