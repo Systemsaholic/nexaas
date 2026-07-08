@@ -112,6 +112,23 @@ The `nexaas-worker.service` runs the BullMQ worker, outbox relay, and Bull Board
 - Shell/AI skill executors create their own `skill_runs` records — the worker must NOT duplicate them
 - On startup: reconcile orphaned `skill_runs` (status='running' with stale last_activity) and deduplicate stale BullMQ repeatables
 
+## Git Workflow — feature branch + PR (2026-07-08)
+
+**Never commit or push directly to `main`** — branch protection enforces this
+(PR required, admins included, no force pushes). For every change:
+
+1. Branch from main: `git checkout -b fix/<slug>` or `feat/<slug>`.
+2. Commit + push the branch, then open a PR: `gh pr create --fill`.
+3. Merge it yourself once green: `gh pr merge --squash --delete-branch`
+   (0 approvals required — solo merges are fine; the PR exists for review
+   visibility and history, not gatekeeping).
+4. After merge on a box that runs the worker: `git checkout main && git pull`,
+   rebuild if `packages/` changed, `sudo systemctl restart nexaas-worker`.
+
+Squash-merge is the default so main stays one-commit-per-change. Urgent
+production fixes follow the same path — the PR round-trip is ~30 seconds
+with `gh`.
+
 ## Release Policy
 
 Clients consume **tagged semver releases (`vX.Y.Z`) via channels** — git branches `channel/stable` and `channel/canary` fast-forwarded by ops to release tags. **`main` is never deployed to clients.** Workspaces opt in with `nexaas upgrade --channel stable|canary`; deployments with no channel configured keep legacy tracking-branch behavior. `nexaas upgrade --to vX.Y.Z` pins a hotfix tag; `nexaas upgrade --rollback` returns to the previous ref (code only — migrations are never reverted, so **every migration must be backward-compatible one release**: additive columns nullable/defaulted, no renames/drops of anything the prior release reads, removals two-phase across releases). Every release section in `CHANGELOG.md` lists its migrations. Full procedure: `docs/releases.md`.
