@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/palace",
   "version": "0.1.0",
-  "description": "Palace substrate — data model, palace API, WAL, signing, verification, pgvector retrieval",
+  "description": "Palace substrate \u2014 data model, palace API, WAL, signing, verification, pgvector retrieval",
   "type": "module",
   "exports": {
     ".": {
@@ -11,7 +11,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "pg": "^8.20.0",

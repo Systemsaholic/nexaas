@@ -11,8 +11,14 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log("  ✓", m); } else { fail++; console.log("  ✗", m); } };
 
 const WS = "walcanon";
+const repoRoot = new URL("..", import.meta.url).pathname;
 const migPool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
-await applyPendingMigrations(migPool, "/opt/nexaas", () => {});
+// applyPendingMigrations reports failure via result.failed, it does NOT throw
+const mig = await applyPendingMigrations(migPool, repoRoot, () => {});
+if (mig.failed) {
+  console.error(`migration ${mig.failed.filename} failed: ${mig.failed.error}`);
+  process.exit(1);
+}
 // confirm 029 landed
 const col = await migPool.query(`SELECT 1 FROM information_schema.columns WHERE table_schema='nexaas_memory' AND table_name='wal' AND column_name='canon_version'`);
 ok(col.rowCount === 1, "migration 029: canon_version column exists");

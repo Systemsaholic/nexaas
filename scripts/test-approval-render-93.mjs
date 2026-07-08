@@ -48,7 +48,8 @@ function assert(cond, label) {
   assert(r.content.includes("<b>Subject:</b> Re: Friday tasting"), "email-shape: Subject label");
   assert(r.content.includes("<blockquote>Hi Joanne"), "email-shape: body wrapped in blockquote");
   assert(!r.content.includes("<pre>"), "email-shape: no <pre> block");
-  assert(r.content.startsWith("Mireille drafted a reply"), "email-shape: summary leads");
+  // eaf7b78 bolds the summary lead
+  assert(r.content.startsWith("<b>Mireille drafted a reply"), "email-shape: summary leads (bolded)");
   assert(r.inline_buttons?.length === 3, "email-shape: 3 inline_buttons");
   assert(r.inline_buttons?.[0]?.button_id === "approve", "email-shape: button_id matches decision id");
   assert(r.inline_buttons?.[0]?.text === "Approve", "email-shape: button text matches decision label");

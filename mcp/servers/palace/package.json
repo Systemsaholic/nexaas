@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/mcp-palace",
   "version": "0.1.0",
-  "description": "Palace MCP server — gives any Claude session live access to the Nexaas memory palace",
+  "description": "Palace MCP server \u2014 gives any Claude session live access to the Nexaas memory palace",
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
@@ -9,5 +9,8 @@
     "@nexaas/palace": "^0.1.0",
     "pg": "^8.20.0",
     "zod": "^3.23.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }
