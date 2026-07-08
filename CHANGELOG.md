@@ -14,6 +14,56 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.3.9 — 2026-07-08
+
+WAL integrity hardening (#254, H1 of the framework-hardening v2 umbrella #253)
+bundled with the ai-skill / MCP / approvals fixes that accumulated on main
+since v0.3.8. One migration (029); rollback to v0.3.8 is code-unconstrained but
+subject to the 029 verify caveat below.
+
+### Fixed
+- WAL hashing now covers nested payload fields (#254). The v1 canonicalizer
+  hashed payloads with `JSON.stringify(payload, Object.keys(payload).sort())`;
+  a replacer *array* is a key allowlist applied at every depth, so nested
+  objects serialized as `{}` — nested WAL fields could be altered in the DB
+  with no hash change, and self-consistent verification never surfaced it
+  across 8.9M+ Phoenix rows. New rows are written under a versioned `canon_v2`
+  algorithm (`nexaas_memory.wal_hash_v2`, one IMMUTABLE SQL function shared by
+  writer and verifier, hashing over jsonb `payload::text`); nested tamper is
+  now detected. Pre-#254 rows keep verifying under the historical v1 JS
+  canonicalizer via a new `canon_version` column — no rewrite of the
+  append-only chain (the #234/028 playbook).
+- The four raw-SQL CLI WAL writers (`library`, `propagate`, `gdpr`,
+  `seed-palace`) now route through `appendWal` (#254), gaining canonical v2
+  hashes and the per-workspace advisory lock (#71) instead of hand-rolled
+  `sha256('<field-json>')` inserts. Their pre-existing rows are flagged
+  `integrity_exempt` (linkage-only anchors, same as `workspace_genesis`).
+- ai-skill prompts now inject the triggering inbound message verbatim, and pin
+  the resumption `trigger_payload` into handler context so resumed runs see the
+  original trigger.
+- MCP client request timeout is method-aware: `tools/call` gets 10 min
+  (`NEXAAS_MCP_TOOL_TIMEOUT_MS`) while handshake calls keep 30s.
+- Streaming watchdog chunk-idle default raised 60s → 180s
+  (`NEXAAS_STREAM_IDLE_MS`) — 60s was too aggressive for large tool-result
+  contexts.
+- Approval edit decisions can carry a `payload_override` to the handler, plus a
+  `GET /api/approvals/by-message/:messageId` lookup on the worker.
+- Notification dispatcher prefers `payload.summary` over a raw-JSON preview in
+  approval renders; `produce_output` merges manifest-declared `parse_mode` into
+  the payload (an explicit payload still wins).
+
+### Changed
+- Main is now branch-protected; framework changes land via feature branch + PR
+  (#264). `.gitignore` covers local `.mcp.json` and stray client-reports output.
+
+### Migrations
+- `029_wal_canon_v2.sql` — additive `wal.canon_version smallint DEFAULT 1`,
+  the `nexaas_memory.wal_hash_v2()` function, and an `integrity_exempt` flag on
+  existing raw-CLI-written rows. Backward compatible with v0.3.8 code, which
+  ignores `canon_version` and recomputes under v1 — but v0.3.8 verify will flag
+  v2-written rows broken, so do NOT run pre-029 verify against a v2 chain; the
+  column is the guard. Rollback of code is otherwise unconstrained.
+
 ## v0.3.8 — 2026-06-29
 
 Two observability guards for silent fresh-client-instance failures, raised by
