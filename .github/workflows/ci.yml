@@ -1,0 +1,77 @@
+# PR-time verification (#257, H4 of #253). Two jobs:
+#
+#   build — npm ci + full workspace build (strict tsc) + noEmit typecheck
+#           sweep. Catches the v0.3.5 class (changelog claimed a fix whose
+#           code never compiled anywhere) and type drift in workspaces the
+#           build never touched (palace MCP).
+#
+#   test  — vitest: 43+ unit tests (tests/*.test.ts) plus every
+#           scripts/test-*.mjs regression harness via the
+#           tests/harnesses.test.ts bridge. The pgvector+redis services
+#           unlock the DB-gated harnesses (WAL canon v2, PA delivery,
+#           waitpoint matching, ...) against a fully-migrated scratch DB.
+#
+# `nexaas conformance` stays the *deployment* gate on real workspaces; this
+# is the *development* gate that runs before code ever reaches a release.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector image: migrations 010/012 CREATE EXTENSION pg_trgm,
+        # vector, pgcrypto — service user is superuser so all three apply.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nexaas_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/nexaas_ci
+      REDIS_URL: redis://localhost:6379
+      NEXAAS_WORKSPACE: ci
+      NEXAAS_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Apply framework migrations to scratch DB
+        run: node --import tsx scripts/ci-migrate.mjs
+      - run: npm test

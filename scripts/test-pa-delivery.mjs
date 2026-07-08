@@ -13,19 +13,24 @@
  *
  * Run:
  *   DATABASE_URL=postgresql://nexaas_test:test@127.0.0.1/pa_delivery_test \
- *     NEXAAS_PA_MAX_RETRIES=2 \
  *     node --import tsx scripts/test-pa-delivery.mjs
  */
 
-import {
+import { randomUUID } from "crypto";
+
+// The retry-exhaustion assertions assume MAX=2. delivery.ts captures
+// NEXAAS_PA_MAX_RETRIES into a module const at load, and static imports
+// hoist above assignments — so pin the env here and dynamic-import after.
+process.env.NEXAAS_PA_MAX_RETRIES = "2";
+
+const {
   enqueueDelivery,
   claimNextDelivery,
   markDeliverySent,
   markDeliveryFailed,
   reapStaleDeliveryClaims,
-} from "../packages/runtime/src/pa/delivery.ts";
-import { sql, getPool } from "../packages/palace/src/db.ts";
-import { randomUUID } from "crypto";
+} = await import("../packages/runtime/src/pa/delivery.ts");
+const { sql, getPool } = await import("../packages/palace/src/db.ts");
 
 const WORKSPACE = `test-${Date.now()}`;
 let pass = 0;
@@ -69,8 +74,8 @@ async function opsAlertCount(workspace) {
 console.log("\n1. enqueueDelivery is idempotent");
 {
   const drawer = await insertDrawer(WORKSPACE, "alice", "inbox");
-  await enqueueDelivery(WORKSPACE, drawer, "alice", "inbox");
-  await enqueueDelivery(WORKSPACE, drawer, "alice", "inbox");
+  await enqueueDelivery(WORKSPACE, drawer, "alice", "inbox", "immediate");
+  await enqueueDelivery(WORKSPACE, drawer, "alice", "inbox", "immediate");
   const rows = await sql(
     `SELECT COUNT(*)::text AS n FROM nexaas_memory.pa_delivery_marker
        WHERE workspace = $1 AND drawer_id = $2`,
@@ -78,7 +83,9 @@ console.log("\n1. enqueueDelivery is idempotent");
   );
   assert(Number(rows[0].n) === 1, "re-enqueue with same drawer_id is no-op (one row total)");
   const s = await statusOf(WORKSPACE, drawer);
-  assert(s.status === "queued", `status starts as 'queued' (got ${s.status})`);
+  // #191/#206: fresh markers write status=NULL (LEFT-JOIN-NULL eligibility);
+  // 'queued' survives only on legacy rows.
+  assert(s.status === null, `status starts as NULL post-#191 (got ${s.status})`);
 }
 
 // ── 2. Per-thread serialization via SKIP LOCKED ──────────────────────
@@ -86,8 +93,8 @@ console.log("\n2. Concurrent claims for the SAME thread serialize");
 {
   const d1 = await insertDrawer(WORKSPACE, "bob", "inbox");
   const d2 = await insertDrawer(WORKSPACE, "bob", "inbox");
-  await enqueueDelivery(WORKSPACE, d1, "bob", "inbox");
-  await enqueueDelivery(WORKSPACE, d2, "bob", "inbox");
+  await enqueueDelivery(WORKSPACE, d1, "bob", "inbox", "immediate");
+  await enqueueDelivery(WORKSPACE, d2, "bob", "inbox", "immediate");
 
   const [a, b] = await Promise.all([
     claimNextDelivery(WORKSPACE, "bob", "inbox"),
@@ -107,8 +114,8 @@ console.log("\n3. Different threads claim independently");
 {
   const d1 = await insertDrawer(WORKSPACE, "carol", "inbox");
   const d2 = await insertDrawer(WORKSPACE, "carol", "hr");
-  await enqueueDelivery(WORKSPACE, d1, "carol", "inbox");
-  await enqueueDelivery(WORKSPACE, d2, "carol", "hr");
+  await enqueueDelivery(WORKSPACE, d1, "carol", "inbox", "immediate");
+  await enqueueDelivery(WORKSPACE, d2, "carol", "hr", "immediate");
 
   const [inbox, hr] = await Promise.all([
     claimNextDelivery(WORKSPACE, "carol", "inbox"),
@@ -122,7 +129,7 @@ console.log("\n3. Different threads claim independently");
 console.log("\n4. markDeliverySent records channel_message_id and sent_at");
 {
   const drawer = await insertDrawer(WORKSPACE, "dave", "inbox");
-  await enqueueDelivery(WORKSPACE, drawer, "dave", "inbox");
+  await enqueueDelivery(WORKSPACE, drawer, "dave", "inbox", "immediate");
   const claim = await claimNextDelivery(WORKSPACE, "dave", "inbox");
   await markDeliverySent(claim, "telegram-msg-12345");
   const s = await statusOf(WORKSPACE, drawer);
@@ -143,7 +150,7 @@ console.log("\n5. markDeliveryFailed cycles back to 'failed' below retry thresho
   // (status='failed', re-claimable); second failure is retries=2
   // (terminal 'dead').
   const drawer = await insertDrawer(WORKSPACE, "eve", "inbox");
-  await enqueueDelivery(WORKSPACE, drawer, "eve", "inbox");
+  await enqueueDelivery(WORKSPACE, drawer, "eve", "inbox", "immediate");
 
   // First attempt fails.
   const c1 = await claimNextDelivery(WORKSPACE, "eve", "inbox");
@@ -176,7 +183,7 @@ console.log("\n6. Dead delivery emits an ops_alert row");
 console.log("\n7. Reaper resets stale 'claimed' rows back to 'failed'");
 {
   const drawer = await insertDrawer(WORKSPACE, "frank", "inbox");
-  await enqueueDelivery(WORKSPACE, drawer, "frank", "inbox");
+  await enqueueDelivery(WORKSPACE, drawer, "frank", "inbox", "immediate");
   const claim = await claimNextDelivery(WORKSPACE, "frank", "inbox");
   assert(claim !== null, "claim succeeded");
 
@@ -203,7 +210,7 @@ console.log("\n7. Reaper resets stale 'claimed' rows back to 'failed'");
 console.log("\n8. Rows at MAX_RETRIES are not re-claimable");
 {
   const drawer = await insertDrawer(WORKSPACE, "grace", "inbox");
-  await enqueueDelivery(WORKSPACE, drawer, "grace", "inbox");
+  await enqueueDelivery(WORKSPACE, drawer, "grace", "inbox", "immediate");
   await sql(
     `UPDATE nexaas_memory.pa_delivery_marker
         SET retries = 2, status = 'failed'
