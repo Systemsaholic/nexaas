@@ -112,22 +112,24 @@ The `nexaas-worker.service` runs the BullMQ worker, outbox relay, and Bull Board
 - Shell/AI skill executors create their own `skill_runs` records — the worker must NOT duplicate them
 - On startup: reconcile orphaned `skill_runs` (status='running' with stale last_activity) and deduplicate stale BullMQ repeatables
 
-## Git Workflow — feature branch + PR (2026-07-08)
+## Git Workflow — contribute upstream via PR (2026-07-08)
 
-**Never commit or push directly to `main`** — branch protection enforces this
-(PR required, admins included, no force pushes). For every change:
+**The Systemsaholic ops workspace is a CONSUMER of Nexaas, not its
+maintainer.** Fixes and optimizations discovered in production are
+contributions: they go up as PRs for the **Nexaas team** to review and merge.
+Never commit or push directly to `main`, and **never merge your own PR** —
+branch protection enforces both (PR + 1 approval required, admins included,
+no force pushes).
 
 1. Branch from main: `git checkout -b fix/<slug>` or `feat/<slug>`.
-2. Commit + push the branch, then open a PR: `gh pr create --fill`.
-3. Merge it yourself once green: `gh pr merge --squash --delete-branch`
-   (0 approvals required — solo merges are fine; the PR exists for review
-   visibility and history, not gatekeeping).
-4. After merge on a box that runs the worker: `git checkout main && git pull`,
-   rebuild if `packages/` changed, `sudo systemctl restart nexaas-worker`.
-
-Squash-merge is the default so main stays one-commit-per-change. Urgent
-production fixes follow the same path — the PR round-trip is ~30 seconds
-with `gh`.
+2. Commit + push the branch, then open a PR: `gh pr create --fill`. Write the
+   PR body for a reviewer who did not see the incident: symptom, root cause,
+   fix, how it was verified.
+3. **Leave the PR open** for the Nexaas team. Do not self-merge.
+4. Production can't wait for review: deploy boxes may run the feature branch
+   directly (`git checkout fix/<slug>`, rebuild, restart nexaas-worker) until
+   the PR merges — then return to main: `git checkout main && git pull`,
+   rebuild, restart.
 
 ## Release Policy
 
