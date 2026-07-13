@@ -14,6 +14,42 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.3.10 — 2026-07-13
+
+Framework-hardening v2 tracks H4 + H2 (#253): PR-time CI and the gateway
+made real. No migrations; rollback to v0.3.9 unconstrained.
+
+### Added
+- CI: PR-time verification (#257). `.github/workflows/ci.yml` runs a build
+  job (workspace build + real `tsc --noEmit` typecheck in all 10 TS
+  workspaces — previously a silent no-op) and a test job (vitest against
+  ephemeral pgvector+redis with a fully-migrated scratch DB). Every
+  `scripts/test-*.mjs` harness (32) now runs on each PR via an
+  auto-discovering bridge, plus 51 new unit tests for critical functions
+  (bearer-auth #217, loadSkillManifest #246, model-registry/estimateCost,
+  localDay #215, resolveAgenticChain #255). `build`/`test` are required
+  status checks on main (strict). Three stale harnesses fixed in passing.
+  `nexaas conformance` is unchanged — deployment gate, not development gate.
+
+### Changed
+- All agentic model calls route through `ModelGateway.executeAgentic` (#255,
+  decision A — make the gateway real). ai-skill, PA service, subagent, and
+  webstudio edit no longer hardcode model IDs (all four `TIER_MAP`s deleted);
+  the tier resolves to a registry-driven Anthropic model chain with pricing.
+  Gains, all previously dead code: pre-call daily budget gate (#215),
+  per-turn model fallback on terminal provider failure (429 never falls
+  back — it propagates for the queue-pause path #27; `model_fallback` WAL
+  on switch), and per-segment cost accrual (also fixes the per-run
+  spend-cap check ignoring cache tokens). WAL/token_usage rows record the
+  model that actually served the run. Health probes (cli status/health,
+  health-monitor) resolve their 1-token key-probe model from the registry
+  via `probeModel()` instead of a hardcoded ID. Cross-provider *agentic*
+  fallback is out of scope (Anthropic wire format); the single-shot
+  `execute()` path keeps cross-provider fallback.
+
+### Migrations
+- None. Rollback to v0.3.9 unconstrained.
+
 ## v0.3.9 — 2026-07-08
 
 WAL integrity hardening (#254, H1 of the framework-hardening v2 umbrella #253)
