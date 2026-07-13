@@ -5,6 +5,7 @@
 
 import { execSync } from "child_process";
 import pg from "pg";
+import { probeModel } from "@nexaas/runtime";
 
 function exec(cmd: string): string {
   try { return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim(); } catch { return ""; }
@@ -71,7 +72,7 @@ export async function run() {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
+        body: JSON.stringify({ model: probeModel(), max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
       });
       if (res.status === 400 && (await res.text()).includes("credit")) alerts.push({ sev: "critical", comp: "api", msg: "credits exhausted" });
       else if (res.status === 401) alerts.push({ sev: "critical", comp: "api", msg: "key invalid" });

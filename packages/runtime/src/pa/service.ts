@@ -14,9 +14,9 @@
 
 import { randomUUID } from "crypto";
 import { palace, appendWal, sql } from "@nexaas/palace";
-import { runAgenticLoop, type McpTool } from "../models/agentic-loop.js";
+import type { McpTool } from "../models/agentic-loop.js";
+import { ModelGateway } from "../models/gateway.js";
 import { getBudgetState } from "../models/spend-governor.js";
-import { resolveTier } from "../models/registry.js";
 import { McpClient, loadMcpConfigs } from "../mcp/client.js";
 import { runTracker } from "../run-tracker.js";
 
@@ -45,20 +45,12 @@ export interface InboundMessage {
   attachments?: Array<{ type: string; url: string }>;
 }
 
-const TIER_MAP: Record<string, string> = {
-  cheap: "claude-haiku-4-5-20251001",
-  good: "claude-sonnet-4-6",
-  better: "claude-sonnet-4-6",
-  best: "claude-opus-4-6",
-};
-
 export async function handlePaMessage(
   workspace: string,
   persona: PersonaConfig,
   message: InboundMessage,
 ): Promise<{ response: string; turns: number; toolCalls: number }> {
   const runId = randomUUID();
-  const model = TIER_MAP[persona.modelTier] ?? "claude-sonnet-4-6";
 
   // Daily spend budget gate (#215) — checked before run tracking, MCP
   // spawn, or any model cost. PA requests arrive over HTTP, so the queue
@@ -310,29 +302,17 @@ Be helpful, context-aware, and follow the brand voice.`;
     // Default 2 min; override via NEXAAS_PA_TIMEOUT_MS.
     const paTimeoutMs = parseInt(process.env.NEXAAS_PA_TIMEOUT_MS ?? "120000", 10);
 
-    // Resolve pricing so PA conversations land in daily spend accounting
-    // (#215) — without it the agentic loop computes costUsd=0 and PA usage
-    // is invisible to the budget. Mirrors ai-skill.ts.
-    let modelPricing: { inputCostPerM: number; outputCostPerM: number } | undefined;
-    try {
-      const resolved = resolveTier(persona.modelTier);
-      if (resolved.primary.input_cost_per_m != null && resolved.primary.output_cost_per_m != null) {
-        modelPricing = {
-          inputCostPerM: resolved.primary.input_cost_per_m,
-          outputCostPerM: resolved.primary.output_cost_per_m,
-        };
-      }
-    } catch { /* registry not available — spend goes unrecorded, as before */ }
-
+    // Model resolution, registry pricing, and the budget backstop all live
+    // in the gateway now (#255); the friendly budget refusal above stays as
+    // PA's primary gate.
     const result = await Promise.race([
-      runAgenticLoop({
-        model,
+      ModelGateway.executeAgentic({
+        tier: persona.modelTier,
         system: systemPrompt,
         messages: [{ role: "user", content: message.content }],
         tools: allTools,
         executeTool,
         limits: { maxTurns: persona.maxTurns ?? 15 },
-        modelPricing,
         workspace,
         runId,
         skillId: `pa/${persona.id}`,

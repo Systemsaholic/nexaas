@@ -24,7 +24,9 @@ export {
   type ShellSkillManifest,
   type SkillExecutionContext,
 } from "./shell-skill.js";
-export { ModelGateway } from "./models/gateway.js";
+export { ModelGateway, resolveAgenticChain } from "./models/gateway.js";
+export { resolveTier, loadRegistry, estimateCost } from "./models/registry.js";
+export { probeModel } from "./models/probe.js";
 export { route as tagRoute } from "./tag/route.js";
 export { assemble as cagAssemble } from "./cag/assemble.js";
 export { retrieve as ragRetrieve } from "./rag/retrieve.js";

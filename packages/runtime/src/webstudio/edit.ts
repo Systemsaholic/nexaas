@@ -16,7 +16,8 @@
 import { randomUUID } from "crypto";
 import { join } from "path";
 import { existsSync } from "fs";
-import { runAgenticLoop, type McpTool } from "../models/agentic-loop.js";
+import type { McpTool } from "../models/agentic-loop.js";
+import { ModelGateway } from "../models/gateway.js";
 import { McpClient } from "../mcp/client.js";
 import { runTracker } from "../run-tracker.js";
 
@@ -37,13 +38,6 @@ export interface WebstudioEditResult {
   filesRead: string[];
   applied: boolean;
 }
-
-const TIER_MAP: Record<string, string> = {
-  cheap: "claude-haiku-4-5-20251001",
-  good: "claude-sonnet-4-6",
-  better: "claude-sonnet-4-6",
-  best: "claude-opus-4-6",
-};
 
 const EDIT_SYSTEM_PROMPT = (instruction: string, senderName: string) => `You are a web developer assistant editing a real project for ${senderName}. The user's instruction:
 
@@ -87,7 +81,6 @@ export async function runWebstudioEdit(
 
   const runId = randomUUID();
   const modelTier = options?.modelTier ?? "good";
-  const model = TIER_MAP[modelTier] ?? "claude-sonnet-4-6";
   const senderName = input.senderName ?? "user";
 
   await runTracker.createRun({
@@ -141,8 +134,8 @@ export async function runWebstudioEdit(
 
     const editTimeoutMs = parseInt(process.env.NEXAAS_WEBSTUDIO_EDIT_TIMEOUT_MS ?? "180000", 10);
     const result = await Promise.race([
-      runAgenticLoop({
-        model,
+      ModelGateway.executeAgentic({
+        tier: modelTier,
         system: EDIT_SYSTEM_PROMPT(input.instruction, senderName),
         messages: [{ role: "user", content: input.instruction }],
         tools,

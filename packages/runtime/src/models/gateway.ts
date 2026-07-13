@@ -12,11 +12,21 @@ import {
   getProviderConfig,
   estimateCost,
   type ModelEntry,
+  type ModelRegistry,
 } from "./registry.js";
 import * as anthropicProvider from "./providers/anthropic.js";
 import * as openaiProvider from "./providers/openai.js";
 import { appendWal } from "@nexaas/palace";
 import { assertWithinBudget, recordSpend } from "./spend-governor.js";
+import {
+  runAgenticLoop,
+  type AgenticLimits,
+  type AgenticModelChoice,
+  type AgenticResult,
+  type McpTool,
+  type ToolExecutor,
+} from "./agentic-loop.js";
+import type Anthropic from "@anthropic-ai/sdk";
 
 export type ModelTier = "cheap" | "good" | "better" | "best";
 
@@ -66,6 +76,46 @@ export interface ExecuteResult {
 export interface ModelAction {
   kind: string;
   payload: Record<string, unknown>;
+}
+
+/**
+ * Resolve a tier to the model chain the AGENTIC path can walk (#255).
+ *
+ * The agentic loop speaks the Anthropic Messages API natively (streaming,
+ * tool_use blocks, cache_control) — non-Anthropic registry fallbacks are
+ * filtered out because switching wire formats mid-conversation would
+ * require a full tool-loop translation layer. Cross-provider fallback
+ * remains available on the single-shot execute() path below. Registry
+ * invariant guarded by tests: every tier's PRIMARY is Anthropic, so this
+ * never returns an empty chain for a declared tier.
+ */
+export function resolveAgenticChain(
+  tier: string,
+  registry?: ModelRegistry,
+): AgenticModelChoice[] {
+  const { primary, fallbacks } = resolveTier(tier, registry);
+  return [primary, ...fallbacks]
+    .filter((e) => e.provider === "anthropic")
+    .map((e) => ({
+      model: e.model,
+      pricing:
+        e.input_cost_per_m != null && e.output_cost_per_m != null
+          ? { inputCostPerM: e.input_cost_per_m, outputCostPerM: e.output_cost_per_m }
+          : undefined,
+    }));
+}
+
+export interface ExecuteAgenticParams {
+  /** Manifest/persona model_tier — resolution happens HERE, not at call sites. */
+  tier: string;
+  system: string;
+  messages: Anthropic.MessageParam[];
+  tools: McpTool[];
+  executeTool: ToolExecutor;
+  workspace: string;
+  runId: string;
+  skillId: string;
+  limits?: AgenticLimits;
 }
 
 const RETRY_DELAYS = [100, 400, 1000];
@@ -156,6 +206,43 @@ async function tryWithRetries(
 }
 
 export const ModelGateway = {
+  /**
+   * The live execution path (#255): every agentic caller (ai-skill, PA
+   * service, subagent, webstudio edit) routes model runs through here.
+   * Gains over the previous direct-SDK call sites, all in one place:
+   *   - registry-driven model selection (no hardcoded TIER_MAPs anywhere)
+   *   - pre-call daily budget gate (#215) — SpendBudgetExceededError is a
+   *     policy stop, never "recovered" by a still-billable fallback
+   *   - same-API model fallback chain, walked per-turn inside the loop
+   *   - registry pricing for real spend-cap enforcement + accounting
+   * WAL (per-turn) + recordSpend stay inside runAgenticLoop — the loop is
+   * the accounting chokepoint; this wrapper is the policy + resolution one.
+   */
+  async executeAgentic(params: ExecuteAgenticParams): Promise<AgenticResult> {
+    await assertWithinBudget(params.workspace);
+
+    const chain = resolveAgenticChain(params.tier);
+    if (chain.length === 0) {
+      throw new Error(
+        `No Anthropic-capable model in registry for tier '${params.tier}' — the agentic path requires one`,
+      );
+    }
+
+    return runAgenticLoop({
+      model: chain[0]!.model,
+      modelPricing: chain[0]!.pricing,
+      fallbackModels: chain.slice(1),
+      system: params.system,
+      messages: params.messages,
+      tools: params.tools,
+      executeTool: params.executeTool,
+      workspace: params.workspace,
+      runId: params.runId,
+      skillId: params.skillId,
+      limits: params.limits,
+    });
+  },
+
   async execute(params: ExecuteParams): Promise<ExecuteResult> {
     const { tier, messages, system, tools, workspaceId, runId, stepId } = params;
 

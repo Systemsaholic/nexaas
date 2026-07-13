@@ -7,17 +7,11 @@
  */
 
 import { palace, appendWal } from "@nexaas/palace";
-import { runAgenticLoop, type McpTool } from "./models/agentic-loop.js";
+import type { McpTool } from "./models/agentic-loop.js";
+import { ModelGateway } from "./models/gateway.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
 import type { ModelTier } from "./models/gateway.js";
 import { randomUUID } from "crypto";
-
-const TIER_MAP: Record<string, string> = {
-  cheap: "claude-haiku-4-5-20251001",
-  good: "claude-sonnet-4-6",
-  better: "claude-sonnet-4-6",
-  best: "claude-opus-4-6",
-};
 
 export interface SubAgentConfig {
   id: string;
@@ -39,7 +33,6 @@ export async function subagent(params: {
 }): Promise<{ content: string; toolCalls: number; turns: number }> {
   const { workspace, parentRunId, parentStepId, config, input } = params;
   const subRunId = randomUUID();
-  const model = TIER_MAP[config.modelTier] ?? "claude-sonnet-4-6";
 
   // Connect to MCP servers if declared
   const mcpClients: McpClient[] = [];
@@ -96,8 +89,8 @@ export async function subagent(params: {
     : input;
 
   try {
-    const result = await runAgenticLoop({
-      model,
+    const result = await ModelGateway.executeAgentic({
+      tier: config.modelTier,
       system: config.systemPrompt,
       messages: [{ role: "user", content: userMessage }],
       tools: allTools,

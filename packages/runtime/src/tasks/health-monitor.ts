@@ -21,6 +21,7 @@ import { sql, appendWal } from "@nexaas/palace";
 import { exec as execCb } from "child_process";
 import { promisify } from "util";
 import { notify } from "../notifications.js";
+import { probeModel } from "../models/probe.js";
 
 // Async exec — health monitor runs every 5 min inside the worker. Using
 // execSync here (as before) blocked the event loop for each shell check,
@@ -170,7 +171,7 @@ export async function runHealthCheck(workspace: string): Promise<HealthReport> {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
+        body: JSON.stringify({ model: probeModel(), max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
       });
       if (res.status === 400 && (await res.text()).includes("credit balance")) {
         alerts.push({ severity: "critical", component: "api", message: "API credits exhausted" });

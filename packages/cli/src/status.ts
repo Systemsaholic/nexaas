@@ -3,6 +3,7 @@
  */
 
 import { execSync } from "child_process";
+import { probeModel } from "@nexaas/runtime";
 
 function exec(cmd: string): string {
   try {
@@ -27,7 +28,7 @@ async function testAnthropicKey(): Promise<{ valid: boolean; error?: string }> {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: probeModel(),
         max_tokens: 1,
         messages: [{ role: "user", content: "hi" }],
       }),

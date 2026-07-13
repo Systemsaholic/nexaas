@@ -215,6 +215,12 @@ export interface AgenticModelPricing {
   outputCostPerM: number;
 }
 
+/** One entry in the model chain the loop may walk on provider failure. */
+export interface AgenticModelChoice {
+  model: string;
+  pricing?: AgenticModelPricing;
+}
+
 export interface AgenticResult {
   content: string;
   toolCalls: Array<{ name: string; input: Record<string, unknown>; result: string }>;
@@ -229,6 +235,10 @@ export interface AgenticResult {
   turns: number;
   stopReason: AgenticStopReason;
   aborted: boolean;
+  /** The model that served the final turn (differs from the requested model after fallback). */
+  model: string;
+  /** True if any turn was served by a fallbackModels entry (#255). */
+  usedFallback: boolean;
 }
 
 const DEFAULT_MAX_TURNS = 10;
@@ -296,8 +306,17 @@ export async function runAgenticLoop(params: {
   skillId: string;
   limits?: AgenticLimits;
   modelPricing?: AgenticModelPricing;
+  /**
+   * Same-API-shape fallback models (#255) walked in order when a turn's
+   * request fails terminally (retries exhausted or non-retryable). The
+   * conversation so far carries over — Anthropic-to-Anthropic switches are
+   * seamless. 429s NEVER trigger fallback: they propagate so the worker's
+   * queue-pause path (#27) reacts, and a rate-limited account would
+   * rate-limit the fallback model too.
+   */
+  fallbackModels?: AgenticModelChoice[];
 }): Promise<AgenticResult> {
-  const { model, system, tools, executeTool, workspace, runId, skillId, modelPricing } = params;
+  const { system, tools, executeTool, workspace, runId, skillId } = params;
   const limits: AgenticLimits = params.limits ?? {};
   const maxTurns = limits.maxTurns ?? DEFAULT_MAX_TURNS;
   const maxIdentical = limits.maxConsecutiveIdenticalToolCalls ?? DEFAULT_MAX_CONSECUTIVE_IDENTICAL;
@@ -343,10 +362,21 @@ export async function runAgenticLoop(params: {
   let stopReason: AgenticStopReason = "max_turns";
   let aborted = true;
 
+  // Model chain (#255): the requested model plus registry fallbacks. Cost
+  // accrues per turn under the model that SERVED it, so a mid-run switch
+  // bills each segment at its own rate (the old end-of-run
+  // costOf(pricing, totals) also silently ignored cache tokens in the
+  // spend-cap check — per-turn accrual fixes both).
+  const chain: AgenticModelChoice[] = [
+    { model: params.model, pricing: params.modelPricing },
+    ...(params.fallbackModels ?? []),
+  ];
+  let chainIdx = 0;
+  let usedFallback = false;
+  let costAccrued = 0;
+
   const overSpendCap = () =>
-    limits.maxSpendUsd != null
-      && modelPricing != null
-      && costOf(modelPricing, totalInputTokens, totalOutputTokens) >= limits.maxSpendUsd;
+    limits.maxSpendUsd != null && costAccrued >= limits.maxSpendUsd;
   const overInputCap = () =>
     limits.maxInputTokens != null && totalInputTokens >= limits.maxInputTokens;
   const overOutputCap = () =>
@@ -355,24 +385,61 @@ export async function runAgenticLoop(params: {
   while (turns < maxTurns) {
     turns++;
 
-    const response = await retryMessagesCreate(() =>
-      streamWithChunkIdleTimeout(
-        client,
-        {
-          model,
-          max_tokens: maxTokensPerTurn,
-          system: systemParam,
-          messages,
-          tools: anthropicTools,
-        },
-        chunkIdleMs(),
-      ),
-    );
+    let response: Anthropic.Message;
+    for (;;) {
+      const current = chain[chainIdx]!;
+      try {
+        response = await retryMessagesCreate(() =>
+          streamWithChunkIdleTimeout(
+            client,
+            {
+              model: current.model,
+              max_tokens: maxTokensPerTurn,
+              system: systemParam,
+              messages,
+              tools: anthropicTools,
+            },
+            chunkIdleMs(),
+          ),
+        );
+        break;
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        // 429 → queue-pause path, never fallback (see fallbackModels doc).
+        if (status === 429 || chainIdx >= chain.length - 1) throw err;
+        const next = chain[chainIdx + 1]!;
+        console.warn(
+          `[nexaas] agentic-loop turn ${turns}: ${current.model} failed terminally — ` +
+          `falling back to ${next.model} (#255)`,
+        );
+        await appendWal({
+          workspace,
+          op: "model_fallback",
+          actor: `skill:${skillId}`,
+          payload: {
+            run_id: runId,
+            turn: turns,
+            from_model: current.model,
+            to_model: next.model,
+            error: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+          },
+        });
+        chainIdx++;
+        usedFallback = true;
+      }
+    }
 
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
     totalCacheCreationTokens += response.usage.cache_creation_input_tokens ?? 0;
     totalCacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+    costAccrued += costOf(
+      chain[chainIdx]!.pricing,
+      response.usage.input_tokens,
+      response.usage.output_tokens,
+      response.usage.cache_creation_input_tokens ?? 0,
+      response.usage.cache_read_input_tokens ?? 0,
+    );
 
     let turnText = "";
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
@@ -520,6 +587,8 @@ export async function runAgenticLoop(params: {
     aborted = true;
   }
 
+  const totalCostUsd = Math.round(costAccrued * 10000) / 10000;
+
   if (stopReason !== "end_turn") {
     await appendWal({
       workspace,
@@ -533,18 +602,10 @@ export async function runAgenticLoop(params: {
         output_tokens: totalOutputTokens,
         cache_creation_input_tokens: totalCacheCreationTokens,
         cache_read_input_tokens: totalCacheReadTokens,
-        cost_usd: costOf(
-          modelPricing, totalInputTokens, totalOutputTokens,
-          totalCacheCreationTokens, totalCacheReadTokens,
-        ),
+        cost_usd: totalCostUsd,
       },
     });
   }
-
-  const totalCostUsd = costOf(
-    modelPricing, totalInputTokens, totalOutputTokens,
-    totalCacheCreationTokens, totalCacheReadTokens,
-  );
 
   // Daily spend accounting (#215). This is the single chokepoint covering
   // every agentic caller (ai-skill, PA service, future surfaces). Never
@@ -563,5 +624,7 @@ export async function runAgenticLoop(params: {
     turns,
     stopReason,
     aborted,
+    model: chain[chainIdx]!.model,
+    usedFallback,
   };
 }
