@@ -21,7 +21,8 @@ const ONTOLOGY = readFileSync(join(ROOT, "palace/ontology.yaml"), "utf-8");
 function sources(): string[] {
   const roots = [
     "packages/palace/src", "packages/runtime/src", "packages/cli/src",
-    "packages/integration-sdk/src", "mcp/servers/palace/src",
+    "packages/manifest/src", "packages/integration-sdk/src",
+    "mcp/servers/palace/src",
     "mcp/servers/email-outbound/src", "mcp/servers/webstudio/src",
   ];
   const files: string[] = [];

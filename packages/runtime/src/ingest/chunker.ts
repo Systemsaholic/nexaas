@@ -6,7 +6,7 @@
  * optimal embedding and retrieval (800-1500 chars).
  */
 
-import { sql } from "@nexaas/palace";
+import { sql, writeDrawerRaw } from "@nexaas/palace";
 
 export interface ChunkResult {
   parentId: string;
@@ -86,19 +86,13 @@ export async function chunkAndStore(
       chunk_type: "document-chunk",
     };
 
-    const result = await sql<{ id: string }>(
-      `INSERT INTO nexaas_memory.events
-        (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id, metadata)
-       VALUES ($1, $2, $3, $4, $5, encode(digest($5, 'sha256'), 'hex'), 'document-chunk', 'chunker', 'document-vault', $6::jsonb)
-       RETURNING id::text`,
-      [workspace, parentRoom.wing, parentRoom.hall,
-       `${parentRoom.room}__chunk_${i}`,
-       chunk, JSON.stringify(chunkMeta)],
+    const drawerId = await writeDrawerRaw(
+      workspace,
+      { wing: parentRoom.wing, hall: parentRoom.hall, room: `${parentRoom.room}__chunk_${i}` },
+      chunk,
+      { eventType: "document-chunk", agentId: "chunker", skillId: "document-vault", metadata: chunkMeta },
     );
-
-    if (result.length > 0) {
-      drawerIds.push(result[0].id);
-    }
+    drawerIds.push(drawerId);
   }
 
   // Update parent metadata with chunk info

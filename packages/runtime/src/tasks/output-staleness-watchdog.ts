@@ -46,9 +46,8 @@
  * tree.
  */
 
-import { readdirSync, readFileSync, existsSync, statSync } from "fs";
 import { join } from "path";
-import { load as yamlLoad } from "js-yaml";
+import { loadManifest as loadSharedManifest, findManifestPaths } from "@nexaas/manifest";
 import { sql, palace, appendWal } from "@nexaas/palace";
 
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -105,26 +104,10 @@ export function parseDuration(s: string): number {
 
 function loadManifest(path: string): ManifestForStaleness | null {
   try {
-    const m = yamlLoad(readFileSync(path, "utf-8")) as ManifestForStaleness;
+    const m = loadSharedManifest(path) as unknown as ManifestForStaleness;
     if (!m?.id || !Array.isArray(m.outputs)) return null;
     return m;
   } catch { return null; }
-}
-
-function findManifests(skillsRoot: string): string[] {
-  if (!existsSync(skillsRoot)) return [];
-  const out: string[] = [];
-  for (const category of readdirSync(skillsRoot)) {
-    const catPath = join(skillsRoot, category);
-    let catStat;
-    try { catStat = statSync(catPath); } catch { continue; }
-    if (!catStat.isDirectory()) continue;
-    for (const skillName of readdirSync(catPath)) {
-      const skillPath = join(catPath, skillName, "skill.yaml");
-      if (existsSync(skillPath)) out.push(skillPath);
-    }
-  }
-  return out;
 }
 
 /**
@@ -217,7 +200,7 @@ export async function checkOutputStaleness(
   workspace: string,
   skillsRoot: string,
 ): Promise<{ stale: number; alerted: number }> {
-  const manifests = findManifests(skillsRoot);
+  const manifests = findManifestPaths(skillsRoot);
   const stale = await findStaleOutputs(workspace, manifests);
   if (stale.length === 0) return { stale: 0, alerted: 0 };
 

@@ -14,7 +14,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join, basename, relative } from "path";
 import { createHash } from "crypto";
 import pg from "pg";
-import { appendWal, getPool } from "@nexaas/palace";
+import { appendWal, getPool, writeDrawerRaw } from "@nexaas/palace";
 
 interface SeedEntry {
   filePath: string;
@@ -233,16 +233,17 @@ export async function run(args: string[]) {
         continue;
       }
 
-      // Write drawer
-      await pool.query(
-        `INSERT INTO nexaas_memory.events (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, 'seed', 'palace-seed', $7, $8)`,
-        [
-          workspace, entry.wing, entry.hall, entry.room,
-          content, hash,
-          `seed/${entry.contentType}`,
-          JSON.stringify({ source_file: relPath, priority: entry.priority, content_type: entry.contentType }),
-        ],
+      // Write drawer via the shared primitive (#256)
+      await writeDrawerRaw(
+        workspace,
+        { wing: entry.wing, hall: entry.hall, room: entry.room },
+        content,
+        {
+          eventType: "seed",
+          agentId: "palace-seed",
+          skillId: `seed/${entry.contentType}`,
+          metadata: { source_file: relPath, priority: entry.priority, content_type: entry.contentType },
+        },
       );
 
       console.log(`  ✓ ${entry.wing}/${entry.hall}/${entry.room} ← ${relPath}`);

@@ -27,7 +27,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { sql, appendWal } from "@nexaas/palace";
+import { sql, appendWal, writeDrawerRaw } from "@nexaas/palace";
 import { enqueueDelivery } from "../pa/delivery.js";
 
 export type Urgency = "immediate" | "normal" | "low";
@@ -472,38 +472,29 @@ export function defaultPaNotifyDeps(workspace: string): ExecuteDeps {
       }
     },
     writePendingDrawer: async (entry) => {
-      const rows = await sql<{ id: string }>(
-        `INSERT INTO nexaas_memory.events
-           (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
-         VALUES ($1, 'notifications', 'pending', $2, $3,
-                 encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
-                 $4, 1)
-         RETURNING id`,
-        [
-          entry.workspace,
-          `pa-routed.${entry.threadId}`,
-          JSON.stringify(entry.payload),
-          JSON.stringify({ user: entry.user, thread_id: entry.threadId, notification_id: entry.notificationId }),
-        ],
+      const drawerId = await writeDrawerRaw(
+        entry.workspace,
+        { wing: "notifications", hall: "pending", room: `pa-routed.${entry.threadId}` },
+        JSON.stringify(entry.payload),
+        {
+          agentId: "pa-notify-endpoint",
+          metadata: { user: entry.user, thread_id: entry.threadId, notification_id: entry.notificationId },
+        },
       );
-      return { drawer_id: rows[0]!.id };
+      return { drawer_id: drawerId };
     },
     enqueueDeliveryMarker: async (entry) => {
       await enqueueDelivery(entry.workspace, entry.drawerId, entry.user, entry.threadId, entry.urgency);
     },
     writeAuditDrawer: async (entry) => {
-      await sql(
-        `INSERT INTO nexaas_memory.events
-           (workspace, wing, hall, room, content, content_hash, event_type, agent_id, metadata, normalize_version)
-         VALUES ($1, 'inbox', $2, 'notifications-emitted', $3,
-                 encode(digest($3, 'sha256'), 'hex'), 'drawer', 'pa-notify-endpoint',
-                 $4, 1)`,
-        [
-          entry.workspace,
-          entry.user,
-          JSON.stringify(entry.payload),
-          JSON.stringify({ notification_id: entry.notificationId, thread_id: entry.threadId }),
-        ],
+      await writeDrawerRaw(
+        entry.workspace,
+        { wing: "inbox", hall: entry.user, room: "notifications-emitted" },
+        JSON.stringify(entry.payload),
+        {
+          agentId: "pa-notify-endpoint",
+          metadata: { notification_id: entry.notificationId, thread_id: entry.threadId },
+        },
       );
       await appendWal({
         workspace: entry.workspace,

@@ -234,6 +234,7 @@ Set in `.env` (never committed):
 ├── packages/
 │   ├── palace/src/                     Palace API, WAL, embeddings, signing
 │   ├── runtime/src/                    Pipeline, gateway, TAG, CAG, RAG, worker, notifications
+│   ├── manifest/src/                   Skill-manifest schema + loader (single source of truth)
 │   ├── cli/src/                        nexaas CLI (commands listed above)
 │   └── factory/commands/               /new-skill, /new-flow, /new-mcp, /nexaasify
 ├── capabilities/

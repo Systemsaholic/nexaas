@@ -12,24 +12,7 @@
 
 import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
-import { load as yamlLoad } from "js-yaml";
-import pg from "pg";
-
-interface SkillManifest {
-  id: string;
-  version: string;
-  description?: string;
-  timezone?: string;
-  triggers?: Array<{ type: string; schedule?: string; timezone?: string }>;
-  execution?: { type: string; command?: string; timeout?: number; model_tier?: string; working_directory?: string };
-  mcp_servers?: Array<string | { id: string; tools?: string[] }>;
-  rooms?: {
-    primary?: { wing: string; hall: string; room: string };
-    retrieval_rooms?: Array<{ wing: string; hall: string; room: string }>;
-  };
-  outputs?: Array<{ id: string; routing_default?: string; overridable?: boolean }>;
-  self_reflection?: boolean;
-}
+import { loadManifest, validateManifestShape, type SkillManifest } from "@nexaas/manifest";
 
 export async function run(args: string[]) {
   const manifestPath = args.find(a => !a.startsWith("--"));
@@ -51,10 +34,12 @@ export async function run(args: string[]) {
     process.exit(1);
   }
 
-  const content = readFileSync(manifestPath, "utf-8");
+  // Shared loader (#256): contract.yaml manifests normalize to the same
+  // shape register-skill accepts, so dry-run no longer reports "missing
+  // 'id'" on a manifest the scheduler would happily register.
   let manifest: SkillManifest;
   try {
-    manifest = yamlLoad(content) as SkillManifest;
+    manifest = loadManifest(manifestPath);
   } catch (e) {
     console.error(`Invalid YAML: ${(e as Error).message}`);
     process.exit(1);
@@ -75,6 +60,9 @@ export async function run(args: string[]) {
   if (!manifest.id) issues.push("Missing 'id' field");
   if (!manifest.version) issues.push("Missing 'version' field");
   if (!manifest.execution?.type) issues.push("Missing 'execution.type' field");
+  if (manifest.id && manifest.version) {
+    issues.push(...validateManifestShape(manifest).map((i) => `Schema: ${i}`));
+  }
 
   if (manifest.execution?.type === "ai-skill") {
     const promptPath = join(skillDir, "prompt.md");
@@ -217,7 +205,10 @@ export async function run(args: string[]) {
   if (manifest.execution?.type === "shell") {
     const { execSync } = await import("child_process");
     const cwd = manifest.execution.working_directory ?? skillDir;
-    const timeout = (manifest.execution.timeout ?? 120) * 1000;
+    // execution.timeout is MILLISECONDS (docs/skill-authoring.md) — the
+    // pre-#256 `* 1000` here treated it as seconds, turning a 2-minute
+    // manifest timeout into a 33-hour one for --live runs.
+    const timeout = manifest.execution.timeout ?? 120_000;
 
     try {
       const output = execSync(manifest.execution.command!, {

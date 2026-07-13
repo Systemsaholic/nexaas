@@ -5,7 +5,7 @@
  * Supports severity-based routing, rate limiting, and ack/snooze.
  */
 
-import { sql, appendWal } from "@nexaas/palace";
+import { sql, appendWal, writeDrawerRaw } from "@nexaas/palace";
 
 export type NotificationSeverity = "critical" | "warning" | "info";
 export type NotificationChannel = "telegram" | "email" | "palace";
@@ -72,22 +72,17 @@ export async function notify(payload: NotificationPayload): Promise<{ sent: Noti
 
   // Palace — always record
   try {
-    await sql(
-      `INSERT INTO nexaas_memory.events
-        (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id)
-       VALUES ($1, 'notifications', 'alerts', $2, $3, encode(digest($3, 'sha256'), 'hex'), 'alert', 'notifications', $4)`,
-      [
-        payload.workspace,
-        payload.severity,
-        JSON.stringify({
-          title: payload.title,
-          body: payload.body,
-          severity: payload.severity,
-          component: payload.component,
-          timestamp: new Date().toISOString(),
-        }),
-        payload.skillId ?? "system",
-      ],
+    await writeDrawerRaw(
+      payload.workspace,
+      { wing: "notifications", hall: "alerts", room: payload.severity },
+      JSON.stringify({
+        title: payload.title,
+        body: payload.body,
+        severity: payload.severity,
+        component: payload.component,
+        timestamp: new Date().toISOString(),
+      }),
+      { eventType: "alert", agentId: "notifications", skillId: payload.skillId ?? "system" },
     );
     sent.push("palace");
   } catch { /* palace write failure shouldn't block notifications */ }

@@ -3,7 +3,7 @@
  */
 
 // Core palace API
-export { palace, resolveWaitpoint, type PalaceSession, type PalaceContext } from "./palace.js";
+export { palace, resolveWaitpoint, writeDrawerRaw, type RawDrawerOpts, type PalaceSession, type PalaceContext } from "./palace.js";
 
 // Types
 export { type Drawer, type DrawerId, type DrawerMeta, type RoomPath, type WalkOpts } from "./types.js";

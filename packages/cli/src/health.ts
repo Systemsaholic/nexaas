@@ -1,15 +1,17 @@
 /**
  * nexaas health — detailed health report.
- * Self-contained (no cross-package imports) — queries DB and services directly.
+ *
+ * Thin renderer over the runtime's `runHealthCheck` (#256) — the same
+ * checks the in-process 5-minute health monitor runs, plus a live probe
+ * of the worker's HTTP endpoint (which the in-process monitor must skip —
+ * self-curling your own event loop is the #33 deadlock class). Before the
+ * fold this file was a second, diverging implementation: #245's
+ * cadence-aware staleness never made it here, and #215's spend budget
+ * never made it into the monitor.
  */
 
-import { execSync } from "child_process";
-import pg from "pg";
-import { probeModel } from "@nexaas/runtime";
-
-function exec(cmd: string): string {
-  try { return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim(); } catch { return ""; }
-}
+import { runHealthCheck } from "@nexaas/runtime";
+import { getPool } from "@nexaas/palace";
 
 export async function run() {
   const workspace = process.env.NEXAAS_WORKSPACE;
@@ -20,143 +22,43 @@ export async function run() {
     process.exit(1);
   }
 
-  const pool = new pg.Pool({ connectionString: dbUrl, max: 2 });
-  const alerts: Array<{ sev: string; comp: string; msg: string }> = [];
-
   console.log("\n  Running health check...\n");
 
-  // Worker
-  let uptime = 0;
-  try {
-    const h = JSON.parse(exec("curl -sf http://localhost:9090/health 2>/dev/null") || "{}");
-    uptime = h.uptime ?? 0;
-    if (h.status !== "healthy") alerts.push({ sev: "critical", comp: "worker", msg: "unhealthy" });
-  } catch { alerts.push({ sev: "critical", comp: "worker", msg: "not responding" }); }
+  const report = await runHealthCheck(workspace, { probeWorker: true });
+  const m = report.metrics;
 
-  // Redis
-  if (exec("redis-cli ping 2>/dev/null") !== "PONG") {
-    alerts.push({ sev: "critical", comp: "redis", msg: "not responding" });
-  }
+  const status = report.status.toUpperCase();
+  const icon = report.status === "healthy" ? "✓" : report.status === "degraded" ? "⚠" : "✗";
 
-  // Success rate last hour
-  const hr = await pool.query(`
-    SELECT count(*) FILTER (WHERE status = 'completed') as ok,
-           count(*) FILTER (WHERE status = 'failed') as fail
-    FROM nexaas_memory.skill_runs
-    WHERE started_at > now() - interval '1 hour' AND status IN ('completed','failed')
-  `);
-  const ok = parseInt(hr.rows[0]?.ok ?? "0", 10);
-  const fail = parseInt(hr.rows[0]?.fail ?? "0", 10);
-  const total = ok + fail;
-  const rate = total > 0 ? Math.round(100 * ok / total) : 100;
-  if (rate < 80 && total > 5) alerts.push({ sev: "warning", comp: "skills", msg: `${rate}% success rate (${fail} failures)` });
-
-  // Consecutive failures
-  const consec = await pool.query(`
-    WITH ranked AS (
-      SELECT skill_id, status, ROW_NUMBER() OVER (PARTITION BY skill_id ORDER BY started_at DESC) as rn
-      FROM nexaas_memory.skill_runs WHERE started_at > now() - interval '2 hours'
-    )
-    SELECT skill_id, count(*) as c FROM ranked WHERE rn <= 5 AND status = 'failed' GROUP BY skill_id HAVING count(*) >= 3
-  `);
-  for (const r of consec.rows) {
-    alerts.push({ sev: "critical", comp: r.skill_id, msg: `${r.c} consecutive failures` });
-  }
-
-  // API key
-  const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
-  if (!apiKey || apiKey.includes("placeholder")) {
-    alerts.push({ sev: "critical", comp: "api", msg: "not set" });
-  } else {
-    try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: probeModel(), max_tokens: 1, messages: [{ role: "user", content: "ok" }] }),
-      });
-      if (res.status === 400 && (await res.text()).includes("credit")) alerts.push({ sev: "critical", comp: "api", msg: "credits exhausted" });
-      else if (res.status === 401) alerts.push({ sev: "critical", comp: "api", msg: "key invalid" });
-    } catch { /* network error, skip */ }
-  }
-
-  // Cost today
-  const costRes = await pool.query(`
-    SELECT COALESCE(sum((payload->>'cost_usd')::numeric), 0) as cost
-    FROM nexaas_memory.wal WHERE op = 'ai_skill_completed' AND created_at > date_trunc('day', now()) AND payload->>'cost_usd' IS NOT NULL
-  `);
-  const cost = parseFloat(costRes.rows[0]?.cost ?? "0");
-  if (cost > 20) alerts.push({ sev: "warning", comp: "cost", msg: `$${cost.toFixed(2)} today` });
-
-  // Daily spend budget (#215). Tolerates a not-yet-migrated DB (the
-  // spend_daily table arrives with migration 026) — health must not break
-  // during the upgrade window.
-  let budgetLine = "(unlimited)";
-  try {
-    const budgetRes = await pool.query(
-      `SELECT c.spend_daily_budget_usd::text AS budget,
-              COALESCE(s.usd, 0)::text AS spent,
-              (SELECT value FROM nexaas_memory.workspace_kv kv
-                WHERE kv.workspace = c.workspace AND kv.key = 'spend_pause_active_day') AS paused_day
-         FROM nexaas_memory.workspace_config c
-         LEFT JOIN nexaas_memory.spend_daily s
-           ON s.workspace = c.workspace
-          AND s.day = (now() AT TIME ZONE c.timezone)::date
-        WHERE c.workspace = $1`,
-      [workspace],
-    );
-    const b = budgetRes.rows[0];
-    if (b?.budget) {
-      const budgetUsd = parseFloat(b.budget);
-      const spentUsd = parseFloat(b.spent ?? "0");
-      const pct = budgetUsd > 0 ? Math.round((100 * spentUsd) / budgetUsd) : 0;
-      budgetLine = `$${spentUsd.toFixed(2)} of $${budgetUsd.toFixed(2)} (${pct}%)${b.paused_day ? " — QUEUE PAUSED" : ""}`;
-      if (b.paused_day) {
-        alerts.push({ sev: "critical", comp: "spend-budget", msg: `daily budget exceeded — queue paused (resumes at local midnight or via spend-override)` });
-      } else if (pct >= 80) {
-        alerts.push({ sev: "warning", comp: "spend-budget", msg: `${pct}% of daily budget spent ($${spentUsd.toFixed(2)} of $${budgetUsd.toFixed(2)})` });
-      }
-    }
-  } catch { /* pre-026 schema — no budget machinery yet */ }
-
-  // Counts
-  const walRes = await pool.query(`SELECT count(*) FROM nexaas_memory.wal WHERE workspace = $1`, [workspace]);
-  const palaceRes = await pool.query(`SELECT count(*) FROM nexaas_memory.events WHERE workspace = $1 AND wing IS NOT NULL`, [workspace]);
-
-  // System
-  const memInfo = exec("free -g 2>/dev/null");
-  let memUsed = 0, memAvail = 0;
-  const mm = memInfo.match(/Mem:\s+\d+\s+(\d+)\s+\d+\s+\d+\s+\d+\s+(\d+)/);
-  if (mm) { memUsed = parseInt(mm[1]!, 10); memAvail = parseInt(mm[2]!, 10); }
-  const diskPct = parseInt(exec("df -h / | tail -1").match(/(\d+)%/)?.[1] ?? "0", 10);
-  if (diskPct > 85) alerts.push({ sev: "warning", comp: "disk", msg: `${diskPct}% used` });
-  if (memAvail < 2) alerts.push({ sev: "warning", comp: "memory", msg: `${memAvail}GB available` });
-
-  // Report
-  const status = alerts.some(a => a.sev === "critical") ? "CRITICAL" : alerts.some(a => a.sev === "warning") ? "DEGRADED" : "HEALTHY";
-  const icon = status === "HEALTHY" ? "✓" : status === "DEGRADED" ? "⚠" : "✗";
+  const budgetLine = m.spend_budget
+    ? `$${m.spend_budget.spent_usd.toFixed(2)} of $${m.spend_budget.budget_usd.toFixed(2)}` +
+      ` (${m.spend_budget.budget_usd > 0 ? Math.round((100 * m.spend_budget.spent_usd) / m.spend_budget.budget_usd) : 0}%)` +
+      `${m.spend_budget.paused ? " — QUEUE PAUSED" : ""}`
+    : "(unlimited)";
 
   console.log(`  ${icon} Overall: ${status}\n`);
   console.log("  Metrics:");
-  console.log(`    Worker uptime:      ${Math.round(uptime)}s`);
-  console.log(`    Last hour:          ${ok} ok, ${fail} fail (${rate}%)`);
-  console.log(`    API cost today:     $${cost.toFixed(2)}`);
+  console.log(`    Worker uptime:      ${Math.round(m.worker_uptime_seconds)}s`);
+  console.log(`    Last hour:          ${m.completions_last_hour} ok, ${m.failures_last_hour} fail (${m.success_rate_last_hour}%)`);
+  console.log(`    Skills (4h):        ${m.skills_total} seen, ${m.skills_healthy} healthy, ${m.skills_failing} failing`);
+  console.log(`    API cost today:     $${m.api_cost_today_usd.toFixed(2)}`);
   console.log(`    Spend budget:       ${budgetLine}`);
-  console.log(`    WAL entries:        ${walRes.rows[0]?.count}`);
-  console.log(`    Palace drawers:     ${palaceRes.rows[0]?.count}`);
-  console.log(`    Memory:             ${memUsed}GB used, ${memAvail}GB available`);
-  console.log(`    Disk:               ${diskPct}% used`);
+  console.log(`    WAL entries:        ${m.wal_entries_total}`);
+  console.log(`    Palace drawers:     ${m.palace_drawers}`);
+  console.log(`    Memory:             ${m.memory_used_gb}GB used, ${m.memory_available_gb}GB available`);
+  console.log(`    Disk:               ${m.disk_used_pct}% used`);
 
-  if (alerts.length > 0) {
+  if (report.alerts.length > 0) {
     console.log("\n  Alerts:");
-    for (const a of alerts) {
-      const i = a.sev === "critical" ? "🔴" : a.sev === "warning" ? "🟡" : "🔵";
-      console.log(`    ${i} [${a.comp}] ${a.msg}`);
+    for (const a of report.alerts) {
+      const i = a.severity === "critical" ? "🔴" : a.severity === "warning" ? "🟡" : "🔵";
+      console.log(`    ${i} [${a.component}] ${a.message}`);
     }
   } else {
     console.log("\n  ✓ No alerts");
   }
   console.log("");
 
-  await pool.end();
-  process.exit(status === "CRITICAL" ? 1 : 0);
+  await getPool().end().catch(() => {});
+  process.exit(report.status === "critical" ? 1 : 0);
 }

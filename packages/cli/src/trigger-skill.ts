@@ -5,8 +5,7 @@
  *   nexaas trigger-skill <path-to-skill.yaml>
  */
 
-import { readFileSync } from "fs";
-import { load as yamlLoad } from "js-yaml";
+import { loadManifest } from "@nexaas/manifest";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import { randomUUID } from "crypto";
@@ -24,8 +23,13 @@ export async function run(args: string[]) {
     process.exit(1);
   }
 
-  const content = readFileSync(manifestPath, "utf-8");
-  const manifest = yamlLoad(content) as { id: string; version: string; execution?: { type: string } };
+  // Shared loader (#256) — a contract.yaml skill triggers with its derived
+  // `category/skill` id instead of `undefined`.
+  const manifest = loadManifest(manifestPath);
+  if (!manifest.id || !manifest.version) {
+    console.error(`Manifest at ${manifestPath} is missing required 'id' or 'version'`);
+    process.exit(1);
+  }
 
   const connection = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
     maxRetriesPerRequest: null,
