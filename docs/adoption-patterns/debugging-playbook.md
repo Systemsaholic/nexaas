@@ -417,8 +417,8 @@ Expected patterns:
   every call. Move the variable content into the user message.
 - **Tool list varies.** If MCP discovery returns a different tool set
   across runs (servers coming online late), the last-tool
-  `cache_control` anchor shifts and the cache misses. Stabilize MCP
-  availability via the `NEXAAS_MCP_SERVERS` explicit list if needed.
+  `cache_control` anchor shifts and the cache misses. Pin the tool set
+  with a per-MCP `tools:` allowlist in the skill manifest (#196).
 
 ---
 

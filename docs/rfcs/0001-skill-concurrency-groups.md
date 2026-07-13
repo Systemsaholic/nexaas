@@ -1,6 +1,6 @@
 # RFC 0001 — Skill Concurrency Groups
 
-**Status:** Proposed
+**Status:** Partially implemented — in-process groups shipped (#95/#96/#135); the Redis lock backend below was not built
 **Authored:** 2026-05-06 (Phoenix canary)
 **Owners:** Phoenix Voyages (canary), Nexaas core
 **Targets:** `@nexaas/runtime` (worker, shell-skill, ai-skill), `@nexaas/cli` (register-skill)
@@ -124,6 +124,11 @@ const key = `nexaas:lock:${workspace}:${group}`;
 ```
 
 The runtime picks based on `NEXAAS_LOCK_BACKEND=memory|redis` (default `memory` for backward compat). Phoenix stays on memory for now; operator-managed deployments flip to redis.
+
+> **Implementation note (2026-07-13, #258):** the Redis backend and
+> `NEXAAS_LOCK_BACKEND` were never built. Shipped behavior is the in-process
+> worker mutex only — sufficient because the framework runs one worker per
+> workspace VPS. This section is a design sketch, not a contract.
 
 ### 3.3 Manifest schema (Zod, `@nexaas/manifest`)
 
