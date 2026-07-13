@@ -19,10 +19,10 @@ import { palace, appendWal, sqlOne } from "@nexaas/palace";
 import { runTracker } from "./run-tracker.js";
 import { McpClient, loadMcpConfigs } from "./mcp/client.js";
 import { acquireMcpClient, releaseMcpClient } from "./mcp/pool.js";
-import { runAgenticLoop, type McpTool, type AgenticLimits } from "./models/agentic-loop.js";
+import type { McpTool, AgenticLimits, AgenticResult } from "./models/agentic-loop.js";
+import { ModelGateway } from "./models/gateway.js";
 import { getBudgetState } from "./models/spend-governor.js";
 import { pauseForBudgetBreach } from "./tasks/spend-budget-monitor.js";
-import { resolveTier, estimateCost, type ModelEntry } from "./models/registry.js";
 import { verifyOutputs, summarizeFailures, type OutputVerification } from "./ai-skill-verify.js";
 import type { OutputKind, ManifestApproval, RoutingDecision } from "./tag/route.js";
 import { apply as applyRoutedAction } from "./engine/apply.js";
@@ -135,13 +135,6 @@ const DEFAULT_LIMITS: Required<Pick<AiSkillManifest, "limits">>["limits"] = {
   max_output_tokens_per_turn: 16000,
   max_consecutive_identical_tool_calls: 3,
   max_consecutive_errors: 3,
-};
-
-const TIER_MAP: Record<string, string> = {
-  cheap: "claude-haiku-4-5-20251001",
-  good: "claude-sonnet-4-6",
-  better: "claude-sonnet-4-6",
-  best: "claude-opus-4-6",
 };
 
 export interface AiSkillExecutionContext {
@@ -293,9 +286,9 @@ export async function runAiSkill(
     systemPrompt = manifest.description ?? `Execute skill: ${manifest.id}`;
   }
 
-  // Resolve the model
+  // Model selection is the gateway's job (#255): the tier resolves to a
+  // registry-driven Anthropic chain inside ModelGateway.executeAgentic.
   const tier = manifest.execution.model_tier ?? "good";
-  const model = TIER_MAP[tier] ?? "claude-sonnet-4-6";
 
   // Connect to MCP servers
   // Look for .mcp.json in these locations (in order):
@@ -478,20 +471,6 @@ export async function runAiSkill(
       ? `${parts.join("\n\n")}\n\n${taskLine}`
       : "Proceed with the task.";
 
-    // Resolve pricing from the model registry for real spend-cap enforcement.
-    let modelPricing: { inputCostPerM: number; outputCostPerM: number } | undefined;
-    let pricedModelEntry: ModelEntry | undefined;
-    try {
-      const resolved = resolveTier(tier);
-      pricedModelEntry = resolved.primary;
-      if (resolved.primary.input_cost_per_m != null && resolved.primary.output_cost_per_m != null) {
-        modelPricing = {
-          inputCostPerM: resolved.primary.input_cost_per_m,
-          outputCostPerM: resolved.primary.output_cost_per_m,
-        };
-      }
-    } catch { /* registry not available — spend cap will be skipped */ }
-
     // Bind framework tool context now that session + manifest loader are
     // ready. Loaded once per run so the same workspaceManifest is available
     // both during the agentic loop (via framework__produce_output) and
@@ -521,7 +500,7 @@ export async function runAiSkill(
     };
 
     // Run the agentic loop
-    console.log(`[nexaas] Running AI skill '${manifest.id}' with ${allTools.length} tools, model: ${model}`);
+    console.log(`[nexaas] Running AI skill '${manifest.id}' with ${allTools.length} tools, tier: ${tier}`);
     // Tool-bloat early warning (#196). >75 tool defs ≈ 20-30K prompt tokens
     // before CAG context — the silent first-call-timeout zone (#197 RCA).
     // Use per-MCP `tools:` allowlists to trim. Warn, don't block.
@@ -543,10 +522,10 @@ export async function runAiSkill(
       });
     }, 30_000);
 
-    let result: Awaited<ReturnType<typeof runAgenticLoop>>;
+    let result: AgenticResult;
     try {
-      result = await runAgenticLoop({
-        model,
+      result = await ModelGateway.executeAgentic({
+        tier,
         system: systemPrompt,
         messages: [{ role: "user", content: userMessage }],
         tools: allTools,
@@ -555,7 +534,6 @@ export async function runAiSkill(
         runId,
         skillId: manifest.id,
         limits: agenticLimits,
-        modelPricing,
       });
     } finally {
       clearInterval(heartbeat);
@@ -664,19 +642,9 @@ export async function runAiSkill(
       await session.writeDrawer(primaryRoom, JSON.stringify(primaryDrawerPayload));
     }
 
-    // Update token usage — prefer registry-sourced pricing, fall back to previous guess.
-    const cost = pricedModelEntry
-      ? estimateCost(
-          pricedModelEntry, result.inputTokens, result.outputTokens,
-          result.cacheCreationTokens, result.cacheReadTokens,
-        )
-      : estimateCost(
-          { provider: "anthropic", model, input_cost_per_m: tier === "good" ? 3 : 1, output_cost_per_m: tier === "good" ? 15 : 5 } as ModelEntry,
-          result.inputTokens,
-          result.outputTokens,
-          result.cacheCreationTokens,
-          result.cacheReadTokens,
-        );
+    // Cost is accrued per-turn inside the loop under registry pricing —
+    // correct across mid-run model fallbacks (#255).
+    const cost = result.costUsd;
 
     await runTracker.updateTokenUsage(runId, {
       input: result.inputTokens,
@@ -692,7 +660,8 @@ export async function runAiSkill(
       actor: `skill:${manifest.id}`,
       payload: {
         run_id: runId,
-        model,
+        model: result.model,
+        model_fallback: result.usedFallback,
         turns: result.turns,
         tool_calls: result.toolCalls.length,
         input_tokens: result.inputTokens,
@@ -711,7 +680,7 @@ export async function runAiSkill(
       await sql(
         `INSERT INTO token_usage (workspace, agent, session_id, source, model, input_tokens, output_tokens, cost_usd, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
-        [workspace, manifest.id, runId, "ai-skill", model, result.inputTokens, result.outputTokens, cost],
+        [workspace, manifest.id, runId, "ai-skill", result.model, result.inputTokens, result.outputTokens, cost],
       );
     } catch { /* non-fatal — billing table may not exist on all installs */ }
 
