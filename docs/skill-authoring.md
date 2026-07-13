@@ -1,7 +1,11 @@
 # Nexaas Skill Authoring Guide
 
 **Document status:** Canonical reference for building skills on the Nexaas framework
-**Last updated:** 2026-04-17
+**Last updated:** 2026-07-13 (#258 — regenerated from the runtime's TS interfaces; see
+`AiSkillManifest` in `packages/runtime/src/ai-skill.ts`, `SkillManifest` in
+`packages/cli/src/register-skill.ts`, and `ManifestOutput`/`ManifestApproval` in
+`packages/runtime/src/tag/route.ts`. Those interfaces are the source of truth —
+when this document and the code disagree, the code wins and this file has a bug.)
 
 ---
 
@@ -119,7 +123,11 @@ When a skill directory contains both (rare; during a migration), `skill.yaml` wi
 
 ### Timezone
 
-All cron schedules should declare a timezone. Without one, the system defaults to `America/Toronto` (Eastern Time). The VPS clock runs UTC but cron expressions are interpreted in the declared timezone.
+All cron schedules should declare a timezone. Resolution order (see
+`register-skill.ts`): per-trigger `timezone` → manifest-level `timezone` →
+the workspace's configured timezone (`workspace_config.timezone`) →
+`NEXAAS_TIMEZONE` env → **UTC**. The VPS clock runs UTC but cron expressions
+are interpreted in the resolved timezone.
 
 ```yaml
 timezone: America/Toronto    # skill-level default for all triggers
@@ -130,7 +138,20 @@ triggers:
     timezone: America/Toronto       # per-trigger override (optional)
 ```
 
-**Always think in the business's timezone, not UTC.** "Business hours" means 8 AM - 8 PM in the timezone where the team operates, not where the server sits.
+**Always think in the business's timezone, not UTC.** "Business hours" means 8 AM - 8 PM in the timezone where the team operates, not where the server sits. Set the workspace timezone in `workspace_config` so undeclared manifests inherit it instead of falling to UTC.
+
+### Trigger types
+
+Three trigger types are implemented. (`event` and `webhook` triggers appear in
+older drafts of these docs — **they do not exist**; no dispatcher fires them.
+For event-driven starts, use `inbound-message`, a `batch` bucket, or
+`POST /api/skills/trigger`.)
+
+| type | fields | fired by |
+|---|---|---|
+| `cron` | `schedule` (cron expr), `timezone?` | BullMQ job scheduler. Multi-cron manifests get one scheduler per trigger. |
+| `inbound-message` | `channel_role` (e.g. `pa_reply_<user>`) | The inbound dispatcher, when a message arrives on that channel role (PA-as-Router, #122). |
+| `batch` | `bucket`, `fire_when.any_of: [...]`, `on_empty?: skip\|fire-with-empty`, `ordering?: arrival\|recency-first` | The batch dispatcher (#80), when a fire condition is met. Conditions: `count_at_least: n`, `oldest_age_at_least: <seconds>`, `cron: <expr>`, `at: <ISO>`, `from_field: <key>` (per-item deadline read from drawer content, #136). One consumer per bucket. |
 
 ### Shell Skill
 
@@ -147,7 +168,8 @@ triggers:
 execution:
   type: shell
   command: "bash scripts/my-script.sh"
-  timeout: 120                   # seconds
+  timeout: 120000                # MILLISECONDS (this is 2 min). contract.yaml's
+                                 # timeout_seconds is the seconds-shaped field.
   working_directory: /home/ubuntu/MyWorkspace
 
 rooms:
@@ -161,7 +183,9 @@ self_reflection: false
 
 **Python scripts and `working_directory`:** when `working_directory` is set, the framework prepends it to `PYTHONPATH` so `python3 scripts/foo.py` can `import mypackage` where `mypackage/` sits at the repo root. Without this, Python only auto-adds the script's own directory to `sys.path` (not cwd), and imports of sibling packages fail with `ModuleNotFoundError`. No action needed — this is automatic.
 
-### AI Skill
+### AI Skill — full field reference
+
+Everything the runtime reads (`AiSkillManifest`, `ai-skill.ts`), annotated:
 
 ```yaml
 id: operations/my-ai-task
@@ -174,24 +198,75 @@ triggers:
 
 execution:
   type: ai-skill
-  model_tier: good              # cheap (Haiku) | good (Sonnet) | better | best (Opus)
+  model_tier: good              # cheap | good | better | best — resolved to a
+                                # registry-driven model chain by ModelGateway (#255).
+                                # NEVER hardcode a model name.
+
+  preflight:                    # optional cheap shell check BEFORE the AI loop.
+    command: "bash scripts/anything-new.sh"
+    timeout: 30000              # ms
+    # exit 0 → proceed. exit 1 → skip the run (status='skipped', $0 spent).
+    # exit ≥2 → fail. Runs before MCP connect, so a skipped run pays nothing.
+
+  primary_output: task_result   # optional TAG bridge (#45 Stage 1b): route the
+                                # loop's result through TAG as this output. With
+                                # routing_default: approval_required this creates
+                                # a waitpoint + approval request instead of
+                                # writing the drawer directly.
 
 mcp_servers:                     # MCP servers from workspace .mcp.json
-  - my-email-server
-  - my-database-server
+  - my-database-server           # plain string → load ALL the server's tools
+  - id: my-email-server          # object form (#196) → load ONLY named tools.
+    tools: [send_email, list_threads]
+    # Tool defs cost ~250-400 prompt tokens each; >75 loaded tools logs a
+    # bloat warning (silent first-call-timeout zone, #197).
 
 rooms:
-  primary:
+  primary:                       # where the run-result drawer is written
     wing: operations
     hall: tasks
     room: my-ai-task
-  retrieval_rooms:               # palace rooms CAG walks for context
+  retrieval_rooms:               # rooms walked for context before the loop
     - { wing: knowledge, hall: brand, room: voice }
 
 outputs:
   - id: task_result
-    routing_default: auto_execute
-    overridable: false
+    kind: notification           # notification | external_send | palace_write |
+                                 # subagent_invocation | mcp_tool_call |
+                                 # chain_signal (#180) | <custom>
+    routing_default: approval_required   # auto_execute | approval_required |
+                                         # escalate | flag
+    required: true               # (#180) run FAILS with terminal_reason
+                                 # 'required_output_missing' if the agent never
+                                 # calls framework__produce_output for this id —
+                                 # closes the silent-stall mode in skill chains.
+    approval:                    # for routing_default: approval_required (#53)
+      channel_role: ops_approvals     # may contain {persona_id}
+      decisions: [approve, edit, reject]   # default [approve, reject]
+      timeout_seconds: 86400            # default 3600
+      on_timeout: escalate              # deny (default) | approve | escalate
+      handlers:                         # per-decision follow-up skill
+        approve: operations/send-it
+        edit: operations/send-it        # edit decisions carry payload_override
+    verify:                      # (#28) post-hoc output verification
+      command: "bash scripts/verify-task.sh"
+    parse_mode: markdown         # plain (default) | markdown | html — format
+                                 # hint for kind: notification via primary_output
+    overridable: true            # workspace contract may override routing
+    overridable_to: [auto_execute]
+
+limits:                          # agentic-loop guardrails; defaults shown
+  max_turns: 10
+  max_spend_usd: 2.0
+  max_output_tokens_per_turn: 16000   # too low truncates tool_use JSON (#26)
+  max_consecutive_identical_tool_calls: 3
+  max_consecutive_errors: 3
+  # also available, no default: max_input_tokens, max_output_tokens
+
+concurrency_groups:              # mutex groups (#95/#96); overlapping groups
+  - "email-{mailbox}"            # serialize. {field} placeholders resolve from
+                                 # trigger payload at run time (#135). The CLI
+                                 # flags cron-overlap at registration (#99).
 
 self_reflection: true
 ```
@@ -222,7 +297,7 @@ Choose the right tier for the task complexity:
 
 **Rate limits matter.** The Anthropic API has per-organization rate limits. Running multiple skills at the `good` or `best` tier simultaneously can hit these limits. Use `cheap` for high-frequency skills to stay within bounds.
 
-**Timezones matter.** VPS clocks run UTC. Business teams work in local time. Always declare `timezone` in skill manifests so cron schedules fire at the right business hours. Default is `America/Toronto` (Eastern Time). Forgetting this means "business hours" skills fire at 4 AM instead of 8 AM.
+**Timezones matter.** VPS clocks run UTC. Business teams work in local time. Always declare `timezone` in skill manifests so cron schedules fire at the right business hours. Undeclared schedules fall back to the workspace's configured timezone, then `NEXAAS_TIMEZONE`, then **UTC** — forgetting this can mean "business hours" skills fire at 4 AM instead of 8 AM.
 
 ---
 
@@ -316,7 +391,7 @@ Each turn is recorded in the WAL with:
 - Token usage (input + output)
 - Whether this was the final turn
 
-The loop runs up to 20 turns by default. If Claude hasn't finished by turn 20, the skill is marked as completed with whatever progress was made.
+The loop runs up to **10 turns by default** (`limits.max_turns`). Hitting the ceiling — or any other guardrail (`spend_cap`, `input_token_cap`, `output_token_cap`, `repetition`, `error_streak`) — terminates the run as **aborted** with that `terminal_reason`, not as completed: partial progress is recorded, the terminal drawer says why, and dashboards can filter on the reason (#171/#174).
 
 ---
 

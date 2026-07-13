@@ -12,7 +12,7 @@ This file instructs Claude on how to work inside the Nexaas framework codebase. 
 - `docs/architecture.md` — Nexaas framework (conceptual foundation)
 - `docs/skill-authoring.md` — how to build skills
 - `docs/glossary.md` — terminology reference
-- `docs/STATUS.md` — current build status
+- `docs/contracts.md` — public contract registries (WAL ops, env vars, worker routes; CI-guarded)
 
 ## Execution Model
 
@@ -234,7 +234,7 @@ Set in `.env` (never committed):
 ├── packages/
 │   ├── palace/src/                     Palace API, WAL, embeddings, signing
 │   ├── runtime/src/                    Pipeline, gateway, TAG, CAG, RAG, worker, notifications
-│   ├── cli/src/                        15-command CLI
+│   ├── cli/src/                        nexaas CLI (commands listed above)
 │   └── factory/commands/               /new-skill, /new-flow, /new-mcp, /nexaasify
 ├── capabilities/
 │   ├── _registry.yaml                  10 capabilities
@@ -242,8 +242,8 @@ Set in `.env` (never committed):
 ├── palace/
 │   └── ontology.yaml                   10 wings
 ├── database/
-│   └── migrations/                     000-013 (palace substrate, workspace config)
+│   └── migrations/                     numbered, append-only (WAL substrate, workspace config, ...)
 ├── mcp/servers/palace/                 Palace MCP server (8 tools)
-├── docs/                               Architecture, glossary, migration guide, skill authoring, status
+├── docs/                               Architecture, glossary, migration guide, skill authoring, contracts
 └── scripts/                            Health checks, deployment helpers
 ```

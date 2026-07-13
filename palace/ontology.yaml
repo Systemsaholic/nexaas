@@ -1,9 +1,17 @@
 # Nexaas Palace Ontology
-# Canonical registry of wings, halls, and room patterns.
-# Adding a new top-level wing requires a PR against this file.
-# Halls and rooms can be added by skill manifests against registered patterns.
+# Registry of wings, halls, and room patterns.
+#
+# Status (#258): DESCRIPTIVE, not enforced — no runtime code reads this file.
+# It documents the taxonomy so skill authors put state where others will look
+# for it. One thing IS enforced: tests/contract-docs.test.ts fails CI when
+# framework code writes a wing that isn't registered here, so the wing list
+# below cannot silently drift from the code. Halls/rooms are free-form per
+# workspace.
+#
+# Adding a new top-level wing still requires a PR against this file — the
+# CI guard makes that mandatory rather than aspirational.
 
-version: "1.0"
+version: "1.1"
 
 wings:
   inbox:
@@ -98,5 +106,24 @@ wings:
       - activity
 
   personas:
-    purpose: Reserved for v1.2 persistent persona memory
-    halls: []
+    purpose: Persistent persona memory (PA service — thread state, preferences)
+    halls:
+      - threads
+      - preferences
+
+  waitpoints:
+    purpose: Dormant approval/inbound-match signals awaiting resolution
+    halls:
+      - approvals
+      - inbound-match
+
+  library:
+    purpose: Skill library — contributed skills, canonical versions, feedback
+    halls:
+      - skills
+      - canonical
+      - feedback
+
+  batch:
+    purpose: Batch buckets — drawers accumulating until a fire condition (#80)
+    halls: []   # hall = bucket name, defined by producing skills
