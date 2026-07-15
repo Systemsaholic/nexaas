@@ -1,6 +1,6 @@
 {
   "name": "@nexaas/manifest",
-  "version": "0.1.0",
+  "version": "0.3.10",
   "description": "Skill-manifest single source of truth — schema, contract.yaml normalization, and loader shared by registration, triggering, and execution (#256)",
   "type": "module",
   "exports": {

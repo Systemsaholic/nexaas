@@ -29,10 +29,14 @@ until the stable pointer advances.
 
 ## Cutting a release
 
-1. **Version stamp**: set the root `VERSION` file to `X.Y.Z` (no `v` prefix).
-   The fleet heartbeat and `skill_runs.framework_version` stamping read this
-   file — tagging without bumping it ships a release that self-reports the
-   previous version (v0.3.0 shipped reporting `0.2.0`; learned the hard way).
+1. **Version stamp**: `npm run release-stamp X.Y.Z` (no `v` prefix). One
+   command writes the root `VERSION` file, every workspace `package.json`
+   version, and the internal `@nexaas/*` dependency ranges — then run
+   `npm install` so `package-lock.json` matches. The fleet heartbeat,
+   `nexaas version`, and `skill_runs.framework_version` stamping read
+   `VERSION` — tagging without stamping ships a release that self-reports
+   the previous version (v0.3.0 shipped reporting `0.2.0`; learned the
+   hard way).
 2. **Changelog**: move the `## Unreleased` content in `CHANGELOG.md` into a
    new `## vX.Y.Z — YYYY-MM-DD` section. Semver intent: patch = fixes only,
    minor = additive features/migrations, major = breaking (avoid; requires a

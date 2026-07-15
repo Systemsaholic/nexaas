@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/mcp-email-outbound",
-  "version": "0.1.0",
-  "description": "Outbound email MCP server \u2014 implements the email-outbound capability (#78). Provider-pluggable; ships with Resend, Postmark, and SendGrid.",
+  "version": "0.3.10",
+  "description": "Outbound email MCP server — implements the email-outbound capability (#78). Provider-pluggable; ships with Resend, Postmark, and SendGrid.",
   "type": "module",
   "exports": {
     ".": {
@@ -16,10 +16,10 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@nexaas/integration-sdk": "0.1.0",
-    "@nexaas/email-provider-postmark": "0.1.0",
-    "@nexaas/email-provider-resend": "0.1.0",
-    "@nexaas/email-provider-sendgrid": "0.1.0",
+    "@nexaas/integration-sdk": "^0.3.10",
+    "@nexaas/email-provider-postmark": "^0.3.10",
+    "@nexaas/email-provider-resend": "^0.3.10",
+    "@nexaas/email-provider-sendgrid": "^0.3.10",
     "zod": "^3.23.0"
   },
   "devDependencies": {

@@ -47,6 +47,7 @@ import { join } from "path";
 import pg from "pg";
 import { appendWal, getPool } from "@nexaas/palace";
 import { applyPendingMigrations, getPendingMigrations } from "./migrations.js";
+import { installCliBinary } from "./install-binary.js";
 
 const CHANNELS = ["stable", "canary"] as const;
 const CONFORMANCE_TIMEOUT_MS = 600_000;
@@ -493,6 +494,18 @@ function postCheckoutSteps(nexaasRoot: string, fromCommit: string): void {
       process.exit(1);
     }
     console.log("  Build complete");
+  }
+
+  // Migrate the operator CLI wrapper off the legacy npx-tsx form (#259) —
+  // the CLI-side twin of migrateLegacyUnits' #37 fix. Idempotent; refuses
+  // to touch a custom non-nexaas script at that path.
+  try {
+    const result = installCliBinary(nexaasRoot);
+    if (result === "installed" || result === "migrated") {
+      console.log(`  CLI wrapper ${result} (compiled dist, --conditions=production)`);
+    }
+  } catch (err) {
+    console.warn(`  ⚠ CLI wrapper migration failed (non-fatal): ${(err as Error).message}`);
   }
 }
 

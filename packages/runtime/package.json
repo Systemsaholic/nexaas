@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/runtime",
-  "version": "0.1.0",
-  "description": "Pillar pipeline runtime \u2014 CAG, RAG, TAG, model gateway, BullMQ execution, sub-agents, Bull Board dashboard",
+  "version": "0.3.10",
+  "description": "Pillar pipeline runtime — CAG, RAG, TAG, model gateway, BullMQ execution, sub-agents, Bull Board dashboard",
   "type": "module",
   "exports": {
     ".": {
@@ -19,8 +19,8 @@
     "@bull-board/api": "^6.0.0",
     "@bull-board/express": "^6.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@nexaas/manifest": "^0.1.0",
-    "@nexaas/palace": "^0.1.0",
+    "@nexaas/manifest": "^0.3.10",
+    "@nexaas/palace": "^0.3.10",
     "bullmq": "^5.0.0",
     "cron-parser": "^4.9.0",
     "express": "^4.21.0",
