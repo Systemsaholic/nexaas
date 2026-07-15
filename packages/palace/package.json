@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/palace",
-  "version": "0.1.0",
-  "description": "Palace substrate \u2014 data model, palace API, WAL, signing, verification, pgvector retrieval",
+  "version": "0.3.10",
+  "description": "Palace substrate — data model, palace API, WAL, signing, verification, pgvector retrieval",
   "type": "module",
   "exports": {
     ".": {

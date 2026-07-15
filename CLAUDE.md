@@ -74,6 +74,7 @@ nexaas create-mcp <name>              Scaffold MCP server
 nexaas gdpr export|delete|redact|subjects|audit
 nexaas verify-wal [--full]            WAL chain integrity
 nexaas config [key] [value]           Workspace configuration
+nexaas version                        Installed version + checkout state
 ```
 
 ## Palace Room Ontology

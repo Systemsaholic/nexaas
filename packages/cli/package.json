@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/cli",
-  "version": "0.1.0",
-  "description": "Nexaas CLI tools \u2014 verify-wal, validate-skill, install-agent, rebuild-skill-runs, dry-run",
+  "version": "0.3.10",
+  "description": "Nexaas CLI tools — verify-wal, validate-skill, install-agent, rebuild-skill-runs, dry-run",
   "type": "module",
   "exports": {
     ".": {
@@ -11,20 +11,25 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "nexaas": "src/index.ts"
+    "nexaas": "dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@nexaas/manifest": "^0.1.0",
-    "@nexaas/palace": "^0.1.0",
-    "@nexaas/runtime": "^0.1.0",
+    "@nexaas/manifest": "^0.3.10",
+    "@nexaas/palace": "^0.3.10",
+    "@nexaas/runtime": "^0.3.10",
+    "bullmq": "^5.0.0",
+    "cron-parser": "^4.9.0",
+    "ioredis": "^5.0.0",
+    "pg": "^8.20.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.20.0",
     "typescript": "^5.5.0"
   }
 }
