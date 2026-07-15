@@ -33,6 +33,76 @@ function contentHash(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
+/**
+ * Options for `writeDrawerRaw`. Everything defaults to the neutral system
+ * writer; sites override only what they mean.
+ */
+export interface RawDrawerOpts {
+  /** Semantic row type — 'drawer' (default), 'alert', 'seed', 'health-check', … */
+  eventType?: string;
+  /** Who wrote it (default "system"). */
+  agentId?: string;
+  skillId?: string | null;
+  runId?: string | null;
+  stepId?: string | null;
+  subAgentId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  /**
+   * Override the stored content_hash. Default sha256(content). Only for
+   * writers that use the column as a dedupe key over something other than
+   * the content itself (cli/library hashes the skill FILES map so that
+   * re-contributing unchanged files dedupes despite a fresh timestamp
+   * inside `content`).
+   */
+  contentHash?: string;
+  dormantSignal?: string | null;
+  dormantUntil?: Date | null;
+  reminderAt?: Date | null;
+  normalizeVersion?: number;
+}
+
+/**
+ * THE drawer INSERT (#256). Every write into `nexaas_memory.events` goes
+ * through here — `PalaceSession.writeDrawer` for run-scoped skill writes,
+ * and system writers (notifications, PA endpoints, health monitor, seeding,
+ * library, ingest chunker, palace MCP) directly. Before this primitive
+ * existed, seven call sites carried their own INSERT statements because the
+ * only write surface required a full run-shaped PalaceContext; they drifted
+ * on defaults (normalize_version, metadata) and would each have needed
+ * separate patching for any schema change.
+ *
+ * Deliberately NOT WAL-logged: audit semantics differ per caller (some WAL
+ * per write, some per batch, some route through markers). Callers keep
+ * their own `appendWal` calls.
+ */
+export async function writeDrawerRaw(
+  workspace: string,
+  room: RoomPath,
+  content: string,
+  opts: RawDrawerOpts = {},
+): Promise<DrawerId> {
+  const row = await sqlOne<{ id: string }>(
+    `INSERT INTO nexaas_memory.events
+      (workspace, wing, hall, room, content, content_hash, event_type, agent_id,
+       skill_id, run_id, step_id, sub_agent_id, metadata,
+       dormant_signal, dormant_until, reminder_at, normalize_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+     RETURNING id`,
+    [
+      workspace, room.wing, room.hall, room.room,
+      content, opts.contentHash ?? contentHash(content),
+      opts.eventType ?? "drawer", opts.agentId ?? "system",
+      opts.skillId ?? null, opts.runId ?? null, opts.stepId ?? null, opts.subAgentId ?? null,
+      opts.metadata != null ? JSON.stringify(opts.metadata) : null,
+      opts.dormantSignal ?? null,
+      opts.dormantUntil ?? null,
+      opts.reminderAt ?? null,
+      opts.normalizeVersion ?? 1,
+    ],
+  );
+  return row!.id;
+}
+
 function parseDuration(dur: string): number {
   const match = dur.match(/^(\d+(?:\.\d+)?)\s*(s|m|h|d)$/);
   if (!match) throw new Error(`Invalid duration: ${dur}`);
@@ -52,27 +122,21 @@ function createSession(ctx: PalaceContext): PalaceSession {
     ctx,
 
     async writeDrawer(room: RoomPath, content: string, meta?: DrawerMeta): Promise<DrawerId> {
-      const hash = contentHash(content);
       // Cross-workspace write: use target workspace if declared, otherwise own workspace
       const targetWorkspace = room.workspace ?? meta?.target_workspace as string ?? ctx.workspace;
-      const row = await sqlOne<{ id: string }>(
-        `INSERT INTO nexaas_memory.events
-          (workspace, wing, hall, room, content, content_hash, event_type, agent_id,
-           skill_id, run_id, step_id, sub_agent_id, metadata,
-           dormant_signal, dormant_until, reminder_at, normalize_version)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-         RETURNING id`,
-        [
-          targetWorkspace, room.wing, room.hall, room.room,
-          content, hash, "drawer", ctx.skillId ?? "system",
-          ctx.skillId, ctx.runId, ctx.stepId, ctx.subAgentId,
-          JSON.stringify({ ...meta, source_workspace: ctx.workspace }),
-          meta?.dormant_signal ?? null,
-          meta?.dormant_until ?? null,
-          meta?.reminder_at ?? null,
-          meta?.normalize_version ?? 1,
-        ],
-      );
+      const drawerId = await writeDrawerRaw(targetWorkspace, room, content, {
+        eventType: "drawer",
+        agentId: ctx.skillId ?? "system",
+        skillId: ctx.skillId,
+        runId: ctx.runId,
+        stepId: ctx.stepId,
+        subAgentId: ctx.subAgentId,
+        metadata: { ...meta, source_workspace: ctx.workspace },
+        dormantSignal: meta?.dormant_signal ?? null,
+        dormantUntil: meta?.dormant_until ?? null,
+        reminderAt: meta?.reminder_at ?? null,
+        normalizeVersion: meta?.normalize_version ?? 1,
+      });
 
       // WAL audit for cross-workspace writes
       if (targetWorkspace !== ctx.workspace) {
@@ -83,13 +147,13 @@ function createSession(ctx: PalaceContext): PalaceSession {
           payload: {
             target_workspace: targetWorkspace,
             wing: room.wing, hall: room.hall, room: room.room,
-            drawer_id: row!.id,
+            drawer_id: drawerId,
             run_id: ctx.runId,
           },
         });
       }
 
-      return row!.id;
+      return drawerId;
     },
 
     async walkRoom(room: RoomPath, opts?: WalkOpts): Promise<Drawer[]> {

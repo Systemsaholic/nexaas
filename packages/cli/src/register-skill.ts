@@ -12,10 +12,9 @@
  * is passed in by the caller so a bulk run does it once for N manifests.
  */
 
-import { existsSync, readFileSync } from "fs";
+import { existsSync } from "fs";
 import { resolve, dirname, join } from "path";
 import { execSync } from "child_process";
-import { load as yamlLoad } from "js-yaml";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 import parser from "cron-parser";
@@ -26,106 +25,14 @@ import {
   isEphemeralPath,
   type UpsertSummary,
 } from "@nexaas/runtime";
+import { loadManifest, normalizeManifest, type SkillManifest } from "@nexaas/manifest";
 
-export interface SkillManifest {
-  id: string;
-  version: string;
-  description?: string;
-  timezone?: string;
-  /**
-   * Mutex groups (#95 / #96). Skills sharing a group serialize at the
-   * worker. The CLI also uses the list at registration time to flag
-   * cron-overlap with already-registered skills (#99).
-   */
-  concurrency_groups?: string[];
-  triggers?: Array<{
-    type: string;
-    schedule?: string;
-    timezone?: string;
-    channel_role?: string;            // for type=inbound-message; e.g. "pa_reply_<user>"
-  }>;
-  execution?: {
-    type: string;
-    command?: string;
-    timeout?: number;
-    working_directory?: string;
-  };
-}
-
-/**
- * Normalize a YAML-parsed manifest into the framework's `SkillManifest`
- * shape (#139). Accepts both:
- *
- *   1. The framework's `skill.yaml` format — `id:`, `version:`, `triggers:[]`,
- *      `execution.timeout` (ms). Pass-through.
- *
- *   2. The richer `contract.yaml` format used by some adopters (Nexmatic
- *      skill packages, for instance) — `skill:` + `category:` instead of
- *      `id:`, top-level `schedule:` instead of `triggers:[]`,
- *      `execution.timeout_seconds:` instead of `execution.timeout` (ms).
- *      Plus product-level fields (`produces:`, `outputs:`, `tag_defaults:`,
- *      `client_must_configure:`, etc.) the framework already ignores as
- *      unknown fields.
- *
- * Detection heuristic: missing `id` AND present `skill` → contract shape.
- * Otherwise treated as native skill.yaml.
- *
- * Pure helper: no I/O, no side effects. Tested in
- * `scripts/test-manifest-normalize-139.mjs`.
- */
-export function normalizeManifest(raw: Record<string, unknown> | null): SkillManifest {
-  if (!raw || typeof raw !== "object") {
-    return {} as SkillManifest;
-  }
-  const r = raw as Record<string, unknown>;
-  const isContract = typeof r.id !== "string" && typeof r.skill === "string";
-  if (!isContract) {
-    return r as unknown as SkillManifest;
-  }
-
-  // ── contract.yaml → skill.yaml translation ────────────────────────
-  const skill = String(r.skill);
-  // If `skill:` already contains a slash, skip the category prefix.
-  // Otherwise, prepend `category:` when present.
-  const id = skill.includes("/")
-    ? skill
-    : typeof r.category === "string" && r.category.length > 0
-      ? `${r.category}/${skill}`
-      : skill;
-
-  // Triggers: prefer explicit `triggers:[]` when present; otherwise lift
-  // top-level `schedule:` into a cron trigger.
-  let triggers = Array.isArray(r.triggers) ? (r.triggers as SkillManifest["triggers"]) : undefined;
-  if (!triggers && typeof r.schedule === "string" && r.schedule.length > 0) {
-    triggers = [{ type: "cron", schedule: r.schedule }];
-  }
-
-  // Execution: prefer `execution.timeout` (ms) when present; otherwise
-  // convert `execution.timeout_seconds` (s) → ms.
-  const execIn = (r.execution as Record<string, unknown> | undefined) ?? undefined;
-  let execution: SkillManifest["execution"] | undefined;
-  if (execIn) {
-    const timeoutMs = typeof execIn.timeout === "number"
-      ? (execIn.timeout as number)
-      : typeof execIn.timeout_seconds === "number"
-        ? Math.floor((execIn.timeout_seconds as number) * 1000)
-        : undefined;
-    execution = {
-      type: typeof execIn.type === "string" ? (execIn.type as string) : "shell",
-      ...(typeof execIn.command === "string" ? { command: execIn.command as string } : {}),
-      ...(typeof timeoutMs === "number" ? { timeout: timeoutMs } : {}),
-      ...(typeof execIn.working_directory === "string" ? { working_directory: execIn.working_directory as string } : {}),
-    };
-  }
-
-  return {
-    ...r,
-    id,
-    version: typeof r.version === "string" ? r.version : "0",
-    ...(triggers ? { triggers } : {}),
-    ...(execution ? { execution } : {}),
-  } as unknown as SkillManifest;
-}
+// The manifest schema + contract.yaml normalization moved to
+// @nexaas/manifest (#256) so registration, triggering, and BullMQ
+// execution all parse the same shape. Re-exported here because
+// register-skills.ts and scripts/test-manifest-normalize-139.mjs
+// import them from this module.
+export { normalizeManifest, type SkillManifest };
 
 export interface RegisterContext {
   queue: Queue;
@@ -372,9 +279,7 @@ export async function registerOneSkill(
 
   let manifest: SkillManifest;
   try {
-    const content = readFileSync(manifestPath, "utf-8");
-    const raw = yamlLoad(content) as Record<string, unknown> | null;
-    manifest = normalizeManifest(raw);
+    manifest = loadManifest(manifestPath);
     if (!manifest?.id || !manifest?.version) {
       return {
         skillId: manifestPath,

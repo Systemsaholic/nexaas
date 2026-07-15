@@ -23,7 +23,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import pg from "pg";
-import { appendWal } from "@nexaas/palace";
+import { appendWal, writeDrawerRaw } from "@nexaas/palace";
 
 // ── Database ────────────────────────────────────────────────────────────
 
@@ -159,15 +159,13 @@ server.tool(
     skill_id: z.string().optional().describe("Skill ID that produced this (optional)"),
   },
   async ({ wing, hall, room, content, skill_id }) => {
-    const { createHash } = await import("crypto");
-    const hash = createHash("sha256").update(content).digest("hex");
-
-    const result = await sql<{ id: string }>(
-      `INSERT INTO nexaas_memory.events
-        (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id)
-       VALUES ($1, $2, $3, $4, $5, $6, 'drawer', 'palace-mcp', $7)
-       RETURNING id::text`,
-      [WORKSPACE, wing, hall, room, content, hash, skill_id ?? "interactive"],
+    // Shared drawer primitive (#256) — same INSERT the framework's own
+    // writers use, so schema changes land here for free.
+    const drawerId = await writeDrawerRaw(
+      WORKSPACE,
+      { wing, hall, room },
+      content,
+      { agentId: "palace-mcp", skillId: skill_id ?? "interactive" },
     );
 
     // WAL entry for audit — through the canonical appendWal so the row is
@@ -181,13 +179,13 @@ server.tool(
       workspace: WORKSPACE,
       op: "palace_mcp_write",
       actor: "palace-mcp",
-      payload: { wing, hall, room, drawer_id: result[0]?.id, content_length: content.length },
+      payload: { wing, hall, room, drawer_id: drawerId, content_length: content.length },
     });
 
     return jsonResult({
       written: true,
       room: `${wing}/${hall}/${room}`,
-      drawer_id: result[0]?.id,
+      drawer_id: drawerId,
     });
   },
 );

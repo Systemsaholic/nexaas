@@ -101,8 +101,8 @@ export async function run(args: string[]) {
         const localManifestPath = join(localSkillDir, "skill.yaml");
         if (!existsSync(localManifestPath)) continue;
 
-        const { load: yamlLoad } = await import("js-yaml");
-        const localManifest = yamlLoad(readFileSync(localManifestPath, "utf-8")) as { version?: string };
+        const { loadManifest } = await import("@nexaas/manifest");
+        const localManifest = loadManifest(localManifestPath);
         const localVersion = localManifest.version ?? "0.0.0";
 
         if (localVersion === libData.version) continue;

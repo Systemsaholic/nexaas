@@ -35,10 +35,9 @@
  *   task is orthogonal to this dispatcher and will land in Stage 1b.
  */
 
-import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { load as yamlLoad } from "js-yaml";
+import { loadManifest, findManifestPaths } from "@nexaas/manifest";
 import { sql, appendWal } from "@nexaas/palace";
 import { enqueueSkillStep, type SkillJobData } from "../bullmq/queues.js";
 import { matchDrawerAgainstWaitpoints, selectOpenWaitpoints } from "./inbound-match-waitpoint.js";
@@ -71,28 +70,12 @@ let _cached: CachedIndex | null = null;
 let _polling = false;
 let _interval: NodeJS.Timeout | null = null;
 
-function findSkillManifests(skillsRoot: string): string[] {
-  if (!existsSync(skillsRoot)) return [];
-  const out: string[] = [];
-  for (const category of readdirSync(skillsRoot)) {
-    const catPath = join(skillsRoot, category);
-    try { if (!statSync(catPath).isDirectory()) continue; } catch { continue; }
-    for (const name of readdirSync(catPath)) {
-      const skillPath = join(catPath, name);
-      try { if (!statSync(skillPath).isDirectory()) continue; } catch { continue; }
-      const manifestPath = join(skillPath, "skill.yaml");
-      if (existsSync(manifestPath)) out.push(manifestPath);
-    }
-  }
-  return out;
-}
-
 function buildInboundIndex(skillsRoot: string): InboundIndex {
   const index: InboundIndex = new Map();
-  for (const manifestPath of findSkillManifests(skillsRoot)) {
+  for (const manifestPath of findManifestPaths(skillsRoot)) {
     let manifest: InboundManifest;
     try {
-      manifest = yamlLoad(readFileSync(manifestPath, "utf-8")) as InboundManifest;
+      manifest = loadManifest(manifestPath) as InboundManifest;
     } catch {
       continue; // malformed manifest — skip silently, scheduler self-heal logs these
     }

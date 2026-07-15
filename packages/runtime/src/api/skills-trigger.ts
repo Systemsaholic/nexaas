@@ -21,10 +21,13 @@
  * the actual queue.add() so the route handler stays a thin shim.
  */
 
-import { existsSync, readFileSync } from "fs";
-import { resolve, sep } from "path";
-import { load as yamlLoad } from "js-yaml";
+import { existsSync } from "fs";
 import { randomUUID } from "crypto";
+import { loadManifest, resolveSkillManifestPath } from "@nexaas/manifest";
+
+// Path resolution moved to @nexaas/manifest (#256); re-exported because the
+// worker route and tests/skills-trigger-manifest.test.ts import it from here.
+export { resolveSkillManifestPath };
 
 export interface TriggerInput {
   skillId: string;
@@ -57,79 +60,28 @@ export interface ManifestSlim {
   execution?: { type?: string };
 }
 
-/** Canonical manifest filenames in resolution order. `skill.yaml` is the
- *  legacy framework name; `contract.yaml` is the format register-skill
- *  accepts natively as of #139/#141. Both are valid storage shapes — the
- *  trigger lookup needs to find whichever one the skill author ships. */
-const MANIFEST_FILENAMES = ["skill.yaml", "contract.yaml"] as const;
-
 /**
- * Resolve a skill_id into an absolute manifest path under the workspace's
- * skills root, rejecting any input that would escape the root.
- *
- * Returns the first existing manifest file from MANIFEST_FILENAMES at
- * `<root>/nexaas-skills/<category>/<name>/`. Falls back to the first
- * candidate (skill.yaml) if neither exists so the caller's 404 message
- * names a sensible path. Returns null only for path-traversal attempts
- * (caller surfaces a 400).
+ * Load the manifest for the trigger path via the shared loader (#256) —
+ * the hand-copied contract.yaml id-derivation this function carried after
+ * #246 now lives in `@nexaas/manifest.normalizeManifest`, shared with
+ * register-skill AND the executing BullMQ worker. Returns the slim view
+ * the trigger flow needs; null when the file is missing, unparseable, or
+ * lacks id/version (caller surfaces a 404).
  */
-export function resolveSkillManifestPath(
-  skillId: string,
-  workspaceRoot: string,
-): string | null {
-  // Tighten input shape — alphanumeric segments separated by `/`, no `..`,
-  // no leading slash, no embedded NULs.
-  if (!/^[a-zA-Z0-9_-]+(\/[a-zA-Z0-9_-]+)*$/.test(skillId)) return null;
-
-  const skillsRoot = resolve(workspaceRoot, "nexaas-skills");
-  const skillDir = resolve(skillsRoot, skillId);
-
-  // Defense in depth — even though the regex above blocks `..`, verify
-  // the resolved path is genuinely under the skills root before touching
-  // the filesystem. Catches e.g. symlinked categories.
-  if (!skillDir.startsWith(skillsRoot + sep)) return null;
-
-  for (const filename of MANIFEST_FILENAMES) {
-    const candidate = resolve(skillDir, filename);
-    if (existsSync(candidate)) return candidate;
-  }
-  // Neither variant exists — return the legacy name so the 404 message
-  // points operators at the conventional location.
-  return resolve(skillDir, MANIFEST_FILENAMES[0]);
-}
-
 export function loadSkillManifest(path: string): ManifestSlim | null {
   if (!existsSync(path)) return null;
   try {
-    const raw = yamlLoad(readFileSync(path, "utf-8")) as Record<string, unknown>;
-    if (!raw || typeof raw !== "object") return null;
-
-    // contract.yaml shape (#246): declares `skill:` instead of `id:`. Derive
-    // the id the same way register-skill.ts:normalizeManifest does — `skill`,
-    // with a `category/` prefix when `skill` has no slash — so the trigger
-    // path accepts exactly the manifests register-skill already accepts. PR
-    // #170 made contract.yaml *resolvable* but left this validation
-    // native-only, so registered contract skills 404'd on trigger. The slim
-    // trigger path only needs id/version/execution.type; register-skill's
-    // normalizeManifest stays the canonical full translation.
-    let id = typeof raw.id === "string" ? raw.id : undefined;
-    if (!id && typeof raw.skill === "string") {
-      const skill = raw.skill;
-      const category = typeof raw.category === "string" ? raw.category : "";
-      id = skill.includes("/") || !category ? skill : `${category}/${skill}`;
-    }
-
-    const version = typeof raw.version === "string"
-      ? raw.version
-      : raw.version != null ? String(raw.version) : undefined;
+    const manifest = loadManifest(path);
+    const id = typeof manifest.id === "string" ? manifest.id : undefined;
+    const version = typeof manifest.version === "string"
+      ? manifest.version
+      : manifest.version != null ? String(manifest.version) : undefined;
     if (!id || !version) return null;
-
-    const execIn = raw.execution as Record<string, unknown> | undefined;
-    const execution = execIn && typeof execIn === "object"
-      ? { type: typeof execIn.type === "string" ? execIn.type : undefined }
-      : undefined;
-
-    return { id, version, execution };
+    return {
+      id,
+      version,
+      execution: manifest.execution ? { type: manifest.execution.type } : undefined,
+    };
   } catch {
     return null;
   }
