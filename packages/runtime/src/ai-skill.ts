@@ -137,6 +137,38 @@ const DEFAULT_LIMITS: Required<Pick<AiSkillManifest, "limits">>["limits"] = {
   max_consecutive_errors: 3,
 };
 
+// The team operates in Eastern Time; the server clock is UTC (routinely a day
+// ahead of ET in the evening). AI-skills have no shell to run `date`, so we
+// compute the authoritative ET "now" in Node and hand it to the model.
+const NEXAAS_TZ = "America/Toronto";
+const CRON_DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function buildRuntimeClockHeader(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: NEXAAS_TZ,
+    weekday: "long",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  })
+    .formatToParts(now)
+    .reduce<Record<string, string>>((acc, p) => ((acc[p.type] = p.value), acc), {});
+  const etDate = `${parts.year}-${parts.month}-${parts.day}`;
+  const weekday = parts.weekday ?? "";
+  const dow = CRON_DOW.indexOf(weekday); // cron convention: Sun=0..Sat=6
+  return (
+    `# Runtime clock (authoritative — use this as "today")\n` +
+    `Current date & time in America/Toronto (Eastern Time): ${etDate} (${weekday}) ${parts.hour}:${parts.minute} ET.\n` +
+    `Today's ET date is ${etDate}; the ET weekday is ${weekday} (cron day-of-week ${dow}, where Sun=0..Sat=6).\n` +
+    `This is the ONLY authoritative source for the current date. Do NOT infer "today" from data rows, ` +
+    `filenames, last-synced timestamps, deal dates, or any UTC "current date" — those can be a day off. ` +
+    `This runtime has no shell/Bash tool: ignore any instruction below to run \`date\`, and use the value above instead.\n\n`
+  );
+}
+
 export interface AiSkillExecutionContext {
   runId?: string;
   stepId?: string;
@@ -285,6 +317,14 @@ export async function runAiSkill(
   } catch {
     systemPrompt = manifest.description ?? `Execute skill: ${manifest.id}`;
   }
+
+  // Authoritative runtime clock. AI-skills have no shell, so any prompt that
+  // says "run `date`" silently fails and the model then guesses today's date
+  // from stale evidence (data rows, sync timestamps, a UTC current-date) —
+  // which landed +1 day and got wrong-day broadcasts auto-cancelled. Inject
+  // the real America/Toronto date/time so every skill has one trustworthy
+  // "today" without needing a shell. Purely additive; prepended to the prompt.
+  systemPrompt = buildRuntimeClockHeader() + systemPrompt;
 
   // Model selection is the gateway's job (#255): the tier resolves to a
   // registry-driven Anthropic chain inside ModelGateway.executeAgentic.
