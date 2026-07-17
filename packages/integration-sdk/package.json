@@ -1,7 +1,7 @@
 {
   "name": "@nexaas/integration-sdk",
-  "version": "0.1.0",
-  "description": "Authoring kit for Nexaas integrations \u2014 manifest schema, capability contracts, and shared helpers used by all integration packages (reference + adopter).",
+  "version": "0.3.10",
+  "description": "Authoring kit for Nexaas integrations — manifest schema, capability contracts, and shared helpers used by all integration packages (reference + adopter).",
   "type": "module",
   "exports": {
     ".": {

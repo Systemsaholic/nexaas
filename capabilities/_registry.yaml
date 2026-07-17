@@ -2,6 +2,13 @@
 # Every capability is an abstract interface for a class of integration.
 # Skills declare capabilities they need; workspace manifests bind them to concrete MCPs.
 #
+# Status (#258): DESCRIPTIVE — no runtime code parses this file today.
+# `requires.capabilities` in manifests is not validated against it; binding
+# happens in workspace manifests by MCP name. It remains the design contract
+# for capability interfaces (and the #50 argument-typing stance below is
+# framework policy), but treat the per-capability schemas as documentation
+# until a validator lands.
+#
 # Stages:
 #   experimental — first implementation, provisional interface, version 0.x
 #   converging   — 2+ implementations, interface generalizing, version 1.0-beta

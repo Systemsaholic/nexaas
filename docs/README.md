@@ -18,7 +18,7 @@ Canonical documentation for the Nexaas framework — context-aware AI execution 
 | [`migration-guide.md`](./migration-guide.md) | Moving from Trigger.dev, n8n, or any automation system to Nexaas — parallel operation, per-flow revert, risk tiers | When migrating existing systems. |
 | [`adoption-patterns/`](./adoption-patterns/README.md) | Framework-agnostic patterns distilled from canary adoption — telegram channel, 2FA intercept, approval-gated outputs, etc. | When implementing a specific flow for the first time. |
 | [`glossary.md`](./glossary.md) | Terminology cheat sheet — every named concept in the system | As needed. |
-| [`STATUS.md`](./STATUS.md) | Current build status — what's done, what's in progress | To understand project state. |
+| [`contracts.md`](./contracts.md) | Public contract registries: WAL ops, env vars, worker routes (CI-guarded) | To query the WAL, configure a workspace, or call the worker API. |
 
 ## What Nexaas Is
 
@@ -40,11 +40,11 @@ Both usage modes are first-class — see [`deployment-patterns.md`](./deployment
 /opt/nexaas/
 ├── packages/palace/       Palace API, WAL, embeddings, signing
 ├── packages/runtime/      Pipeline, model gateway, worker, notifications
-├── packages/cli/          15-command CLI
+├── packages/cli/          The nexaas CLI (see CLAUDE.md CLI Reference)
 ├── packages/factory/      Slash commands: /new-skill, /new-flow, /new-mcp, /nexaasify
 ├── capabilities/          Capability + model registries
 ├── palace/                Room ontology
-├── database/migrations/   Schema (000-013)
+├── database/migrations/   Schema migrations (numbered, append-only)
 ├── mcp/servers/palace/    Palace MCP server
 └── docs/                  This directory
 ```

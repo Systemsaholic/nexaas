@@ -1,8 +1,8 @@
 {
   "name": "nexaas",
-  "version": "0.1.0",
+  "version": "0.3.10",
   "private": true,
-  "description": "Nexaas \u2014 framework for context-aware AI execution",
+  "description": "Nexaas — framework for context-aware AI execution",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -17,8 +17,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "verify-wal": "npm -w @nexaas/cli run verify-wal",
     "validate-skill": "npm -w @nexaas/cli run validate-skill",
-    "changeset": "changeset",
-    "release": "changeset version",
+    "release-stamp": "node scripts/release-stamp.mjs",
     "test": "vitest run"
   },
   "repository": {
@@ -28,7 +27,6 @@
   "author": "Systemsaholic",
   "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
-    "@changesets/cli": "^2.27.0",
     "tsx": "^4.21.0",
     "vitest": "^4.1.10"
   }

@@ -12,19 +12,12 @@ import { readFileSync, existsSync, writeFileSync, mkdirSync, cpSync, readdirSync
 import { join, dirname, basename } from "path";
 import { createHash } from "crypto";
 import { execSync } from "child_process";
-import { load as yamlLoad } from "js-yaml";
 import pg from "pg";
-import { appendWal, getPool } from "@nexaas/palace";
+import { appendWal, getPool, writeDrawerRaw } from "@nexaas/palace";
+import { loadManifest, type SkillManifest } from "@nexaas/manifest";
 
 function exec(cmd: string): string {
   try { return execSync(cmd, { encoding: "utf-8", stdio: "pipe" }).trim(); } catch { return ""; }
-}
-
-interface SkillManifest {
-  id: string;
-  version: string;
-  description?: string;
-  execution?: { type: string };
 }
 
 export async function run(args: string[]) {
@@ -100,8 +93,7 @@ export async function run(args: string[]) {
         process.exit(1);
       }
 
-      const content = readFileSync(manifestPath, "utf-8");
-      const manifest = yamlLoad(content) as SkillManifest;
+      const manifest = loadManifest(manifestPath);
       const skillDir = dirname(manifestPath);
 
       // Read all skill files
@@ -128,26 +120,28 @@ export async function run(args: string[]) {
         break;
       }
 
-      // Register in the library
-      await pool.query(
-        `INSERT INTO nexaas_memory.events
-          (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id, metadata)
-         VALUES ($1, 'library', 'skills', $2, $3, $4, 'skill-registration', 'library', $2, $5)`,
-        [
-          workspace,
-          manifest.id,
-          JSON.stringify({
-            id: manifest.id,
-            version: manifest.version,
-            description: manifest.description,
-            execution_type: manifest.execution?.type,
-            files,
-            contributed_at: new Date().toISOString(),
-            source_path: manifestPath,
-          }),
-          hash,
-          JSON.stringify({ version: manifest.version, source: "workspace-contribute" }),
-        ],
+      // Register in the library. contentHash override: the stored hash is
+      // the dedupe key over the FILES map, not the content (which carries
+      // a fresh contributed_at every run).
+      await writeDrawerRaw(
+        workspace,
+        { wing: "library", hall: "skills", room: manifest.id },
+        JSON.stringify({
+          id: manifest.id,
+          version: manifest.version,
+          description: manifest.description,
+          execution_type: manifest.execution?.type,
+          files,
+          contributed_at: new Date().toISOString(),
+          source_path: manifestPath,
+        }),
+        {
+          eventType: "skill-registration",
+          agentId: "library",
+          skillId: manifest.id,
+          contentHash: hash,
+          metadata: { version: manifest.version, source: "workspace-contribute" },
+        },
       );
 
       // WAL entry — canonical, advisory-locked writer (#254).
@@ -289,18 +283,19 @@ export async function run(args: string[]) {
         break;
       }
 
-      // Promote: copy to canonical hall
-      await pool.query(
-        `INSERT INTO nexaas_memory.events
-          (workspace, wing, hall, room, content, content_hash, event_type, agent_id, skill_id, metadata)
-         VALUES ($1, 'library', 'canonical', $2, $3, $4, 'skill-promotion', 'library', $2, $5)`,
-        [
-          workspace,
+      // Promote: copy to canonical hall. contentHash carries over from the
+      // library row — it's the files-map dedupe key, not sha256(content).
+      await writeDrawerRaw(
+        workspace,
+        { wing: "library", hall: "canonical", room: skillId },
+        libResult.rows[0].content,
+        {
+          eventType: "skill-promotion",
+          agentId: "library",
           skillId,
-          libResult.rows[0].content,
-          libResult.rows[0].content_hash,
-          JSON.stringify({ version: data.version, promoted_at: new Date().toISOString(), promoted_by: "ops" }),
-        ],
+          contentHash: libResult.rows[0].content_hash,
+          metadata: { version: data.version, promoted_at: new Date().toISOString(), promoted_by: "ops" },
+        },
       );
 
       // WAL entry — canonical, advisory-locked writer (#254).
@@ -388,10 +383,9 @@ function findSkillManifests(dir: string): Array<SkillManifest & { path: string }
     for (const entry of readdirSync(d, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name !== "node_modules") {
         walk(join(d, entry.name));
-      } else if (entry.name === "skill.yaml") {
+      } else if (entry.name === "skill.yaml" || entry.name === "contract.yaml") {
         try {
-          const content = readFileSync(join(d, entry.name), "utf-8");
-          const manifest = yamlLoad(content) as SkillManifest;
+          const manifest = loadManifest(join(d, entry.name));
           if (manifest.id) {
             results.push({ ...manifest, path: join(d, entry.name) });
           }

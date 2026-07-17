@@ -82,6 +82,11 @@ switch (command) {
   case "validate-manifest":
     import("./validate-manifest.js").then((m) => m.run(process.argv.slice(3)));
     break;
+  case "version":
+  case "--version":
+  case "-v":
+    import("./version.js").then((m) => m.run());
+    break;
   default:
     console.log(`
 Nexaas CLI — framework for context-aware AI execution
@@ -105,6 +110,7 @@ Commands:
   validate-manifest [<workspace-id>]    Fail-closed workspace-manifest check for provisioners
   verify-wal [--full]                   Verify WAL chain integrity
   migration-state [--json]              Print applied/pending migrations from the canonical tracker
+  version                               Show installed framework version + checkout
 
 Usage:
   nexaas <command> [options]

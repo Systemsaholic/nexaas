@@ -8,9 +8,9 @@ Framework for context-aware AI execution. The Four Pillars (CAG, RAG, TAG, Contr
 packages/
 ├── palace/             @nexaas/palace — data model, palace API, WAL, signing, pgvector
 ├── runtime/            @nexaas/runtime — pillar pipeline, model gateway, BullMQ, sub-agents
-├── factory/            @nexaas/factory — authoring primitives, library RAG, contribution pipeline
-├── ops-console-core/   @nexaas/ops-console-core — console framework widgets
-└── cli/                @nexaas/cli — verify-wal, validate-skill, install-agent, dry-run
+├── manifest/           @nexaas/manifest — skill-manifest schema + loader (single source)
+├── factory/            @nexaas/factory — factory slash commands (markdown, content-only)
+└── cli/                @nexaas/cli — the `nexaas` operator CLI
 ```
 
 ## Documentation

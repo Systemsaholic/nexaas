@@ -18,8 +18,8 @@ import { isRateLimitError, extractCooldownMs, pauseQueueFor } from "./rate-limit
 import { startHeartbeatLoop, stopHeartbeatLoop } from "../fleet/heartbeat.js";
 import { shutdownMcpPool } from "../mcp/pool.js";
 import { withGroups, resolveConcurrencyGroups } from "../concurrency-groups.js";
-import { readFileSync, existsSync } from "fs";
-import { load as yamlLoad } from "js-yaml";
+import { existsSync } from "fs";
+import { loadManifest } from "@nexaas/manifest";
 import { randomUUID } from "crypto";
 import { buildTerminalDrawerPayload, isEphemeralPath } from "../skill-terminal.js";
 
@@ -68,9 +68,13 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
           // will append its own WAL row.
           throw new Error(`manifest_missing: ${jobData.manifestPath}`);
         }
-        const manifestContent = readFileSync(jobData.manifestPath, "utf-8");
-        const manifest = yamlLoad(manifestContent) as Record<string, unknown>;
-        const execType = (manifest.execution as Record<string, unknown>)?.type;
+        // Shared loader (#256): normalizes contract.yaml at EXECUTION time,
+        // not just registration time. The raw yamlLoad this replaces ran a
+        // registered contract.yaml skill with `manifest.id = undefined` in
+        // its run records and silently ignored `timeout_seconds` — the same
+        // class as #246, one hop later in the pipeline.
+        const manifest = loadManifest(jobData.manifestPath);
+        const execType = manifest.execution?.type;
 
         // Forward BullMQ job context so the executor reuses the
         // dispatcher's runId and sees triggerType / triggerPayload (#47).
@@ -89,8 +93,7 @@ export function startWorker(workspaceId: string, concurrency: number = 5): Worke
         // #135 — `{field}` placeholders in group names are substituted
         // from trigger payload at dispatch time, letting a manifest
         // declare per-payload isolation like `pa-notify:{user}:{thread_id}`.
-        const rawGroups = (manifest as { concurrency_groups?: string[] })
-          .concurrency_groups;
+        const rawGroups = manifest.concurrency_groups;
         const groups = resolveConcurrencyGroups(
           rawGroups,
           data.triggerPayload as Record<string, unknown> | undefined,

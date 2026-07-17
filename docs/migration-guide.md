@@ -360,7 +360,7 @@ Multi-step is cleaner for linear chains. Event-driven is cleaner for fan-out (on
 
 **`batchTrigger`** (fan-out to many tasks):
 
-In Nexaas, this is event-driven composition. The parent skill writes one drawer per item to an `events.*` room. Each subscriber skill has `triggers: [{ type: event, event: "that.room" }]` and fires once per drawer. BullMQ handles the parallelism via per-key concurrency.
+In Nexaas, use a **batch bucket** (#80): the parent skill writes one drawer per item into a bucket room, and the consumer skill declares `triggers: [{ type: batch, bucket: "that-bucket", fire_when: { any_of: [{ count_at_least: 1 }] } }]`. The batch dispatcher fires it per the conditions (count, age, cron window, per-item deadline via `from_field` — see skill-authoring.md §3). For request/response-style continuation, use an inbound-match waitpoint instead. There is **no `type: event` trigger** — drawer writes alone do not fire skills.
 
 **`onFailure` handlers** (self-healing):
 
@@ -410,7 +410,7 @@ For each Trigger.dev task being migrated:
 | Wait node | Palace waitpoint with configurable timeout policy |
 | Set / Function node | Claude execution within the pillar pipeline (AI replaces manual data transforms) |
 | Error Trigger node | TAG escalation + ops notification |
-| Webhook node | Skill trigger: `type: webhook, path: "/hooks/..."` |
+| Webhook node | `POST /api/skills/trigger` (bearer-authed HTTP trigger API) |
 | Execute Workflow node | Event-driven composition or sub-agent invocation |
 | Credentials | Capability bindings in workspace manifest + integration_connections table |
 
@@ -443,9 +443,11 @@ id: sales/lead-intake
 version: 1.0.0
 description: Process new leads — enrich, add to CRM, route to sales or nurture
 
-triggers:
-  - type: webhook
-    path: /hooks/lead-intake
+triggers: []   # fired over HTTP — external systems POST to the worker:
+#   POST /api/skills/trigger  { "skillId": "sales/lead-intake", "payload": {...} }
+# (bearer-authed when NEXAAS_CROSS_VPS_BEARER_TOKEN is set; see
+# docs/security-surface.md. There is no `type: webhook` trigger — the
+# trigger API is the webhook surface.)
 
 steps:
   - id: process-lead

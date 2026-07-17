@@ -41,6 +41,14 @@ export {
   type SkillJobData,
 } from "./bullmq/index.js";
 export { runCompaction } from "./tasks/closet-compaction.js";
+export {
+  runHealthCheck,
+  runAndRecord as runHealthCheckAndRecord,
+  sendAlerts as sendHealthAlerts,
+  type HealthReport,
+  type HealthAlert,
+  type HealthCheckOpts,
+} from "./tasks/health-monitor.js";
 export { reapExpiredWaitpoints, sendPendingReminders } from "./tasks/waitpoint-reaper.js";
 export {
   recordSpend,

@@ -21,7 +21,7 @@ Unblocks flows like:
 
 ## When **not** to use
 
-- The event source is internal to your workspace — use `type: cron` or `type: event` between skills instead
+- The event source is internal to your workspace — use `type: cron`, a batch bucket, or an inbound-match waitpoint between skills instead
 - You need bidirectional real-time (use a WebSocket adapter that owns the connection)
 - The event is high-frequency (millions/day) and you don't need per-event durability — use a separate aggregation pipeline and emit summary events into Nexaas
 

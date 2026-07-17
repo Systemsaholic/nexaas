@@ -462,6 +462,20 @@ ${fleetBlock}`;
 
   const nodeBin = exec("which node", { silent: true }) || "/usr/bin/node";
 
+  // Install the operator CLI wrapper — compiled dist under
+  // --conditions=production, same #37 posture as the worker unit (#259).
+  try {
+    const { installCliBinary, WRAPPER_PATH } = await import("./install-binary.js");
+    const result = installCliBinary(NEXAAS_ROOT, nodeBin);
+    if (result === "skipped-custom") {
+      warn(`${WRAPPER_PATH} exists and isn't a nexaas wrapper — left untouched`);
+    } else {
+      log(`CLI wrapper ${result === "current" ? "up to date" : result} at ${WRAPPER_PATH}`);
+    }
+  } catch (err) {
+    warn(`CLI wrapper install failed (non-fatal): ${(err as Error).message}`);
+  }
+
   const serviceContent = `[Unit]
 Description=Nexaas Worker (${workspaceId})
 After=network.target postgresql.service redis-server.service

@@ -36,10 +36,9 @@
  *      on the next poll. (Item-level dedup falls out of using drawer_id arrays.)
  */
 
-import { readFileSync, existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { load as yamlLoad } from "js-yaml";
+import { loadManifest, findManifestPaths } from "@nexaas/manifest";
 import { sql, appendWal } from "@nexaas/palace";
 import cronParser from "cron-parser";
 import { enqueueSkillStep, type SkillJobData } from "../bullmq/queues.js";
@@ -169,28 +168,12 @@ export function extractItemDeadlineMs(content: string, field: string): number | 
   return Number.isFinite(ms) ? ms : null;
 }
 
-function findSkillManifests(skillsRoot: string): string[] {
-  if (!existsSync(skillsRoot)) return [];
-  const out: string[] = [];
-  for (const category of readdirSync(skillsRoot)) {
-    const catPath = join(skillsRoot, category);
-    try { if (!statSync(catPath).isDirectory()) continue; } catch { continue; }
-    for (const name of readdirSync(catPath)) {
-      const skillPath = join(catPath, name);
-      try { if (!statSync(skillPath).isDirectory()) continue; } catch { continue; }
-      const manifestPath = join(skillPath, "skill.yaml");
-      if (existsSync(manifestPath)) out.push(manifestPath);
-    }
-  }
-  return out;
-}
-
 function buildBatchIndex(skillsRoot: string): BatchIndex {
   const index: BatchIndex = new Map();
-  for (const manifestPath of findSkillManifests(skillsRoot)) {
+  for (const manifestPath of findManifestPaths(skillsRoot)) {
     let manifest: BatchManifest;
     try {
-      manifest = yamlLoad(readFileSync(manifestPath, "utf-8")) as BatchManifest;
+      manifest = loadManifest(manifestPath) as unknown as BatchManifest;
     } catch {
       continue;
     }

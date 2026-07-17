@@ -25,7 +25,7 @@ import {
 import { join } from "path";
 import { promisify } from "util";
 import { exec as execCallback, spawn } from "child_process";
-import { load as yamlLoad } from "js-yaml";
+import { loadManifest, findManifestPaths, type SkillManifest } from "@nexaas/manifest";
 // IMPORTANT: static imports only. `await import(...)` inside an HTTP
 // handler round-trips through tsx/esbuild's IPC (epoll fd 62), which
 // blocks the main thread from draining the HTTP listener on libuv's
@@ -235,32 +235,6 @@ async function reconcileOrphanedRuns(workspace: string): Promise<number> {
  * (stale catch-up — BullMQ's scheduler handles post-downtime next-fire
  * on its own; no manual re-add needed).
  */
-interface SkillManifestForSchedule {
-  id: string;
-  version?: string;
-  timezone?: string;
-  triggers?: Array<{ type: string; schedule?: string; timezone?: string }>;
-  execution?: { type?: string };
-}
-
-function findSkillManifests(skillsRoot: string): string[] {
-  if (!existsSync(skillsRoot)) return [];
-  const out: string[] = [];
-
-  // Structure: nexaas-skills/{category}/{name}/skill.yaml
-  // Walk two levels deep; ignore non-directories and anything deeper.
-  for (const category of readdirSync(skillsRoot)) {
-    const catPath = join(skillsRoot, category);
-    try { if (!statSync(catPath).isDirectory()) continue; } catch { continue; }
-    for (const name of readdirSync(catPath)) {
-      const skillPath = join(catPath, name);
-      try { if (!statSync(skillPath).isDirectory()) continue; } catch { continue; }
-      const manifestPath = join(skillPath, "skill.yaml");
-      if (existsSync(manifestPath)) out.push(manifestPath);
-    }
-  }
-  return out;
-}
 
 async function reconcileSkillSchedulers(workspace: string): Promise<{
   registered: number;
@@ -291,12 +265,17 @@ async function reconcileSkillSchedulers(workspace: string): Promise<{
   let errors = 0;
 
   try {
-    const manifestPaths = findSkillManifests(skillsRoot);
+    const manifestPaths = findManifestPaths(skillsRoot);
 
     for (const manifestPath of manifestPaths) {
-      let manifest: SkillManifestForSchedule;
+      let manifest: SkillManifest;
       try {
-        manifest = yamlLoad(readFileSync(manifestPath, "utf-8")) as SkillManifestForSchedule;
+        manifest = loadManifest(manifestPath);
+        if (typeof manifest.id !== "string" || manifest.id.length === 0) {
+          console.warn(`[nexaas] skipping manifest without id: ${manifestPath}`);
+          errors++;
+          continue;
+        }
       } catch (err) {
         console.warn(`[nexaas] skipping malformed manifest ${manifestPath}: ${(err as Error).message}`);
         errors++;

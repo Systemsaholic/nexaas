@@ -27,6 +27,13 @@ ok(fn.rowCount === 1, "migration 029: wal_hash_v2 function exists");
 await migPool.end();
 createPool();
 
+// Idempotent reruns: the harness writes deterministic content under its own
+// scratch workspace, so leftovers from a prior run against the same DB
+// collide with ix_wal_workspace_hash. CI's DB is always fresh; local rerun
+// DBs aren't. Deleting is fine HERE ONLY — it's the harness's own test
+// workspace, never production WAL.
+await sql(`DELETE FROM nexaas_memory.wal WHERE workspace=$1`, [WS]);
+
 // 1. v2 write with a NESTED payload, verify clean
 await appendWal({ workspace: WS, op: "seed", actor: "t", payload: { n: 1 } });
 await appendWal({ workspace: WS, op: "invoice", actor: "t", payload: { meta: { amount: 9999, vendor: "acme" }, top: "x" } });
