@@ -531,6 +531,7 @@ export async function matchDrawerAgainstWaitpoints(
           channel_role: drawer.room,
         },
         `inbound-match:${drawer.id}`,
+        workspace,
       );
       await appendWal({
         workspace,

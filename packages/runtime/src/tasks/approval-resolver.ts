@@ -298,6 +298,7 @@ export async function resolvePendingApprovals(workspace: string): Promise<{
           inbox_drawer_id: drawer.id,
         },
         `approval-callback:${drawer.id}`,
+        workspace,
       );
 
       // Fire resumption. If the approval declared a handler skill (#53),
@@ -429,6 +430,7 @@ export async function resolveApprovalBySignal(
       signal,
       { decision, output_id: approval.output_id, resolved_via: "api-direct" },
       actor,
+      workspace,
     );
     const resumption = await enqueueResumption(workspace, approval, decision, actor, payloadOverride);
 

@@ -18,11 +18,22 @@ export async function upsertEmbedding(
   model: string = "voyage-3",
 ): Promise<void> {
   const vectorStr = `[${embedding.join(",")}]`;
+  // ON CONFLICT (drawer_id) — backed by ux_embeddings_drawer (migration
+  // 030, #261). The original target was (id), whose gen_random_uuid()
+  // default could never conflict: this function INSERTED on every call
+  // and "upsert" was a lie — re-embedding accumulated duplicates.
   await sql(
     `INSERT INTO nexaas_memory.embeddings
       (workspace, drawer_id, wing, hall, room, embedding, model)
      VALUES ($1, $2, $3, $4, $5, $6::vector, $7)
-     ON CONFLICT (id) DO UPDATE SET embedding = $6::vector, model = $7`,
+     ON CONFLICT (drawer_id) DO UPDATE
+       SET embedding = EXCLUDED.embedding,
+           model = EXCLUDED.model,
+           workspace = EXCLUDED.workspace,
+           wing = EXCLUDED.wing,
+           hall = EXCLUDED.hall,
+           room = EXCLUDED.room,
+           created_at = now()`,
     [workspace, drawerId, room.wing, room.hall, room.room, vectorStr, model],
   );
 }
