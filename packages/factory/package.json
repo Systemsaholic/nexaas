@@ -1,6 +1,6 @@
 {
   "name": "@nexaas/factory",
-  "version": "0.3.10",
+  "version": "0.4.0",
   "private": true,
   "description": "Factory slash commands (/new-skill, /new-flow, /new-mcp, /nexaasify) — markdown command definitions consumed by Claude Code sessions on workspace VPSes. Content-only: no importable code (#259). If the planned authoring machinery ships in src/, restore main/exports/deps with it.",
   "type": "module"
