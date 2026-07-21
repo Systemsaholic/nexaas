@@ -14,6 +14,91 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.4.0 — 2026-07-21
+
+Framework-hardening v2 complete (#253 closed): the four remaining tracks
+(H3 #256, H5 #258, H6 #259, H7 #260, H8 #261) plus the AI-skill runtime
+clock (#277). One migration (030); rollback to v0.3.10 code-unconstrained
+(see the 030 note below).
+
+### Added
+- `@nexaas/manifest` (#256) — the skill manifest's single source of truth:
+  one schema + `normalizeManifest` + loader + walker, consumed by
+  registration, dry-run, library, triggering, the trigger API, dispatchers,
+  AND the executing BullMQ worker. Kills the #246 class: a registered
+  contract.yaml skill previously *executed* with `id=undefined` and its
+  `timeout_seconds` silently ignored. contract.yaml-only skills are now
+  discovered by schedule self-heal, the manifest index, and all dispatchers.
+- `writeDrawerRaw` in `@nexaas/palace` (#256) — THE drawer INSERT; the nine
+  system writers that carried their own SQL now route through it.
+- `docs/contracts.md` (#258) — public contract registries: all WAL ops, the
+  env-var inventory, the worker route table. CI drift guards
+  (`tests/contract-docs.test.ts`) extract the same inventories from code and
+  fail when something ships undocumented; `tests/phantom-deps.test.ts` (#259)
+  does the same for undeclared package dependencies.
+- `nexaas version` (#259) — VERSION + git describe + dirty flag.
+- `npm run release-stamp X.Y.Z` (#259) — stamps VERSION, every workspace
+  package.json, and internal `@nexaas/*` ranges in one command (this release
+  is the first stamped with it; package versions now track the framework
+  version instead of sitting frozen at 0.1.0). Changesets machinery removed.
+- Authoritative runtime clock in every AI-skill prompt (#277) — AI-skills
+  have no shell, so "run `date`" instructions silently no-op'd and models
+  guessed "today" from stale evidence, landing +1 day. Now the workspace-
+  local date/weekday/cron-DOW is injected into the system prompt
+  (generalized from #277's hardcoded ET by #260's `workspaceTimezone()`).
+
+### Fixed
+- **Waitpoint resolution is atomic and workspace-scoped** (#261). The
+  timeout reaper's `auto_approve` could race a human approval — both
+  succeeded, the business action executed twice. Single
+  `UPDATE … (FOR UPDATE SKIP LOCKED) RETURNING` claim now; exactly one
+  resolver wins. Lookup is workspace-scoped (was: a signal collision could
+  resolve another workspace's waitpoint). The reaper's `auto_cancel` gained
+  the same claim guard (was: cancelled a freshly-approved run on a lost race).
+- **`upsertEmbedding` actually upserts** (#261): conflict target moved from
+  the never-conflicting uuid PK to `drawer_id` (unique index, migration
+  030). Re-embedding no longer accumulates duplicates.
+- `nexaas health` and the in-process monitor share one check set (#256):
+  the monitor gained the #215 spend-budget check, the CLI gained the #245
+  cadence-aware staleness check.
+- dry-run: accepts contract.yaml (was "missing id"), and `--live` no longer
+  multiplies the millisecond timeout by 1000 (#256).
+- Telegram alert timestamps use the workspace timezone (#260; were
+  hardcoded to one client's).
+- `/usr/local/bin/nexaas` runs the compiled dist under
+  `--conditions=production` (#259) — the worker's #37 lesson applied to the
+  CLI (117ms boot vs ~1–2s npx-tsx). `nexaas init` installs the wrapper;
+  `nexaas upgrade` migrates legacy hand-written ones in place.
+- `@nexaas/cli` declares its real dependencies (#259) — pg/bullmq/ioredis/
+  cron-parser resolved only via hoisting before.
+
+### Changed / Removed
+- Docs reconciled to code (#258): manifest reference regenerated from the
+  TS interfaces; phantom `type: event` / `type: webhook` triggers deleted
+  from docs AND factory commands (#260) — they never existed; the real
+  chaining mechanisms are documented instead. Shell `timeout` is
+  milliseconds; agentic default is 10 turns; timezone default is
+  workspace-config → UTC (not America/Toronto). ontology.yaml reconciled +
+  CI-guarded; STATUS.md retired.
+- Factory commands are workspace-agnostic (#260): `$NEXAAS_WORKSPACE_ROOT`,
+  workspace timezone, no client paths, no python3.
+- WebStudio removed from the framework worker (#260): `/api/webstudio/*`,
+  `runtime/src/webstudio/`, `mcp/servers/webstudio` — a Nexmatic product
+  surface; never used in production (zero WAL ops on Phoenix). Absorption
+  tracked in nexmatic#25; code recoverable at `cb57762`.
+- Orphan `mcp/servers/memory` (Qdrant/Trigger.dev remnant) archived and
+  removed (#260). `packages/ops-console-core` (hollow) deleted (#259);
+  `packages/factory` is content-only.
+
+### Migrations
+- `030_embeddings_unique_drawer.sql` — dedupe embeddings (keep newest per
+  drawer) + unique index on `drawer_id`. One-release backward compatible in
+  practice: the only embedding writer is the Voyage-gated ingest embedder,
+  never run in production (`embeddings` empty fleet-wide, verified on
+  Phoenix before cut). A rolled-back v0.3.10 writer re-embedding the same
+  drawer would error rather than silently duplicate — the write it blocks
+  is the bug itself.
+
 ## v0.3.10 — 2026-07-13
 
 Framework-hardening v2 tracks H4 + H2 (#253): PR-time CI and the gateway
