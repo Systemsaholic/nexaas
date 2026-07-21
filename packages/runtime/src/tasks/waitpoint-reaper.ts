@@ -61,6 +61,7 @@ export async function reapExpiredWaitpoints(): Promise<number> {
             wp.dormant_signal,
             { decision: "approved", source: "timeout_auto_approve", authorized: false },
             "system:timeout-reaper",
+            wp.workspace,
           );
           break;
 
@@ -69,14 +70,22 @@ export async function reapExpiredWaitpoints(): Promise<number> {
             wp.dormant_signal,
             { decision: "rejected", source: "timeout_auto_reject", authorized: false },
             "system:timeout-reaper",
+            wp.workspace,
           );
           break;
 
-        case "auto_cancel":
-          await sql(
-            `UPDATE nexaas_memory.events SET dormant_signal = NULL WHERE id = $1`,
+        case "auto_cancel": {
+          // Claim guard (#261): only cancel if the waitpoint is still open.
+          // Without `dormant_signal IS NOT NULL ... RETURNING`, a human
+          // approval landing a moment earlier still got its freshly-resumed
+          // run marked cancelled by this path.
+          const claimed = await sql<{ id: string }>(
+            `UPDATE nexaas_memory.events SET dormant_signal = NULL
+              WHERE id = $1 AND dormant_signal IS NOT NULL
+              RETURNING id`,
             [wp.id],
           );
+          if (claimed.length === 0) break;
           if (wp.run_id) await runTracker.markCancelled(wp.run_id);
           await appendWal({
             workspace: wp.workspace,
@@ -85,6 +94,7 @@ export async function reapExpiredWaitpoints(): Promise<number> {
             payload: { signal: wp.dormant_signal, run_id: wp.run_id, skill_id: wp.skill_id },
           });
           break;
+        }
 
         case "escalate":
         default:

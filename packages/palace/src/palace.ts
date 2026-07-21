@@ -235,24 +235,43 @@ export async function resolveWaitpoint(
   signal: string,
   resolution: Record<string, unknown>,
   actor: string,
+  workspace?: string,
 ): Promise<{ runId: string; skillId: string; stepId: string }> {
+  // Atomic claim (#261) — the same CTE + FOR UPDATE SKIP LOCKED pattern as
+  // pa/delivery.ts. The pre-#261 SELECT-then-UPDATE let the timeout
+  // reaper's auto_approve race a human approval: both read the row while
+  // dormant_signal was still set, both "resolved", and the business action
+  // executed twice. Now exactly one resolver gets the row back — the loser
+  // sees zero rows and throws the same "not found" error callers already
+  // treat as already-resolved.
+  //
+  // `workspace` scopes the lookup — without it, a signal collision in a
+  // shared-DB deployment resolved ANOTHER workspace's waitpoint. Optional
+  // only for library callers that genuinely don't know it (framework call
+  // sites all pass it).
+  const params: unknown[] = [signal];
+  let scope = "";
+  if (workspace !== undefined) {
+    params.push(workspace);
+    scope = " AND workspace = $2";
+  }
   const drawer = await sqlOne<Drawer>(
-    `SELECT * FROM nexaas_memory.events
-     WHERE dormant_signal = $1
-     LIMIT 1`,
-    [signal],
+    `UPDATE nexaas_memory.events
+        SET dormant_signal = NULL, dormant_until = NULL
+      WHERE id = (
+        SELECT id FROM nexaas_memory.events
+         WHERE dormant_signal = $1${scope}
+         ORDER BY created_at
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *`,
+    params,
   );
 
   if (!drawer) {
     throw new Error(`Waitpoint not found: ${signal}`);
   }
-
-  await sql(
-    `UPDATE nexaas_memory.events
-     SET dormant_signal = NULL, dormant_until = NULL
-     WHERE id = $1`,
-    [drawer.id],
-  );
 
   const session = createSession({
     workspace: drawer.workspace,
