@@ -159,10 +159,40 @@ export async function apply(
         break;
       }
 
-      // Default path — non-notification kinds write to events.skill.executed
-      // as before. Palace_write / external_send / mcp_tool_call / etc. go
-      // through this branch; future stages add their own kind-specific
-      // routing if needed.
+      // Delivery-bearing kinds have NO delivery adapter in the engine yet.
+      // Recording them in events.skill.executed and returning success made
+      // agents believe a customer send happened when nothing was dispatched
+      // (phantom-send incident 2026-07-08: ops/ticket-review emitted
+      // send_ticket_reply for a week; every "sent" reply silently vanished
+      // while runs completed green). Fail loudly instead: the
+      // framework__produce_output handler catches this and returns
+      // ok:false to the agent mid-loop, so it can deliver via a direct MCP
+      // tool call or escalate; a primary_output of these kinds fails the
+      // run with this message as the error summary.
+      if (action.output_kind === "external_send" || action.output_kind === "mcp_tool_call") {
+        await appendWal({
+          workspace,
+          op: "action_delivery_unimplemented",
+          actor: `skill:${session.ctx.skillId}`,
+          payload: {
+            run_id: runId,
+            step_id: stepId,
+            action_kind: action.action.kind,
+            output_kind: action.output_kind,
+            source: action.source,
+          },
+        });
+        throw new Error(
+          `auto_execute has no delivery adapter for output kind '${action.output_kind}' ` +
+          `('${action.action.kind}') — NOTHING was sent. Deliver via a direct MCP tool ` +
+          `call in the agentic loop (and verify the tool result), or route this output ` +
+          `through an approval handler skill that performs the send.`,
+        );
+      }
+
+      // Default path — remaining kinds (palace_write, custom kinds) write to
+      // events.skill.executed as before; the drawer write IS the execution
+      // for those. Future stages add their own kind-specific routing.
       await session.writeDrawer(
         { wing: "events", hall: "skill", room: "executed" },
         JSON.stringify({
