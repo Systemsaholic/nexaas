@@ -8,12 +8,12 @@ The operator will describe the integration they need: $ARGUMENTS
 
 1. **Check existing MCP servers** — maybe it already exists:
    ```bash
-   cat ~/.mcp.json 2>/dev/null | python3 -c "import json,sys; [print(f'  {k}') for k in sorted(json.load(sys.stdin).get('mcpServers',{}).keys())]"
+   node -e "console.log(Object.keys(require(process.env.NEXAAS_WORKSPACE_ROOT + '/.mcp.json').mcpServers ?? {}).sort().join('\n'))"
    ```
 
 2. **Check the Nexaas capability registry** — maybe the capability already has an interface:
    ```bash
-   cat /opt/nexaas/capabilities/_registry.yaml | head -50
+   cat $NEXAAS_ROOT/capabilities/_registry.yaml | head -50
    ```
 
 ## Phase 1: Integration Profile
@@ -44,15 +44,14 @@ Determine if this maps to an existing Nexaas capability:
 
 ## Phase 4: Scaffold
 
-Create the MCP server directory:
+Scaffold with the CLI (it generates the stdio protocol boilerplate):
 ```bash
-mkdir -p ~/mcp-servers/{name}
-cd ~/mcp-servers/{name}
-npm init -y
+nexaas create-mcp {name} --dir $NEXAAS_WORKSPACE_ROOT/mcp-servers
+cd $NEXAAS_WORKSPACE_ROOT/mcp-servers/{name}
 npm install @modelcontextprotocol/sdk zod
 ```
 
-Create the main server file with the MCP stdio protocol:
+Flesh out the main server file with the MCP stdio protocol:
 - `import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"`
 - `import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"`
 - Define each tool with `server.tool(name, description, schema, handler)`
@@ -63,8 +62,8 @@ Create the main server file with the MCP stdio protocol:
 Add the server to the workspace's `.mcp.json`:
 ```json
 "{name}": {
-  "command": "node",
-  "args": ["~/mcp-servers/{name}/index.js"],
+  "command": "npx",
+  "args": ["tsx", "{workspace root}/mcp-servers/{name}/src/index.ts"],
   "env": {
     "API_KEY": "..."
   }

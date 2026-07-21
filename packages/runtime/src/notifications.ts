@@ -6,6 +6,7 @@
  */
 
 import { sql, appendWal, writeDrawerRaw } from "@nexaas/palace";
+import { workspaceTimezone } from "./workspace-timezone.js";
 
 export type NotificationSeverity = "critical" | "warning" | "info";
 export type NotificationChannel = "telegram" | "email" | "palace";
@@ -50,6 +51,7 @@ function getConfig(): NotificationConfig {
 
 const recentNotifications = new Map<string, number>();
 
+
 function isDuplicate(key: string, windowMinutes: number): boolean {
   const lastSent = recentNotifications.get(key);
   if (!lastSent) return false;
@@ -91,7 +93,9 @@ export async function notify(payload: NotificationPayload): Promise<{ sent: Noti
   if (channels.includes("telegram") && config.telegram) {
     try {
       const icon = payload.severity === "critical" ? "🔴" : payload.severity === "warning" ? "🟡" : "🔵";
-      const text = `${icon} *${payload.title}*\n\n${payload.body}\n\n_${payload.workspace} — ${new Date().toLocaleString("en-US", { timeZone: "America/Toronto" })}_`;
+      // Alert timestamps in the workspace's timezone (#260) — was hardcoded
+      // to one client's, stamping every adopter's alerts with Toronto time.
+      const text = `${icon} *${payload.title}*\n\n${payload.body}\n\n_${payload.workspace} — ${new Date().toLocaleString("en-US", { timeZone: await workspaceTimezone(payload.workspace) })}_`;
 
       const res = await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
         method: "POST",

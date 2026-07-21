@@ -23,7 +23,7 @@ function sources(): string[] {
     "packages/palace/src", "packages/runtime/src", "packages/cli/src",
     "packages/manifest/src", "packages/integration-sdk/src",
     "mcp/servers/palace/src",
-    "mcp/servers/email-outbound/src", "mcp/servers/webstudio/src",
+    "mcp/servers/email-outbound/src",
   ];
   const files: string[] = [];
   const walk = (dir: string) => {
@@ -82,7 +82,9 @@ describe("docs/contracts.md — worker routes cover the code", () => {
   )].sort();
 
   it("finds a plausible number of routes (sanity)", () => {
-    expect(routes.length).toBeGreaterThanOrEqual(15);
+    // Floor recalibrated in #260 (webstudio's 3 routes moved to Nexmatic,
+    // 17 → 14). If this trips, the extraction regex broke — not the worker.
+    expect(routes.length).toBeGreaterThanOrEqual(12);
   });
 
   for (const r of routes) {
