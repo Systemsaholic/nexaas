@@ -181,7 +181,6 @@ this is the complete inventory.
 | `NEXAAS_SILENT_FAILURE_CHANNEL_ROLE` | unset | silent-failure alert channel (unset = off) |
 | `NEXAAS_WAITPOINT_MAX_TIMEOUT_DAYS` | 1 | inbound-match timeout ceiling (#66) |
 | `NEXAAS_WAL_RETENTION_DAYS` | unset (forever) | WAL retention policy |
-| `NEXAAS_WEBSTUDIO_EDIT_TIMEOUT_MS` | (see webstudio) | edit-loop timeout |
 
 ### Security / fleet
 | var | purpose |
@@ -198,7 +197,6 @@ this is the complete inventory.
 | `SENDGRID_API_KEY` / `POSTMARK_SERVER_TOKEN` | email-outbound providers |
 | `EMAIL_OUTBOUND_PROVIDER` | provider selection for email-outbound MCP |
 | `UNSUBSCRIBE_SECRET` | unsubscribe-link HMAC (#82) |
-| `WEBSTUDIO_REPO_ROOT` | webstudio project root |
 | `DASHBOARD_BASE_URL` / `NEXTAUTH_SECRET` / `AUTH_SECRET` | dashboard integration surfaces |
 | `OPERATOR_NAME` / `OPERATOR_EMAIL` | operator identity for init/onboard |
 
@@ -229,6 +227,3 @@ are always open (bind/firewall-gated instead).
 | `POST /api/pa/message` | PA inbound message |
 | `POST /api/pa/:user/notify` | PA-routed notification (#123) |
 | `POST /api/addons/activate` | add-on activation hook |
-| `POST /api/webstudio/edit` | webstudio AI edit loop |
-| `POST /api/webstudio/import` | webstudio project import |
-| `POST /api/webstudio/publish` | webstudio publish |

@@ -208,7 +208,7 @@ async function tryWithRetries(
 export const ModelGateway = {
   /**
    * The live execution path (#255): every agentic caller (ai-skill, PA
-   * service, subagent, webstudio edit) routes model runs through here.
+   * service, subagent) routes model runs through here.
    * Gains over the previous direct-SDK call sites, all in one place:
    *   - registry-driven model selection (no hardcoded TIER_MAPs anywhere)
    *   - pre-call daily budget gate (#215) — SpendBudgetExceededError is a

@@ -28,7 +28,6 @@ One Express server, port `NEXAAS_WORKER_PORT` (default 9090), bind address
 | `/api/pa/:user/notify` | POST | bearer | PA notification ingress |
 | `/api/drawers/inbound` | POST | bearer | write inbound drawers (triggers skills) |
 | `/api/pa/message` | POST | bearer *(added #217)* | full PA conversation — **model spend** + palace reads |
-| `/api/webstudio/import\|edit\|publish` | POST | bearer | site mutation + publish |
 | `/api/ingest` | POST | bearer *(added #217)* | chunk + embed — Voyage spend + palace writes |
 | `/api/addons/activate` | POST | bearer *(added #217)* | **registers skills and MCP server commands — the most privileged endpoint on the box** |
 

@@ -49,7 +49,8 @@ function discoverSeedEntries(workspaceRoot: string): SeedEntry[] {
     }
   }
 
-  // ── Phoenix-Voyages workspace ────────────────────────────────
+  // ── Conventional workspace file mappings (#260: all opportunistic —
+  //    addIfExists skips anything the workspace doesn't have) ────────
 
   // Workspace context
   addIfExists(join(ws, "CLAUDE.md"), "knowledge", "context", "workspace-instructions", "high", "context");

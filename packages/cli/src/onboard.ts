@@ -6,7 +6,7 @@
  * generates a migration plan, and updates CLAUDE.md.
  *
  * Usage:
- *   nexaas onboard --workspace ~/Phoenix-Voyages --id phoenix-voyages
+ *   nexaas onboard --workspace /path/to/workspace-root --id <workspace-id>
  *   nexaas onboard --workspace ~/Accounting --id phoenix-accounting
  */
 
@@ -80,10 +80,10 @@ function discoverTriggerDevTasks(workspacePath: string): DiscoveredFlow[] {
       if (content.includes("playwright") || content.includes("browser")) integrations.push("playwright");
       if (content.includes("buffer") || content.includes("social")) integrations.push("social");
 
-      // Detect cross-workspace references
+      // Detect cross-workspace references (#260: keyed on generic legacy
+      // markers — never on a specific client's name)
       const crossWorkspaceDeps: string[] = [];
       if (content.includes("Accounting") || content.includes("accounting")) crossWorkspaceDeps.push("accounting");
-      if (content.includes("Phoenix-Voyages") && dir.includes("Accounting")) crossWorkspaceDeps.push("phoenix-voyages");
 
       // Detect trigger type
       let triggerType = "manual";
@@ -149,7 +149,7 @@ function discoverPythonScripts(workspacePath: string): DiscoveredFlow[] {
       if (dir === "reports" || dir === "tax") riskTier = Math.max(riskTier, 3);
 
       const crossWorkspaceDeps: string[] = [];
-      if (content.includes("Phoenix-Voyages") || content.includes("trigger-dev")) crossWorkspaceDeps.push("phoenix-voyages");
+      if (content.includes("trigger-dev")) crossWorkspaceDeps.push("legacy-trigger-dev");
 
       flows.push({
         name, source: "python-script", file: filePath,

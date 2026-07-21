@@ -20,7 +20,7 @@ const BUILTINS = new Set(builtinModules);
 const PACKAGES = [
   "packages/palace", "packages/runtime", "packages/cli",
   "packages/manifest", "packages/integration-sdk",
-  "mcp/servers/palace", "mcp/servers/email-outbound", "mcp/servers/webstudio",
+  "mcp/servers/palace", "mcp/servers/email-outbound",
 ].filter((p) => existsSync(join(ROOT, p, "src")));
 
 function tsFiles(dir: string): string[] {

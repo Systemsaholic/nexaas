@@ -50,6 +50,25 @@ function getConfig(): NotificationConfig {
 
 const recentNotifications = new Map<string, number>();
 
+// Alert-timestamp timezone (#260): workspace config → NEXAAS_TIMEZONE → UTC,
+// the framework's canonical resolution order. Was hardcoded America/Toronto —
+// a client-specific default stamping every adopter's alerts. Cached per
+// process; alerts don't need to observe a mid-flight timezone change.
+let _alertTz: string | null = null;
+async function alertTimezone(workspace: string): Promise<string> {
+  if (_alertTz) return _alertTz;
+  try {
+    const rows = await sql<{ timezone: string }>(
+      `SELECT timezone FROM nexaas_memory.workspace_config WHERE workspace = $1`,
+      [workspace],
+    );
+    _alertTz = rows[0]?.timezone || process.env.NEXAAS_TIMEZONE || "UTC";
+  } catch {
+    _alertTz = process.env.NEXAAS_TIMEZONE || "UTC";
+  }
+  return _alertTz;
+}
+
 function isDuplicate(key: string, windowMinutes: number): boolean {
   const lastSent = recentNotifications.get(key);
   if (!lastSent) return false;
@@ -91,7 +110,7 @@ export async function notify(payload: NotificationPayload): Promise<{ sent: Noti
   if (channels.includes("telegram") && config.telegram) {
     try {
       const icon = payload.severity === "critical" ? "🔴" : payload.severity === "warning" ? "🟡" : "🔵";
-      const text = `${icon} *${payload.title}*\n\n${payload.body}\n\n_${payload.workspace} — ${new Date().toLocaleString("en-US", { timeZone: "America/Toronto" })}_`;
+      const text = `${icon} *${payload.title}*\n\n${payload.body}\n\n_${payload.workspace} — ${new Date().toLocaleString("en-US", { timeZone: await alertTimezone(payload.workspace) })}_`;
 
       const res = await fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendMessage`, {
         method: "POST",

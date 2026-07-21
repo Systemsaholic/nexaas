@@ -3,9 +3,9 @@
  *
  * Usage:
  *   nexaas config                          Show current config
- *   nexaas config set timezone America/Toronto
+ *   nexaas config set timezone America/New_York
  *   nexaas config set default-model-tier good
- *   nexaas config set display-name "Phoenix Voyages"
+ *   nexaas config set display-name "Acme Corp"
  *   nexaas config set spend-budget 25     Daily AI budget in USD (#215); "off" = unlimited
  *   nexaas config set spend-override today   Disable budget enforcement for today only
  */
@@ -102,7 +102,7 @@ export async function run(args: string[]) {
   const budget = exec(`psql "${dbUrl}" -c "SELECT spend_daily_budget_usd::text FROM nexaas_memory.workspace_config WHERE workspace = '${workspace}'" -t -A 2>/dev/null`);
 
   if (!row) {
-    console.log(`\n  No config found for workspace '${workspace}'. Run 'nexaas config set timezone America/Toronto' to initialize.\n`);
+    console.log(`\n  No config found for workspace '${workspace}'. Run 'nexaas config set timezone <IANA-tz>' to initialize.\n`);
     return;
   }
 

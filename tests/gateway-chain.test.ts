@@ -1,7 +1,7 @@
 /**
  * Unit tests for resolveAgenticChain (#255) — the registry→model-chain
  * resolution behind ModelGateway.executeAgentic. Every live agentic caller
- * (ai-skill, PA, subagent, webstudio edit) selects models through this;
+ * (ai-skill, PA, subagent) selects models through this;
  * a regression here changes what model every skill in the fleet runs on.
  */
 import { join } from "node:path";

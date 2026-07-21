@@ -8,7 +8,6 @@
     "packages/*",
     "integrations/*",
     "mcp/servers/email-outbound",
-    "mcp/servers/webstudio",
     "mcp/servers/palace"
   ],
   "scripts": {
