@@ -20,8 +20,12 @@
 import { sql, appendWal, writeDrawerRaw } from "@nexaas/palace";
 import { exec as execCb } from "child_process";
 import { promisify } from "util";
+import cronParser from "cron-parser";
+import { loadManifest } from "@nexaas/manifest";
 import { notify } from "../notifications.js";
 import { probeModel } from "../models/probe.js";
+import { findSkillManifest } from "../skill-manifest-index.js";
+import { workspaceTimezone } from "../workspace-timezone.js";
 
 // Async exec — health monitor runs every 5 min inside the worker. Using
 // execSync here (as before) blocked the event loop for each shell check,
@@ -40,6 +44,62 @@ export interface HealthAlert {
   severity: "critical" | "warning" | "info";
   component: string;
   message: string;
+}
+
+export type StaleVerdict =
+  | { kind: "retired" }        // no manifest on disk — scheduler/orphan tooling owns this
+  | { kind: "event-driven" }   // inbound/batch triggers only — idle ≠ stale
+  | { kind: "cron"; missed: number; schedules: string[] }
+  | { kind: "unknown" };       // manifest unreadable / cron unparseable — keep legacy alert
+
+/**
+ * Resolve a stale-skill candidate against its manifest's actual triggers
+ * (#269 — recovered Phoenix hotfix 5072c96, generalized). The median-gap
+ * heuristic (#245) can't see schedules, so business-hours crons
+ * (`*​/30 8-19 * * 1-5`) false-alarm every night/weekend and event-driven
+ * skills false-alarm whenever their signal is quiet. A cron skill is only
+ * genuinely stale once ≥3 *scheduled* fire times have passed unrun.
+ *
+ * Timezone: per-trigger → manifest → workspace config → NEXAAS_TIMEZONE →
+ * UTC — the framework's canonical resolution (the Phoenix patch fell back
+ * to America/Toronto; that client-ism is why it couldn't land as-is).
+ *
+ * `now` is injectable for tests.
+ */
+export async function classifyStaleSkill(
+  workspace: string,
+  skillId: string,
+  minutesSince: number,
+  now: Date = new Date(),
+): Promise<StaleVerdict> {
+  try {
+    const entry = findSkillManifest(skillId);
+    if (!entry) return { kind: "retired" };
+    const manifest = loadManifest(entry.manifestPath);
+    const crons = (manifest.triggers ?? []).filter(
+      (t) => t?.type === "cron" && typeof t.schedule === "string",
+    );
+    if (crons.length === 0) return { kind: "event-driven" };
+    const workspaceTz = await workspaceTimezone(workspace);
+    const lastRun = new Date(now.getTime() - minutesSince * 60_000);
+    let missed = 0;
+    for (const t of crons) {
+      const tz = t.timezone ?? manifest.timezone ?? workspaceTz;
+      try {
+        const it = cronParser.parseExpression(t.schedule as string, { currentDate: lastRun, tz });
+        for (let i = 0; i < 500 && missed < 3; i++) {
+          if (it.next().toDate().getTime() > now.getTime()) break;
+          missed++;
+        }
+      } catch {
+        return { kind: "unknown" };
+      }
+      if (missed >= 3) break;
+    }
+    return { kind: "cron", missed, schedules: crons.map((t) => t.schedule as string) };
+  } catch {
+    return { kind: "unknown" };
+  }
 }
 
 export interface HealthReport {
@@ -187,10 +247,20 @@ export async function runHealthCheck(workspace: string, opts: HealthCheckOpts = 
   for (const row of staleSkills) {
     const mins = Math.round(parseFloat(row.minutes_since));
     const cadence = Math.round(parseFloat(row.median_gap));
+    // #269: check the schedule before alerting — retired and event-driven
+    // skills are exempt, and a cron skill isn't stale until it actually
+    // missed ≥3 scheduled fires (a business-hours cron is silent all
+    // weekend by design).
+    const verdict = await classifyStaleSkill(workspace, row.skill_id, parseFloat(row.minutes_since));
+    if (verdict.kind === "retired" || verdict.kind === "event-driven") continue;
+    if (verdict.kind === "cron" && verdict.missed < 3) continue;
     alerts.push({
       severity: "warning",
       component: `skill:${row.skill_id}`,
-      message: `Hasn't run in ${mins} minutes (typical cadence ~${cadence} min)`,
+      message:
+        verdict.kind === "cron"
+          ? `Missed ${verdict.missed}+ scheduled runs — silent ${mins} min (schedule: ${verdict.schedules.join(" | ")})`
+          : `Hasn't run in ${mins} minutes (typical cadence ~${cadence} min)`,
     });
   }
 
