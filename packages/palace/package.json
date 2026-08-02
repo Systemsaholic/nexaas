@@ -1,6 +1,6 @@
 {
   "name": "@nexaas/palace",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Palace substrate — data model, palace API, WAL, signing, verification, pgvector retrieval",
   "type": "module",
   "exports": {
