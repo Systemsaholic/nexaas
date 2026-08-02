@@ -14,6 +14,24 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.4.2 — 2026-08-02
+
+Patch: restores a production guard the v0.4.1 upgrade reverted (4th
+Phoenix local-drift recovery, `c60b06c`). No migrations; rollback to
+v0.4.1 unconstrained.
+
+### Fixed
+- Notification dispatcher self-heals against malformed (non-JSON) pending
+  drawers (#285). A single poison drawer made `selectPending`'s
+  `content::jsonb` cast throw and silently stalled ALL notifications
+  (7-day production incident). Per-tick quarantine sweep
+  (`dormant_signal='auto-quarantine:malformed-content'`, WAL
+  `notification_malformed_quarantined`) + `pg_input_is_valid`-guarded
+  selection (PG ≥ 16 — the framework floor).
+
+### Migrations
+- None. Rollback to v0.4.1 unconstrained.
+
 ## v0.4.1 — 2026-08-02
 
 Patch: one fix (#269). No migrations; rollback to v0.4.0 unconstrained.
