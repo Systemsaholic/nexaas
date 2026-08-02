@@ -83,6 +83,7 @@ Every `op:` string the framework writes to `nexaas_memory.wal`. Query shape:
 | `notification_sent` / `notification_delivered` / `notification_failed` | dispatcher outcomes |
 | `notification_delivered_via_pa` | delivery routed through a PA persona (#123) |
 | `notification_skipped` / `notification_misconfigured` / `notification_reaped` | dispatcher edge outcomes |
+| `notification_malformed_quarantined` | non-JSON pending drawer auto-quarantined before it can stall the dispatcher (poison-row self-heal, PG ≥ 16) |
 | `pa_message_handled` | PA persona handled an inbound message |
 | `pa_notify_received` | POST /api/pa/:user/notify accepted |
 | `pa_delivery_dead` | delivery marker exhausted retries (#94) |
