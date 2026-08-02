@@ -14,6 +14,26 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.4.3 — 2026-08-02
+
+Patch: the upgrade local-drift guard (#287). No migrations; rollback to
+v0.4.2 unconstrained.
+
+### Added
+- `nexaas upgrade` refuses to strand on-box hotfix commits (#287). On the
+  channel/pin path, when HEAD is not an ancestor of the target release the
+  upgrade lists the local-only commits, preserves them as a format-patch
+  bundle (`$NEXAAS_BACKUP_DIR/drift/`, fallback `~/.nexaas/drift/`), WALs
+  `upgrade_drift_blocked`, and exits. `--discard-local` proceeds (bundle
+  still written; WAL `upgrade_drift_discarded` carries the patch path).
+  Automates the manual check that failed to prevent the 4th clobbered
+  production hotfix (#269/#277/#285 history). Rollback and legacy
+  branch-tracking are exempt. Takes effect for upgrades FROM this release
+  onward (the upgrade to it still runs the previous CLI).
+
+### Migrations
+- None. Rollback to v0.4.2 unconstrained.
+
 ## v0.4.2 — 2026-08-02
 
 Patch: restores a production guard the v0.4.1 upgrade reverted (4th
