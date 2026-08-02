@@ -14,6 +14,24 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.4.1 — 2026-08-02
+
+Patch: one fix (#269). No migrations; rollback to v0.4.0 unconstrained.
+
+### Fixed
+- Schedule-aware stale-skill alerts (#269 — the recovered Phoenix hotfix
+  `5072c96`, generalized). The #245 median-gap heuristic false-alarmed on
+  event-driven skills (idle ≠ stale) and business-hours crons (flagged
+  every night/weekend). Stale candidates now resolve against their
+  manifest triggers: retired skills skipped, event-driven exempt, cron
+  skills alert only after ≥3 scheduled fires passed unrun (missed count +
+  schedule in the alert). Timezone per-trigger → manifest →
+  `workspaceTimezone()`; manifests load via `@nexaas/manifest` so
+  contract.yaml skills classify correctly.
+
+### Migrations
+- None. Rollback to v0.4.0 unconstrained.
+
 ## v0.4.0 — 2026-07-21
 
 Framework-hardening v2 complete (#253 closed): the four remaining tracks
