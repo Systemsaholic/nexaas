@@ -39,10 +39,14 @@
  *   nexaas upgrade --to v0.3.1           Pin directly to a tag (hotfix push)
  *   nexaas upgrade --rollback            Return to the previously-running ref (code only)
  *   nexaas upgrade --no-verify           Skip the post-upgrade conformance gate
+ *   nexaas upgrade --discard-local       Proceed past the local-drift guard (#287) —
+ *                                        local-only commits leave HEAD; a patch
+ *                                        bundle is preserved either way
  */
 
 import { execSync, spawnSync } from "child_process";
-import { chmodSync, existsSync, readdirSync, readFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
 import pg from "pg";
 import { appendWal, getPool } from "@nexaas/palace";
@@ -88,6 +92,7 @@ export async function run(args: string[]) {
   const migrateOnly = args.includes("--migrate");
   const rollback = args.includes("--rollback");
   const noVerify = args.includes("--no-verify");
+  const discardLocal = args.includes("--discard-local");
   const channelFlag = argValue(args, "--channel");
   const toTag = argValue(args, "--to");
   const workspace = process.env.NEXAAS_WORKSPACE ?? "";
@@ -226,6 +231,36 @@ export async function run(args: string[]) {
       }
 
       if (targetSha !== headSha) {
+        // Local-drift guard (#287): refuse to strand on-box hotfix commits.
+        const drift = checkLocalDrift(nexaasRoot, targetSha);
+        if (drift.drifted) {
+          console.log(`\n  ⚠ LOCAL DRIFT: HEAD carries ${drift.localCommits.length} commit(s) not in ${label}:`);
+          for (const line of drift.localCommits) console.log(`      ${line}`);
+          console.log(drift.patchPath
+            ? `    Preserved as: ${drift.patchPath}`
+            : `    ⚠ Could not write a patch bundle — commits remain recoverable by SHA until git gc.`);
+          try {
+            await appendWal({
+              workspace,
+              op: discardLocal ? "upgrade_drift_discarded" : "upgrade_drift_blocked",
+              actor: "nexaas-cli",
+              payload: {
+                target: targetSha, head: headSha,
+                local_commits: drift.localCommits,
+                patch_path: drift.patchPath,
+              },
+            });
+          } catch { /* WAL is best-effort here — the guard must still act */ }
+          if (!discardLocal) {
+            console.error(`\n  ✗ Upgrade refused. These commits would be silently reverted (this has`);
+            console.error(`    clobbered production hotfixes 4 times — see #269/#277/#285).`);
+            console.error(`    Either upstream them (branch + PR to main, then release), or re-run`);
+            console.error(`    with --discard-local to proceed anyway (patch bundle kept).`);
+            await pool.end();
+            process.exit(1);
+          }
+          console.log(`    --discard-local: proceeding; local commits leave HEAD (patch kept).`);
+        }
         await recordPreviousRef(pool, workspace, nexaasRoot);
         console.log(`\n  Checking out ${label} (${targetDescribe})...`);
         exec(`git -C ${nexaasRoot} checkout --detach ${targetSha} --quiet`, { timeout: 120_000 });
@@ -468,6 +503,62 @@ export async function run(args: string[]) {
  * via `node --conditions=production dist/worker.js`. Build is fast (<10s on
  * a warm cache) and skipped only when no source files changed.
  */
+export interface DriftCheck {
+  drifted: boolean;
+  localCommits: string[];
+  patchPath: string | null;
+}
+
+/**
+ * Local-drift guard (#287). Four production incidents share one shape: a
+ * hotfix committed directly on a workspace VPS, then silently stranded by
+ * the next channel upgrade's `checkout --detach` (the #245-era
+ * health-monitor fix, 5072c96/#269, 55e33ed/#277, c60b06c/#285). HEAD not
+ * being an ancestor of the target is exactly that condition.
+ *
+ * The guard (a) always preserves the local-only commits as a format-patch
+ * bundle under $NEXAAS_BACKUP_DIR/drift/ (fallback ~/.nexaas/drift/ —
+ * never /tmp, #172), and (b) reports drift so the caller can refuse the
+ * upgrade unless `--discard-local` was passed. Preservation happens even
+ * when discarding — recovery becomes a file read, not commit-object
+ * archaeology.
+ */
+export function checkLocalDrift(nexaasRoot: string, targetSha: string): DriftCheck {
+  const ancestor = spawnSync(
+    "git", ["-C", nexaasRoot, "merge-base", "--is-ancestor", "HEAD", targetSha],
+    { stdio: "pipe" },
+  );
+  if (ancestor.status === 0) return { drifted: false, localCommits: [], patchPath: null };
+
+  const localCommits = exec(
+    `git -C ${nexaasRoot} log --oneline ${targetSha}..HEAD | head -20`,
+    { silent: true },
+  ).split("\n").filter(Boolean);
+
+  let patchPath: string | null = null;
+  const patch = exec(
+    `git -C ${nexaasRoot} format-patch ${targetSha}..HEAD --stdout`,
+    { silent: true, timeout: 60_000 },
+  );
+  if (patch) {
+    const headShort = exec(`git -C ${nexaasRoot} rev-parse --short HEAD`, { silent: true }) || "head";
+    const stamp = new Date().toISOString().slice(0, 10);
+    for (const dir of [
+      join(process.env.NEXAAS_BACKUP_DIR ?? "/var/backups/nexaas", "drift"),
+      join(homedir(), ".nexaas", "drift"),
+    ]) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        patchPath = join(dir, `${stamp}-${headShort}.patch`);
+        writeFileSync(patchPath, patch);
+        break;
+      } catch { patchPath = null; }
+    }
+  }
+
+  return { drifted: true, localCommits, patchPath };
+}
+
 function postCheckoutSteps(nexaasRoot: string, fromCommit: string): void {
   const changedFiles = exec(
     `git -C ${nexaasRoot} diff --name-only ${fromCommit}..HEAD`,

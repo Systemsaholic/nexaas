@@ -69,7 +69,7 @@ nexaas library list|contribute|install|diff|promote|feedback
 nexaas propagate check|push|accept|reject
 nexaas alerts [list|test|config]       Notification management
 nexaas backup [run|list|test|schedule] Database backup/restore
-nexaas upgrade [--check|--migrate|--channel <c>|--to <tag>|--rollback]  Framework updates
+nexaas upgrade [--check|--migrate|--channel <c>|--to <tag>|--rollback|--discard-local]  Framework updates (drift guard #287)
 nexaas create-mcp <name>              Scaffold MCP server
 nexaas gdpr export|delete|redact|subjects|audit
 nexaas verify-wal [--full]            WAL chain integrity

@@ -115,6 +115,7 @@ Every `op:` string the framework writes to `nexaas_memory.wal`. Query shape:
 | `silent_failure_alerted` | consecutive-failure threshold hit (#69) |
 | `framework_upgraded` / `framework_rolled_back` | nexaas upgrade outcomes |
 | `upgrade_conformance_failed` | post-upgrade gate failed → auto-rollback |
+| `upgrade_drift_blocked` / `upgrade_drift_discarded` | local-drift guard (#287): HEAD carried commits not in the target release — upgrade refused, or proceeded via --discard-local (patch bundle preserved either way) |
 | `framework_consistency_warning` | doctor/startup consistency finding |
 | `lock_acquired` / `lock_released` | concurrency-group mutex (#95) |
 | `workspace_genesis` | chain root anchor written by init (linkage-only) |
