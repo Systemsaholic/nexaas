@@ -205,21 +205,50 @@ async function reapStaleClaims(workspace: string): Promise<number> {
   return reaped.length;
 }
 
+async function quarantineMalformed(
+  workspace: string,
+): Promise<{ id: string; room: string }[]> {
+  // Guardrail (#poison-row): selectPending casts e.content::jsonb. A single
+  // pending drawer whose content is not valid JSON makes that cast throw and
+  // stalls the WHOLE dispatcher — silently, indefinitely (one such row once
+  // stalled all notifications for 7 days). Sweep such rows into dormant_signal
+  // each tick so they self-heal within one interval instead of poisoning the
+  // batch forever. pg_input_is_valid requires Postgres >= 16.
+  return await sql<{ id: string; room: string }>(
+    `UPDATE nexaas_memory.events
+        SET dormant_signal = 'auto-quarantine:malformed-content'
+      WHERE workspace = $1
+        AND wing = 'notifications'
+        AND hall = 'pending'
+        AND dormant_signal IS NULL
+        AND NOT pg_input_is_valid(content, 'jsonb')
+      RETURNING id, room`,
+    [workspace],
+  );
+}
+
 async function selectPending(workspace: string): Promise<PendingDrawer[]> {
   // Pick pending drawers whose idempotency_key hasn't successfully
   // delivered yet. We LEFT JOIN on notification_dispatches so drawers
   // with a 'delivered' row are filtered out, and ones with a 'failed'
   // row below MAX_ATTEMPTS come back into the batch for retry.
+  //
+  // The pg_input_is_valid guard + CASE around the ::jsonb cast make this
+  // query resilient to a malformed drawer that quarantineMalformed hasn't
+  // swept yet — a bad row is skipped, never throws (see that function).
   return await sql<PendingDrawer>(
     `SELECT e.id, e.workspace, e.wing, e.hall, e.room, e.content, e.created_at
        FROM nexaas_memory.events e
        LEFT JOIN nexaas_memory.notification_dispatches d
               ON d.workspace = e.workspace
-             AND d.idempotency_key = (e.content::jsonb ->> 'idempotency_key')
+             AND d.idempotency_key =
+                 (CASE WHEN pg_input_is_valid(e.content, 'jsonb')
+                       THEN e.content::jsonb ->> 'idempotency_key' END)
       WHERE e.workspace = $1
         AND e.wing = 'notifications'
         AND e.hall = 'pending'
         AND e.dormant_signal IS NULL
+        AND pg_input_is_valid(e.content, 'jsonb')
         AND (d.status IS NULL OR (d.status = 'failed' AND d.attempts < $2))
       ORDER BY e.created_at ASC
       LIMIT $3`,
@@ -605,6 +634,22 @@ export async function dispatchPendingNotifications(
         op: "pa_delivery_reaped",
         actor: "notification-dispatcher",
         payload: { count: paReaped },
+      });
+    }
+    // Malformed-drawer guardrail: quarantine any non-JSON pending drawer
+    // before it can poison selectPending's ::jsonb cast (#poison-row).
+    const malformed = await quarantineMalformed(workspace);
+    if (malformed.length > 0) {
+      console.error(
+        `[nexaas] notification dispatcher: quarantined ${malformed.length} ` +
+          `malformed drawer(s) [${malformed.map((m) => `${m.room}:${m.id}`).join(", ")}] ` +
+          `— content was not valid JSON; would have stalled the queue`,
+      );
+      await appendWal({
+        workspace,
+        op: "notification_malformed_quarantined",
+        actor: "notification-dispatcher",
+        payload: { count: malformed.length, drawers: malformed },
       });
     }
   } catch (err) {
