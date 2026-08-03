@@ -15,7 +15,7 @@ export { type Closet } from "./closets.js";
 export { type WaitpointToken, type NotifyConfig } from "./waitpoints.js";
 
 // WAL
-export { appendWal, verifyWalChain, type WalEntry } from "./wal.js";
+export { appendWal, verifyWalChain, repairMcpStragglers, type WalEntry, type StragglerRepairResult } from "./wal.js";
 
 // Database
 export { createPool, getPool, sql, sqlOne, sqlInTransaction } from "./db.js";

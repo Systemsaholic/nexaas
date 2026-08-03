@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { sql, sqlInTransaction } from "./db.js";
+import { sql, sqlInTransaction, sqlOne } from "./db.js";
 
 export interface WalEntry {
   workspace: string;
@@ -236,4 +236,95 @@ function verifyBatch(
   }
 
   return { broken: null, exemptSkipped };
+}
+
+// ── Post-restart straggler repair (#239) ─────────────────────────────────
+
+export interface StragglerRepairResult {
+  /** WAL row ids flagged integrity_exempt by this pass. */
+  flagged: number[];
+  /** Chain verdict over the inspected window after the pass. */
+  valid: boolean;
+  /** Set when the window is still broken at a row this pass refuses to touch. */
+  brokenAt?: number;
+  error?: string;
+}
+
+/**
+ * Flag `palace_mcp_write` straggler rows written in an upgrade's
+ * migrate→restart window (#239). Migration 028 exempts the pre-#235 bogus
+ * backlog, but it runs BEFORE the worker restart — a still-running
+ * pre-#235 palace MCP subprocess can write more bogus rows after the
+ * backfill and before its respawn. This pass runs after the restart and
+ * closes exactly that window.
+ *
+ * Deliberately strict — a row is flagged ONLY when ALL hold:
+ *   - the chain verifier actually fails on it (hash recompute mismatch)
+ *   - op = 'palace_mcp_write' (the one historically-buggy writer)
+ *   - created_at <= `cutoff` (the restart instant — nothing after the
+ *     new code took over is ever exempted)
+ *   - canon_version = 1 (post-#254 appendWal rows are v2; a v2 row
+ *     failing recompute is real corruption, never a straggler)
+ *   - not already exempt
+ * Anything else that fails verification is left untouched and reported —
+ * this is a targeted repair, not a chain rewrite (WAL stays append-only;
+ * flagging mirrors migration 028's own mechanism).
+ *
+ * Scans a recent window (same default as `nexaas verify-wal`) — stragglers
+ * are by construction written moments before the restart.
+ */
+export async function repairMcpStragglers(
+  workspace: string,
+  cutoff: Date,
+  opts?: { window?: number; maxFlags?: number },
+): Promise<StragglerRepairResult> {
+  const window = opts?.window ?? 10_000;
+  const maxFlags = opts?.maxFlags ?? 100;
+
+  const anchor = await sqlOne<{ id: number }>(
+    `SELECT id FROM nexaas_memory.wal WHERE workspace = $1
+      ORDER BY id DESC LIMIT 1 OFFSET ${window - 1}`,
+    [workspace],
+  );
+  let fromId = anchor?.id;
+
+  const flagged: number[] = [];
+  for (;;) {
+    const v = await verifyWalChain(workspace, fromId);
+    if (v.valid) return { flagged, valid: true };
+    if (v.brokenAt == null || flagged.length >= maxFlags) {
+      return { flagged, valid: false, brokenAt: v.brokenAt, error: v.error };
+    }
+
+    const row = await sqlOne<{
+      id: number; op: string; created_at: Date; integrity_exempt: boolean; canon_version: number;
+    }>(
+      `SELECT id, op, created_at, integrity_exempt, canon_version
+         FROM nexaas_memory.wal WHERE workspace = $1 AND id = $2`,
+      [workspace, v.brokenAt],
+    );
+    const isStraggler =
+      row != null &&
+      row.op === "palace_mcp_write" &&
+      !row.integrity_exempt &&
+      Number(row.canon_version) === 1 &&
+      new Date(row.created_at) <= cutoff;
+    if (!isStraggler) {
+      return { flagged, valid: false, brokenAt: v.brokenAt, error: v.error };
+    }
+
+    await sql(
+      `UPDATE nexaas_memory.wal SET integrity_exempt = true WHERE id = $1`,
+      [row!.id],
+    );
+    await appendWal({
+      workspace,
+      op: "wal_exempt_straggler_flagged",
+      actor: "nexaas-upgrade",
+      payload: { id: row!.id, cutoff: cutoff.toISOString() },
+    });
+    flagged.push(row!.id);
+    // Resume verification at the row just flagged — the prefix is proven.
+    fromId = row!.id;
+  }
 }

@@ -49,7 +49,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileS
 import { homedir } from "os";
 import { join } from "path";
 import pg from "pg";
-import { appendWal, getPool } from "@nexaas/palace";
+import { appendWal, getPool, repairMcpStragglers } from "@nexaas/palace";
 import { applyPendingMigrations, getPendingMigrations } from "./migrations.js";
 import { installCliBinary } from "./install-binary.js";
 
@@ -364,6 +364,27 @@ export async function run(args: string[]) {
     } else {
       console.log(`\n  ⚠ Upgraded to ${newCommit} but health check did not pass`);
       console.log("    Check: nexaas status");
+    }
+
+    // Step 7b: straggler re-flag (#239). Migration 028's exempt-backfill runs
+    // in the migrate→restart window, so a still-running pre-#235 palace MCP
+    // subprocess could write more bogus palace_mcp_write rows the backfill
+    // never saw. Flag them now — bounded to rows predating this restart —
+    // BEFORE the conformance gate, whose WAL verify would otherwise fail and
+    // auto-rollback over a row the upgrade itself is responsible for.
+    if (refChanged && healthy) {
+      try {
+        const restartInstant = new Date();
+        const repair = await repairMcpStragglers(workspace, restartInstant);
+        if (repair.flagged.length > 0) {
+          console.log(`  Flagged ${repair.flagged.length} straggler palace_mcp_write row(s) as integrity-exempt (#239): ${repair.flagged.join(", ")}`);
+        }
+        if (!repair.valid) {
+          console.log(`  ⚠ WAL window still fails verification at id ${repair.brokenAt} — NOT a known straggler; investigate with 'nexaas verify-wal'`);
+        }
+      } catch (err) {
+        console.log(`  ⚠ Straggler re-flag pass failed (non-fatal): ${(err as Error).message}`);
+      }
     }
   }
 
