@@ -14,6 +14,30 @@ backward compatibility; see the rollback policy in `docs/releases.md`).
 
 _Nothing yet._
 
+## v0.4.4 — 2026-08-03
+
+Patch: three robustness fixes. No migrations; rollback to v0.4.3
+unconstrained.
+
+### Fixed
+- Conformance shell-roundtrip is liveness-gated (#240): fails only when
+  zero OTHER runs complete in a 60s window (worker genuinely not
+  consuming), waits through contention on a busy worker, 300s hard cap
+  for a lost/stuck probe. Kills the spurious-auto-rollback risk on busy
+  workspaces. Also: the probe manifest's `timeout: 30` was 30
+  MILLISECONDS — now 30000.
+- `nexaas upgrade` re-flags `palace_mcp_write` stragglers written in the
+  migrate→restart window (#239): post-restart, pre-conformance-gate,
+  strict predicate (recompute-fail + pre-restart + canon v1 only), each
+  flag WAL-audited (`wal_exempt_straggler_flagged`).
+- NaN guards on `NEXAAS_MCP_TOOL_TIMEOUT_MS` and `NEXAAS_STREAM_IDLE_MS`
+  (#266 retroactive review): a garbage value made `setTimeout(cb, NaN)`
+  fire immediately — instantly "timing out" every MCP tool call / stream.
+  Both `/api/approvals/*` routes added to `docs/security-surface.md`.
+
+### Migrations
+- None. Rollback to v0.4.3 unconstrained.
+
 ## v0.4.3 — 2026-08-02
 
 Patch: the upgrade local-drift guard (#287). No migrations; rollback to
