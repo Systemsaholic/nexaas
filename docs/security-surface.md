@@ -27,6 +27,8 @@ One Express server, port `NEXAAS_WORKER_PORT` (default 9090), bind address
 | `/api/skills/trigger` | POST | bearer | enqueue a registered skill |
 | `/api/pa/:user/notify` | POST | bearer | PA notification ingress |
 | `/api/drawers/inbound` | POST | bearer | write inbound drawers (triggers skills) |
+| `/api/approvals/:signal/resolve` | POST | bearer | resolve an approval — **executes the approved action**; edit decisions may carry `payload_override` |
+| `/api/approvals/by-message/:messageId` | GET | bearer | approval lookup — returns `payload_full` (may contain draft content) |
 | `/api/pa/message` | POST | bearer *(added #217)* | full PA conversation — **model spend** + palace reads |
 | `/api/ingest` | POST | bearer *(added #217)* | chunk + embed — Voyage spend + palace writes |
 | `/api/addons/activate` | POST | bearer *(added #217)* | **registers skills and MCP server commands — the most privileged endpoint on the box** |

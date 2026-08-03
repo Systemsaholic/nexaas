@@ -344,9 +344,12 @@ export class McpClient {
 
       // tools/call gets a long leash — real tools legitimately run for minutes
       // (M365 tenant audits, wp-toolkit backups). Handshake/list calls keep the
-      // short timeout so a wedged server still fails fast.
+      // short timeout so a wedged server still fails fast. NaN guard (#266
+      // review): setTimeout(cb, NaN) fires on the next tick, so a garbage env
+      // value would instantly "time out" every tool call.
+      const envToolMs = Number(process.env.NEXAAS_MCP_TOOL_TIMEOUT_MS);
       const timeoutMs = method === "tools/call"
-        ? Number(process.env.NEXAAS_MCP_TOOL_TIMEOUT_MS ?? 600_000)
+        ? (Number.isFinite(envToolMs) && envToolMs > 0 ? envToolMs : 600_000)
         : 30_000;
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
