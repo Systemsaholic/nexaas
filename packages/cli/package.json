@@ -1,6 +1,6 @@
 {
   "name": "@nexaas/cli",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Nexaas CLI tools — verify-wal, validate-skill, install-agent, rebuild-skill-runs, dry-run",
   "type": "module",
   "exports": {
@@ -18,9 +18,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@nexaas/manifest": "^0.4.3",
-    "@nexaas/palace": "^0.4.3",
-    "@nexaas/runtime": "^0.4.3",
+    "@nexaas/manifest": "^0.4.4",
+    "@nexaas/palace": "^0.4.4",
+    "@nexaas/runtime": "^0.4.4",
     "bullmq": "^5.0.0",
     "cron-parser": "^4.9.0",
     "ioredis": "^5.0.0",
