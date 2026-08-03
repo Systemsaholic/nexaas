@@ -54,12 +54,22 @@ function getClient(): Anthropic {
  */
 // 60s proved too aggressive: large tool-result contexts (SEO SERP payloads,
 // fleet JSON) legitimately take >60s of server-side prompt processing before
-// the first chunk (2026-07-03: killed a report run mid-flight). Env-tunable.
-const DEFAULT_CHUNK_IDLE_MS = Number(process.env.NEXAAS_STREAM_IDLE_MS ?? 180_000);
+// the first chunk (2026-07-03: killed a report run mid-flight). Env-tunable
+// via NEXAAS_STREAM_IDLE_MS (NEXAAS_CHUNK_IDLE_MS is the legacy alias and
+// wins when set). NaN-guarded at every layer (#266 review): a garbage env
+// value previously poisoned the module-load default itself, and
+// setTimeout(cb, NaN) fires immediately.
+const HARD_DEFAULT_CHUNK_IDLE_MS = 180_000;
+
+function positiveMs(raw: string | undefined): number | null {
+  const v = Number(raw);
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
 
 function chunkIdleMs(): number {
-  const v = Number(process.env.NEXAAS_CHUNK_IDLE_MS ?? DEFAULT_CHUNK_IDLE_MS);
-  return Number.isFinite(v) && v > 0 ? v : DEFAULT_CHUNK_IDLE_MS;
+  return positiveMs(process.env.NEXAAS_CHUNK_IDLE_MS)
+    ?? positiveMs(process.env.NEXAAS_STREAM_IDLE_MS)
+    ?? HARD_DEFAULT_CHUNK_IDLE_MS;
 }
 
 /**
