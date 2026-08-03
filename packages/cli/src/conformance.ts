@@ -40,7 +40,13 @@ interface CheckResult {
   duration_ms: number;
 }
 
+// Per-window liveness check interval; the probe only fails inside a window
+// when zero OTHER runs completed in it (#240 — fixed 60s race flaked under
+// production load and risked spurious upgrade auto-rollbacks).
 const SHELL_ROUNDTRIP_TIMEOUT_MS = 60_000;
+// Absolute wall: a consuming worker that still never ran the probe means a
+// lost/stuck job, not contention.
+const SHELL_ROUNDTRIP_HARD_CAP_MS = 300_000;
 const WAITPOINT_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 
@@ -317,7 +323,7 @@ export async function run(args: string[] = []) {
       `execution:`,
       `  type: shell`,
       `  command: "echo conformance-shell-ok"`,
-      `  timeout: 30`,
+      `  timeout: 30000  # MILLISECONDS — was '30' = 30ms, racing echo's own spawn latency (#240)`,
       `rooms:`,
       `  primary: { wing: ops, hall: conformance, room: shell-roundtrip }`,
       ``,
@@ -341,26 +347,61 @@ export async function run(args: string[] = []) {
         manifestPath,
       }, { jobId });
 
-      const deadline = Date.now() + SHELL_ROUNDTRIP_TIMEOUT_MS;
-      while (Date.now() < deadline) {
+      // Liveness-gated wait (#240). A fixed 60s enqueue-to-terminal race
+      // flaked on busy production workspaces (Phoenix: healthy worker,
+      // 34 completions in the prior 2 min, probe just queued behind real
+      // work) — and a flaky gate risks spurious auto-rollbacks, because
+      // `nexaas upgrade` blocks on this. So: at each 60s checkpoint where
+      // our run isn't terminal, fail ONLY if the worker also completed
+      // zero OTHER runs in that window (genuinely not consuming).
+      // Evidence of consumption buys another window, up to a hard cap.
+      const start = Date.now();
+      let checkpoint = start;
+      let windows = 0;
+      while (Date.now() - start < SHELL_ROUNDTRIP_HARD_CAP_MS) {
         const r = await pool.query(
           `SELECT status FROM nexaas_memory.skill_runs WHERE run_id = $1`,
           [runId],
         );
         const status = r.rows[0]?.status as string | undefined;
         if (status === "completed") {
-          return { status: "pass", detail: `queue → worker → shell executor → skill_runs completed (run ${runId.slice(0, 8)})` };
+          const took = ((Date.now() - start) / 1000).toFixed(0);
+          return {
+            status: "pass",
+            detail: `queue → worker → shell executor → skill_runs completed in ${took}s`
+              + (windows > 0 ? ` (worker busy — waited ${windows} extra liveness window(s))` : "")
+              + ` (run ${runId.slice(0, 8)})`,
+          };
         }
         if (status && status !== "running") {
           return { status: "fail", detail: `run finished with status='${status}' (run ${runId})` };
         }
+
+        if (Date.now() - checkpoint >= SHELL_ROUNDTRIP_TIMEOUT_MS) {
+          const consumed = await pool.query(
+            `SELECT count(*) AS n FROM nexaas_memory.skill_runs
+              WHERE workspace = $1 AND completed_at >= $2 AND run_id <> $3`,
+            [workspace, new Date(checkpoint), runId],
+          );
+          const others = parseInt(consumed.rows[0]?.n ?? "0", 10);
+          if (others === 0) {
+            try { await (await queue.getJob(jobId))?.remove(); } catch { /* consumed or gone */ }
+            return {
+              status: "fail",
+              detail: `probe not terminal after ${Math.round((Date.now() - start) / 1000)}s AND zero other runs completed in the last window — worker not consuming nexaas-skills-${workspace}`,
+            };
+          }
+          checkpoint = Date.now();
+          windows++;
+        }
         await sleep(POLL_INTERVAL_MS);
       }
-      // Leave nothing behind on timeout.
+      // Hard cap: worker is consuming other work but our probe never ran —
+      // that's real (stuck job, dropped message), not queue contention.
       try { await (await queue.getJob(jobId))?.remove(); } catch { /* consumed or gone */ }
       return {
         status: "fail",
-        detail: `no terminal status within ${SHELL_ROUNDTRIP_TIMEOUT_MS / 1000}s — worker not consuming nexaas-skills-${workspace}?`,
+        detail: `probe not terminal within the ${SHELL_ROUNDTRIP_HARD_CAP_MS / 1000}s hard cap despite the worker consuming other runs (${windows} liveness window(s)) — probe job lost or stuck (run ${runId})`,
       };
     } finally {
       await queue.close();
