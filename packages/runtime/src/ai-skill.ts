@@ -499,11 +499,25 @@ export async function runAiSkill(
       } catch { /* unserializable payload — leave block empty */ }
     }
 
+    // Pin the current datetime. Without it the model has no time anchor and
+    // fabricates dates in output (2026-07-07: a PA status report was headed
+    // "2026-07-14", a week in the future). Timezone comes from the manifest
+    // so "today" matches the workspace's operating timezone.
+    let clockBlock = "";
+    try {
+      const tz = (manifest as { timezone?: string }).timezone || "UTC";
+      clockBlock = `[Current datetime: ${new Date().toLocaleString("en-CA", {
+        timeZone: tz, dateStyle: "full", timeStyle: "short",
+      })} (${tz})]`;
+    } catch {
+      clockBlock = `[Current datetime: ${new Date().toISOString()} (UTC)]`;
+    }
+
     // Build the initial message — the live request (inbound message or
     // approval resolution) LAST so it reads as the current task, with room
     // context above it.
     const liveBlock = inboundBlock || resumptionBlock;
-    const parts = [...contextParts, liveBlock].filter(Boolean);
+    const parts = [clockBlock, ...contextParts, liveBlock].filter(Boolean);
     const taskLine = inboundBlock
       ? "Respond to the current inbound message above."
       : resumptionBlock
