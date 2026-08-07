@@ -215,6 +215,39 @@ async function collectConformance(workspace: string): Promise<Record<string, unk
   }
 }
 
+async function collectHealth(workspace: string): Promise<{
+  status: string;
+  alerts: number;
+  alert_components: string[];
+  checked_at: string;
+} | null> {
+  // The in-process health monitor (runAndRecord, every 5 min) writes its
+  // full report to ops/health/monitor — read the latest instead of
+  // re-running the checks (a fresh run costs a 1-token API probe per
+  // beat and couples the heartbeat to the Anthropic API's availability).
+  try {
+    const row = await sqlOne<{ content: string; created_at: Date }>(
+      `SELECT content, created_at FROM nexaas_memory.events
+        WHERE workspace = $1 AND wing = 'ops' AND hall = 'health' AND room = 'monitor'
+        ORDER BY created_at DESC LIMIT 1`,
+      [workspace],
+    );
+    if (!row) return null;
+    const report = JSON.parse(row.content) as {
+      status?: string;
+      alerts?: Array<{ component?: string }>;
+    };
+    return {
+      status: report.status ?? "unknown",
+      alerts: report.alerts?.length ?? 0,
+      alert_components: [...new Set((report.alerts ?? []).map((a) => a.component ?? "?"))].slice(0, 10),
+      checked_at: new Date(row.created_at).toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function collectQueue(workspace: string): Promise<{
   waiting: number;
   active: number;
@@ -238,14 +271,16 @@ async function collectQueue(workspace: string): Promise<{
   }
 }
 
-async function buildPayloadV3(identity: FrameworkIdentity): Promise<Record<string, unknown>> {
-  const [channel, runs_24h, spend, migrations, conformance, queue] = await Promise.all([
+/** Exported for the schema test — the exact beat body the receiver sees. */
+export async function buildPayloadV3(identity: FrameworkIdentity): Promise<Record<string, unknown>> {
+  const [channel, runs_24h, spend, migrations, conformance, queue, health] = await Promise.all([
     collectChannel(identity.workspace),
     collectRuns24h(identity.workspace),
     collectSpend(identity.workspace),
     collectMigrations(identity.workspace),
     collectConformance(identity.workspace),
     collectQueue(identity.workspace),
+    collectHealth(identity.workspace),
   ]);
 
   return {
@@ -266,6 +301,7 @@ async function buildPayloadV3(identity: FrameworkIdentity): Promise<Record<strin
     migrations,
     conformance,
     queue,
+    health,
   };
 }
 
